@@ -144,12 +144,6 @@ let timerState = {
 };
 
 function applyAccessibilitySettings() {
-  const root = document.documentElement;
-  root.classList.toggle('high-contrast', accessibilitySettings.highContrast);
-  root.classList.toggle('large-text', accessibilitySettings.largeText);
-  root.classList.toggle('reduced-motion', accessibilitySettings.reducedMotion);
-  root.classList.toggle('enhanced-focus', accessibilitySettings.enhancedFocus);
-  // Also apply to body for broader compatibility
   document.body.classList.toggle('high-contrast', accessibilitySettings.highContrast);
   document.body.classList.toggle('large-text', accessibilitySettings.largeText);
   document.body.classList.toggle('reduced-motion', accessibilitySettings.reducedMotion);
@@ -1060,9 +1054,6 @@ function setupAccessibilityToggle(toggleId, settingKey, className) {
     localStorage.setItem(storageKey, accessibilitySettings[settingKey]);
     toggle.classList.toggle('active', accessibilitySettings[settingKey]);
     if (switchEl) switchEl.classList.toggle('active', accessibilitySettings[settingKey]);
-    
-    // Apply to both html and body elements
-    document.documentElement.classList.toggle(className, accessibilitySettings[settingKey]);
     document.body.classList.toggle(className, accessibilitySettings[settingKey]);
     console.log('Toggled', settingKey, 'to', accessibilitySettings[settingKey]);
   });
@@ -1078,10 +1069,8 @@ function updateAccessibilityToggleStates() {
   
   toggleMappings.forEach(({ id, key }) => {
     const toggle = document.getElementById(id);
-    const switchEl = toggle?.querySelector('.accessibility-switch');
     if (toggle && accessibilitySettings[key]) {
       toggle.classList.add('active');
-      if (switchEl) switchEl.classList.add('active');
     }
   });
 }
@@ -1531,6 +1520,7 @@ function initializeTimerDrag() {
     if (e.target.closest('button')) return;
     
     isDragging = true;
+    timerPanel.style.transition = 'none';
     
     const rect = timerPanel.getBoundingClientRect();
     initialLeft = rect.left;
@@ -1544,12 +1534,11 @@ function initializeTimerDrag() {
       startY = e.clientY;
     }
     
-    // Convert from bottom/right positioning to top/left for smooth dragging
+    // Convert from bottom/left positioning to top/left
     timerPanel.style.bottom = 'auto';
     timerPanel.style.right = 'auto';
     timerPanel.style.left = initialLeft + 'px';
     timerPanel.style.top = initialTop + 'px';
-    timerPanel.style.transition = 'none';
     
     document.addEventListener('mousemove', drag);
     document.addEventListener('mouseup', stopDrag);
@@ -1592,8 +1581,8 @@ function initializeTimerDrag() {
   }
   
   function stopDrag() {
-    if (!isDragging) return;
     isDragging = false;
+    timerPanel.style.transition = '';
     
     document.removeEventListener('mousemove', drag);
     document.removeEventListener('mouseup', stopDrag);
@@ -2099,502 +2088,502 @@ async function checkForUpdates() {
   // Check if running in Tauri
   if (window.__TAURI__) {
     try {
-      const { check } = await import('@tauri-apps/plugin-updater');
-      const { relaunch } = await import('@tauri-apps/plugin-process');
-      
-      console.log('Checking for updates...');
-      const update = await check();
-      
-      if (update) {
-        console.log(`Update available: ${update.version}`);
-        
-        // Download and install (dialog is shown automatically since dialog: true in config)
-        await update.downloadAndInstall();
-        
-        // Relaunch the app after update
-        await relaunch();
-      } else {
-        console.log('No updates available');
-      }
-    } catch (error) {
-      console.error('Update check failed:', error);
-    }
-  }
-}
-
-// Check for updates on app start (with delay to not block startup)
-setTimeout(checkForUpdates, 5000);
-
-// ...existing code...
-
-let currentUser = null;
-let path = [];
-let currentView = 'home';
-let editMode = false;
-let favorites = [];
-let notes = [];
-let flashcardDecks = [];
-let studySessions = [];
-let documentProgress = {};
-let quickLinks = [];
-let studyStats = { totalTime: 0, streak: 0, lastStudyDate: null, hourlyActivity: {} };
-let currentCalendarDate = new Date();
-let currentEditingNote = null;
-let currentEditingDeck = null;
-let currentStudyDeck = null;
-let currentCardIndex = 0;
-let accessibilitySettings = {
-  highContrast: localStorage.getItem('accessibility-high-contrast') === 'true',
-  largeText: localStorage.getItem('accessibility-large-text') === 'true',
-  reducedMotion: localStorage.getItem('accessibility-reduced-motion') === 'true',
-  enhancedFocus: localStorage.getItem('accessibility-enhanced-focus') === 'true'
-};
-
-// New feature state variables (duplicates removed — variables are declared above)
-
-// Initialize favorites from storage
-async function initializeFavorites() {
-  try {
-    // Try to load from Tauri file system first (if available)
-    if (window.__TAURI__) {
-      const loaded = await loadFavoritesFromTauri();
-      if (loaded) return;
-    }
-    // Fallback to localStorage
-    favorites = JSON.parse(localStorage.getItem('questionary-favorites') || '[]');
-  } catch (e) {
-    console.error('Error loading favorites:', e);
-    favorites = [];
-  }
-}
-
-// Save favorites to storage
-async function saveFavorites() {
-  try {
-    // Save to localStorage (always)
-    localStorage.setItem('questionary-favorites', JSON.stringify(favorites));
-    
-    // Also save to Tauri file system if available
-    if (window.__TAURI__) {
-      await saveFavoritesToTauri();
-    }
-  } catch (e) {
-    console.error('Error saving favorites:', e);
-  }
-}
-
-// Tauri-specific favorites persistence
-async function loadFavoritesFromTauri() {
-  try {
-    const { readTextFile, BaseDirectory } = window.__TAURI__.fs || {};
-    const { appDataDir } = window.__TAURI__.path || {};
-    
-    if (readTextFile && appDataDir) {
-      const data = await readTextFile('favorites.json', { dir: BaseDirectory.AppData });
-      favorites = JSON.parse(data);
-      // Sync to localStorage as backup
-      localStorage.setItem('questionary-favorites', JSON.stringify(favorites));
-      return true;
-    }
-  } catch (e) {
-    // File doesn't exist yet or Tauri APIs not available
-    console.log('Loading favorites from localStorage instead');
-  }
-  return false;
-}
-
-async function saveFavoritesToTauri() {
-  try {
-    const { writeTextFile, createDir, BaseDirectory } = window.__TAURI__.fs || {};
-    
-    if (writeTextFile && createDir) {
-      // Ensure app data directory exists
-      try {
-        await createDir('', { dir: BaseDirectory.AppData, recursive: true });
-      } catch (e) {
-        // Directory may already exist
-      }
-      
-      await writeTextFile('favorites.json', JSON.stringify(favorites, null, 2), { 
-        dir: BaseDirectory.AppData 
-      });
-    }
-  } catch (e) {
-    console.error('Error saving favorites to Tauri:', e);
-  }
-}
-
-// Recent documents persistence
-async function loadRecentFromTauri() {
-  try {
-    const { readTextFile, BaseDirectory } = window.__TAURI__.fs || {};
-    
-    if (readTextFile) {
-      const data = await readTextFile('recent.json', { dir: BaseDirectory.AppData });
-      const recent = JSON.parse(data);
-      localStorage.setItem('questionary-recent', JSON.stringify(recent));
-      return recent;
-    }
-  } catch (e) {
-    console.log('Loading recent from localStorage');
-  }
-  return null;
-}
-
-async function saveRecentToStorage(recent) {
-  try {
-    localStorage.setItem('questionary-recent', JSON.stringify(recent));
-    
-    if (window.__TAURI__) {
-      const { writeTextFile, createDir, BaseDirectory } = window.__TAURI__.fs || {};
-      if (writeTextFile && createDir) {
-        try {
-          await createDir('', { dir: BaseDirectory.AppData, recursive: true });
-        } catch (e) {}
-        await writeTextFile('recent.json', JSON.stringify(recent, null, 2), { 
-          dir: BaseDirectory.AppData 
-        });
-      }
-    }
-  } catch (e) {
-    console.error('Error saving recent:', e);
-  }
-}
-
-// Timer state
-let timerState = {
-  duration: 0,
-  remaining: 0,
-  interval: null,
-  isRunning: false,
-  isPaused: false,
-  laps: [],
-  lastLapTime: 0
-};
-
-function applyAccessibilitySettings() {
-  const root = document.documentElement;
-  root.classList.toggle('high-contrast', accessibilitySettings.highContrast);
-  root.classList.toggle('large-text', accessibilitySettings.largeText);
-  root.classList.toggle('reduced-motion', accessibilitySettings.reducedMotion);
-  root.classList.toggle('enhanced-focus', accessibilitySettings.enhancedFocus);
-  // Also apply to body for broader compatibility
-  document.body.classList.toggle('high-contrast', accessibilitySettings.highContrast);
-  document.body.classList.toggle('large-text', accessibilitySettings.largeText);
-  document.body.classList.toggle('reduced-motion', accessibilitySettings.reducedMotion);
-  document.body.classList.toggle('enhanced-focus', accessibilitySettings.enhancedFocus);
-}
-
-function createRipple(event) {
-  
-}
-
-const users = {
-  "DPSNTRVMP": { password: "DPSNTRVMP@123", role: "user" },
-  "ADMIN": { password: "DPSNTCLASSLOGIN@@", role: "admin" }
-};
-
-let documents = {
-    "Study Material Class 9": {
-        "Physics FT": {
-            "Upthrust in Fluids, Archimedes' Principle and Floatation": "https://drive.google.com/file/d/1A5IbecU77W4krqBj2zaiahZh46Q8Je6E/preview", "Heat and Energy": "https://drive.google.com/file/d/1pyvt2igU8prlMty5nwhhi6woR6a3RSeJ/preview", "Reflection of Light": "https://drive.google.com/file/d/1Fo6DpHIp658q9JiFfzf4I8puPhph0WoA/preview", "Propagation of Sound Waves": "https://drive.google.com/file/d/1uxLKeXoP5LOP-kI9B4EhHmvKrpka5A6M/preview", "Current Electricity": "https://drive.google.com/file/d/1a8oXvkZPDJpTZKRO8-lYcvk1uuLB39I8/preview", "Magnetism": "https://drive.google.com/file/d/1ijJWkhghtNb2I5Z1bOeClcA9Mg8l4Qf7/preview"},
-        "Biology Class 10 Book PDFS": {
-            "Excretory System": "https://drive.google.com/file/d/16b4aqhobYQm_XqXgadk5383J-Mkq6bNm/preview", "Full Book": "https://drive.google.com/file/d/1NCj_IUP8Kss0gQ3uj6cUBtLMNqKvkIRI/preview"
-        }
-    }
-};
-// Show notification toast
-function showNotification(message, type = 'info') {
-  const existing = document.querySelector('.notification-toast');
-  if (existing) existing.remove();
-  
-  const toast = document.createElement('div');
-  toast.className = `notification-toast ${type}`;
-  toast.style.cssText = 'position:fixed;top:20px;right:20px;padding:12px 20px;border-radius:8px;display:flex;align-items:center;gap:10px;z-index:10000;animation:slideIn 0.3s ease;box-shadow:0 4px 12px rgba(0,0,0,0.15);';
-  
-  if (type === 'success') {
-    toast.style.background = '#003d29ff';
-    toast.style.color = 'white';
-  } else if (type === 'error') {
-    toast.style.background = '#ef4444';
-    toast.style.color = 'white';
-  } else {
-    toast.style.background = '#3b82f6';
-    toast.style.color = 'white';
-  }
-  
-  toast.innerHTML = `
-    <i class="fas ${type === 'success' ? 'fa-check-circle' : type === 'error' ? 'fa-exclamation-circle' : 'fa-info-circle'}"></i>
-    <span>${message}</span>
-  `;
-  document.body.appendChild(toast);
-  
-  setTimeout(() => {
-    toast.style.opacity = '0';
-    toast.style.transform = 'translateX(100%)';
-    toast.style.transition = 'all 0.3s ease';
-    setTimeout(() => toast.remove(), 300);
-  }, 3000);
-}
-
-// Show auto-login notification
-function showAutoLoginNotification(username) {
-  showNotification(`Welcome back, ${username}!`, 'success');
-}
-
-// Show the main app and hide login screen
-function showApp() {
-  const loginScreen = document.getElementById('loginScreen');
-  const app = document.getElementById('app');
-  
-  if (loginScreen) loginScreen.style.display = 'none';
-  if (app) app.style.display = 'block';
-  
-  const usernameDisplay = document.getElementById('username-display');
-  const welcomeUsername = document.getElementById('welcomeUsername');
-  
-  if (usernameDisplay && currentUser) {
-    usernameDisplay.textContent = currentUser.username;
-  }
-  if (welcomeUsername && currentUser) {
-    welcomeUsername.textContent = currentUser.username;
-  }
-  
-  const adminBadge = document.getElementById('adminBadge');
-  if (adminBadge && currentUser && currentUser.role === 'admin') {
-    adminBadge.style.display = 'inline-block';
-  }
-  
-  if (typeof updateDashboardStats === 'function') {
-    updateDashboardStats();
-  }
-}
-
-// Perform search
-function performSearch(e) {
-  const query = typeof e === 'string' ? e : (e?.target?.value || '').trim().toLowerCase();
-  const searchResults = document.getElementById('searchResults');
-  const searchResultsContainer = document.getElementById('searchResultsContainer');
-  
-  if (!query || query.length < 2) {
-    if (searchResults) searchResults.style.display = 'none';
-    return;
-  }
-  
-  if (typeof addToSearchHistory === 'function') {
-    addToSearchHistory(query);
-  }
-  
-  const results = [];
-  
-  function searchInDocuments(obj, pathArr = []) {
-    for (const [key, value] of Object.entries(obj)) {
-      const currentPath = [...pathArr, key];
-      if (key.toLowerCase().includes(query)) {
-        if (typeof value === 'string' && value !== '#') {
-          results.push({ name: key, path: currentPath, url: value, type: 'document' });
-        } else if (typeof value === 'object') {
-          results.push({ name: key, path: currentPath, url: null, type: 'folder' });
+      const { check, install } = window.__TAURI__.updater || {};
+      if (check && install) {
+        const update = await check();
+        if (update && update.available) {
+          await install();
+          // app will restart into new version
         }
       }
-      if (typeof value === 'object') {
-        searchInDocuments(value, currentPath);
-      }
+    } catch (e) {
+      console.error('Update check failed', e);
     }
   }
+}
+
+checkForUpdates();
+
+// ===== NEW FEATURES: Notes, Flashcards, Planner, Progress, Quick Links =====
+
+// Initialize new feature event listeners
+function initializeNewFeatures() {
+  // Load data from storage
+  loadNotes();
+  loadFlashcardDecks();
+  loadStudySessions();
+  loadDocumentProgress();
+  loadQuickLinks();
+  loadStudyStats();
   
-  searchInDocuments(documents);
+  // Notes - use safe event binding
+  const createNoteBtn = document.getElementById('createNoteBtn');
+  const closeNoteModal = document.getElementById('closeNoteModal');
+  const cancelNoteBtn = document.getElementById('cancelNoteBtn');
+  const saveNoteBtn = document.getElementById('saveNoteBtn');
+  const noteModal = document.getElementById('noteModal');
   
-  // Search in notes
-  notes.forEach(note => {
-    if (note.title.toLowerCase().includes(query) || (note.content && note.content.toLowerCase().includes(query))) {
-      results.push({ name: note.title, path: ['Notes', note.title], url: null, type: 'note', id: note.id });
+  if (createNoteBtn) createNoteBtn.onclick = () => openNoteModal();
+  if (closeNoteModal && noteModal) closeNoteModal.onclick = () => noteModal.classList.remove('active');
+  if (cancelNoteBtn && noteModal) cancelNoteBtn.onclick = () => noteModal.classList.remove('active');
+  if (saveNoteBtn) saveNoteBtn.onclick = saveNote;
+  
+  // Flashcards - use safe event binding
+  const createDeckBtn = document.getElementById('createDeckBtn');
+  const closeFlashcardModal = document.getElementById('closeFlashcardModal');
+  const cancelFlashcardBtn = document.getElementById('cancelFlashcardBtn');
+  const saveDeckBtn = document.getElementById('saveDeckBtn');
+  const addCardBtn = document.getElementById('addCardBtn');
+  const flashcardModal = document.getElementById('flashcardModal');
+  
+  if (createDeckBtn) createDeckBtn.onclick = () => openFlashcardModal();
+  if (closeFlashcardModal && flashcardModal) closeFlashcardModal.onclick = () => flashcardModal.classList.remove('active');
+  if (cancelFlashcardBtn && flashcardModal) cancelFlashcardBtn.onclick = () => flashcardModal.classList.remove('active');
+  if (saveDeckBtn) saveDeckBtn.onclick = saveDeck;
+  if (addCardBtn) addCardBtn.onclick = addCardEditor;
+  
+  // Study modal
+  const closeStudyModal = document.getElementById('closeStudyModal');
+  const flipCardBtn = document.getElementById('flipCardBtn');
+  const nextCardBtn = document.getElementById('nextCardBtn');
+  const prevCardBtn = document.getElementById('prevCardBtn');
+  const activeFlashcard = document.getElementById('activeFlashcard');
+  const studyModal = document.getElementById('studyModal');
+  
+  if (closeStudyModal && studyModal) closeStudyModal.onclick = () => studyModal.classList.remove('active');
+  if (flipCardBtn) flipCardBtn.onclick = flipCard;
+  if (nextCardBtn) nextCardBtn.onclick = nextCard;
+  if (prevCardBtn) prevCardBtn.onclick = prevCard;
+  if (activeFlashcard) activeFlashcard.onclick = flipCard;
+  
+  // Study Planner
+  const addStudySessionBtn = document.getElementById('addStudySessionBtn');
+  const closeSessionModal = document.getElementById('closeSessionModal');
+  const cancelSessionBtn = document.getElementById('cancelSessionBtn');
+  const saveSessionBtn = document.getElementById('saveSessionBtn');
+  const prevMonth = document.getElementById('prevMonth');
+  const nextMonth = document.getElementById('nextMonth');
+  const sessionModal = document.getElementById('sessionModal');
+  
+  if (addStudySessionBtn) addStudySessionBtn.onclick = () => openSessionModal();
+  if (closeSessionModal && sessionModal) closeSessionModal.onclick = () => sessionModal.classList.remove('active');
+  if (cancelSessionBtn && sessionModal) cancelSessionBtn.onclick = () => sessionModal.classList.remove('active');
+  if (saveSessionBtn) saveSessionBtn.onclick = saveSession;
+  
+  if (prevMonth) {
+    prevMonth.onclick = () => {
+      currentCalendarDate.setMonth(currentCalendarDate.getMonth() - 1);
+      renderCalendar();
+    };
+  }
+  
+  if (nextMonth) {
+    nextMonth.onclick = () => {
+      currentCalendarDate.setMonth(currentCalendarDate.getMonth() + 1);
+      renderCalendar();
+    };
+  }
+  
+  // Progress filters
+  document.querySelectorAll('.progress-filter').forEach(btn => {
+    btn.onclick = () => {
+      document.querySelectorAll('.progress-filter').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      filterProgress(btn.dataset.filter);
+    };
+  });
+  
+  // Quick links
+  const quickLinksToggle = document.getElementById('quickLinksToggle');
+  const quickLinksPanel = document.getElementById('quickLinksPanel');
+  const quickLinksClose = document.getElementById('quickLinksClose');
+  const addQuickLinkBtn = document.getElementById('addQuickLinkBtn');
+  
+  if (quickLinksToggle && quickLinksPanel) {
+    quickLinksToggle.onclick = () => quickLinksPanel.classList.toggle('active');
+  }
+  
+  // Quick links close button
+  if (quickLinksClose && quickLinksPanel) {
+    quickLinksClose.onclick = () => quickLinksPanel.classList.remove('active');
+  }
+  
+  // Close quick links when clicking outside
+  document.addEventListener('click', (e) => {
+    if (quickLinksPanel && quickLinksPanel.classList.contains('active')) {
+      if (!e.target.closest('.quick-links-panel') && !e.target.closest('.quick-links-toggle')) {
+        quickLinksPanel.classList.remove('active');
+      }
     }
   });
   
-  // Search in flashcard decks
-  flashcardDecks.forEach(deck => {
-    if (deck.name.toLowerCase().includes(query) || (deck.subject && deck.subject.toLowerCase().includes(query))) {
-      results.push({ name: deck.name, path: ['Flashcards', deck.name], url: null, type: 'flashcard', id: deck.id });
-    }
-    // Also search in card content
-    if (deck.cards) {
-      deck.cards.forEach(card => {
-        if ((card.front && card.front.toLowerCase().includes(query)) || (card.back && card.back.toLowerCase().includes(query))) {
-          if (!results.some(r => r.type === 'flashcard' && r.id === deck.id)) {
-            results.push({ name: deck.name, path: ['Flashcards', deck.name], url: null, type: 'flashcard', id: deck.id });
-          }
-        }
-      });
-    }
-  });
-  
-  if (results.length === 0) {
-    if (searchResultsContainer) {
-      searchResultsContainer.innerHTML = '<div style="text-align:center;padding:2rem;color:var(--text-secondary);"><i class="fas fa-search" style="font-size:2rem;margin-bottom:1rem;opacity:0.3;"></i><p>No results found</p></div>';
-    }
-  } else if (searchResultsContainer) {
-    searchResultsContainer.innerHTML = results.slice(0, 20).map(result => {
-      let icon = 'fa-file-pdf';
-      if (result.type === 'folder') icon = 'fa-folder';
-      else if (result.type === 'note') icon = 'fa-sticky-note';
-      else if (result.type === 'flashcard') icon = 'fa-layer-group';
+  // Add quick link button
+  if (addQuickLinkBtn) {
+    addQuickLinkBtn.onclick = (e) => {
+      e.stopPropagation();
+      if (path.length === 0) {
+        showNotification('Navigate to a folder first', 'info');
+        return;
+      }
       
-      return `
-        <div class="search-result-item" onclick="navigateToSearchResult(${JSON.stringify(result.path)}, '${result.url || ''}', '${result.type}', '${result.id || ''}')">
-          <i class="fas ${icon}"></i>
-          <div class="search-result-info">
-            <span class="search-result-name">${result.name}</span>
-            <span class="search-result-path">${result.path.join(' > ')}</span>
-          </div>
-        </div>
-      `;
-    }).join('');
+      // Check if already exists
+      const pathStr = path.join('|');
+      if (quickLinks.some(ql => ql.pathArray.join('|') === pathStr)) {
+        showNotification('This location is already in quick links', 'info');
+        return;
+      }
+      
+      quickLinks.push({ 
+        id: Date.now().toString(), 
+        name: path[path.length - 1], 
+        pathArray: [...path] 
+      });
+      saveQuickLinks();
+      renderQuickLinks();
+      showNotification('Added to quick links!', 'success');
+    };
   }
   
-  if (searchResults) searchResults.style.display = 'block';
+  // Render quick links on init
+  renderQuickLinks();
+  
+  console.log('New features initialized');
 }
 
-function navigateToSearchResult(pathArr, url, type, id) {
-  const searchResults = document.getElementById('searchResults');
-  const globalSearch = document.getElementById('globalSearch');
-  if (searchResults) searchResults.style.display = 'none';
-  if (globalSearch) globalSearch.value = '';
-  
-  // Handle different result types
-  if (type === 'note' && id) {
-    showView('notes');
-    setActiveNav('notesNav');
-    const note = notes.find(n => n.id === id);
-    if (note) {
-      setTimeout(() => openNoteModal(note), 100);
-    }
-    return;
-  }
-  
-  if (type === 'flashcard' && id) {
-    showView('flashcards');
-    setActiveNav('flashcardsNav');
-    setTimeout(() => startStudyDeck(id), 100);
-    return;
-  }
-  
-  // Handle documents and folders
-  path = pathArr.slice(0, -1);
-  const name = pathArr[pathArr.length - 1];
-  
-  if (url && url !== '#') {
-    path = pathArr;
-    showPDF(url);
-    addToRecent(name, pathArr, url);
-  } else {
-    path = pathArr;
-    renderTiles(getCurrentLevel());
-  }
-  
-  updateBreadcrumb();
-}
-
-window.navigateToSearchResult = navigateToSearchResult;
-
-// ===== CORE TILE AND NAVIGATION FUNCTIONS =====
-
-function getCurrentLevel() {
-  let current = documents;
-  for (const p of path) {
-    if (current[p]) {
-      current = current[p];
+function filterProgress(filter) {
+  const items = document.querySelectorAll('.progress-item');
+  items.forEach(item => {
+    const status = item.dataset.status;
+    if (filter === 'all' || status === filter) {
+      item.style.display = 'flex';
     } else {
-      return documents;
+      item.style.display = 'none';
     }
-  }
-  return current;
+  });
 }
 
-function renderTiles(obj) {
-  const container = document.getElementById('tilesContainer');
+// ===== SEARCH HISTORY =====
+let searchHistory = JSON.parse(localStorage.getItem('questionary-search-history') || '[]');
+
+function saveSearchHistory() {
+  localStorage.setItem('questionary-search-history', JSON.stringify(searchHistory));
+}
+
+function addToSearchHistory(query) {
+  if (!query || query.length < 2) return;
+  searchHistory = searchHistory.filter(q => q.toLowerCase() !== query.toLowerCase());
+  searchHistory.unshift(query);
+  searchHistory = searchHistory.slice(0, 10);
+  saveSearchHistory();
+}
+
+function initSearchHistory() {
+  const searchInput = document.getElementById('globalSearch');
+  if (!searchInput) return;
+  
+  // Create suggestions dropdown
+  const container = searchInput.parentElement;
+  let dropdown = document.getElementById('searchHistoryDropdown');
+  if (!dropdown) {
+    dropdown = document.createElement('div');
+    dropdown.id = 'searchHistoryDropdown';
+    dropdown.className = 'search-history-dropdown';
+    container.appendChild(dropdown);
+  }
+  
+  searchInput.addEventListener('focus', showSearchHistory);
+  searchInput.addEventListener('input', (e) => {
+    if (e.target.value === '') showSearchHistory();
+  });
+  
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.search-container')) {
+      dropdown.classList.remove('active');
+    }
+  });
+}
+
+function showSearchHistory() {
+  const dropdown = document.getElementById('searchHistoryDropdown');
+  const searchInput = document.getElementById('globalSearch');
+  if (!dropdown || searchHistory.length === 0 || searchInput.value) return;
+  
+  dropdown.innerHTML = `
+    <div class="search-history-header">
+      <span>Recent Searches</span>
+      <button onclick="clearSearchHistory()" class="clear-history-btn">Clear</button>
+    </div>
+    ${searchHistory.map(q => `
+      <div class="search-history-item" onclick="useSearchHistory('${escapeHtml(q)}')">
+        <i class="fas fa-history"></i>
+        <span>${escapeHtml(q)}</span>
+      </div>
+    `).join('')}
+  `;
+  dropdown.classList.add('active');
+}
+
+function useSearchHistory(query) {
+  const searchInput = document.getElementById('globalSearch');
+  searchInput.value = query;
+  document.getElementById('searchHistoryDropdown')?.classList.remove('active');
+  performSearch(query);
+}
+
+function clearSearchHistory() {
+  searchHistory = [];
+  saveSearchHistory();
+  document.getElementById('searchHistoryDropdown')?.classList.remove('active');
+}
+
+window.useSearchHistory = useSearchHistory;
+window.clearSearchHistory = clearSearchHistory;
+
+// Initialize search history on load
+document.addEventListener('DOMContentLoaded', initSearchHistory);
+
+// ===== CUSTOM TIMER PRESETS =====
+let customTimerPresets = JSON.parse(localStorage.getItem('questionary-timer-presets') || '[]');
+
+function saveCustomPresets() {
+  localStorage.setItem('questionary-timer-presets', JSON.stringify(customTimerPresets));
+}
+
+function initCustomPresets() {
+  // Clean up any invalid presets from localStorage
+  customTimerPresets = customTimerPresets.filter(p => {
+    const duration = parseInt(p.duration, 10);
+    return duration && duration > 0;
+  });
+  saveCustomPresets();
+  
+  renderTimerPresets();
+  addCustomPresetButton();
+  
+  // Reset timer display to show 00:00:00 initially
+  const display = document.getElementById('timerDisplay');
+  if (display) display.textContent = '00:00:00';
+  
+  // Reset timerState to valid defaults
+  timerState.duration = 0;
+  timerState.remaining = 0;
+}
+
+function renderTimerPresets() {
+  const container = document.getElementById('timerPresets');
   if (!container) return;
   
-  container.innerHTML = '';
+  // Remove old custom presets first (but keep built-in ones)
+  container.querySelectorAll('[data-preset-id]').forEach(el => el.remove());
   
-  // Make sure container is visible
-  container.style.display = '';
+  // Add custom presets
+  customTimerPresets.forEach(preset => {
+    // Ensure duration is a number
+    const duration = parseInt(preset.duration, 10);
+    if (!duration || duration <= 0) return;
+    
+    const btn = document.createElement('button');
+    btn.className = 'timer-preset-btn custom-preset';
+    btn.dataset.duration = duration.toString();
+    btn.dataset.presetId = preset.id;
+    btn.title = `${preset.label} (${formatPresetTime(duration)}) - Right-click to delete`;
+    btn.innerHTML = `
+      <span>${preset.label}</span>
+      <small>${formatPresetTime(duration)}</small>
+    `;
+    
+    // Click to select
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      selectTimerPreset(btn, duration);
+    });
+    
+    // Right-click to delete
+    btn.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (confirm(`Delete "${preset.label}" preset?`)) {
+        removeCustomPreset(preset.id);
+      }
+    });
+    
+    // Insert before the add button if it exists
+    const addBtn = document.getElementById('addPresetBtn');
+    if (addBtn) {
+      container.insertBefore(btn, addBtn);
+    } else {
+      container.appendChild(btn);
+    }
+  });
+}
+
+function addCustomPresetButton() {
+  const container = document.getElementById('timerPresets');
+  if (!container || document.getElementById('addPresetBtn')) return;
   
-  if (!obj || typeof obj !== 'object') {
-    container.innerHTML = '<div style="text-align:center;padding:3rem;color:var(--text-secondary);"><p>No items found</p></div>';
+  const addBtn = document.createElement('button');
+  addBtn.id = 'addPresetBtn';
+  addBtn.className = 'timer-preset-btn add-custom';
+  addBtn.title = 'Add Custom Preset';
+  addBtn.innerHTML = '<i class="fas fa-plus"></i>';
+  addBtn.onclick = (e) => {
+    e.stopPropagation();
+    showAddPresetForm();
+  };
+  container.appendChild(addBtn);
+}
+
+function showAddPresetForm() {
+  // Remove existing form if any
+  const existingForm = document.getElementById('addPresetForm');
+  if (existingForm) {
+    existingForm.remove();
     return;
   }
   
-  const entries = Object.entries(obj);
-  const sortOrder = localStorage.getItem('questionary-sort-order') || 'asc';
+  // Create modal-style form
+  const overlay = document.createElement('div');
+  overlay.id = 'addPresetForm';
+  overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:10001;';
   
-  entries.sort((a, b) => {
-    const aIsFolder = typeof a[1] === 'object';
-    const bIsFolder = typeof b[1] === 'object';
-    if (aIsFolder && !bIsFolder) return -1;
-    if (!aIsFolder && bIsFolder) return 1;
-    const comparison = a[0].localeCompare(b[0]);
-    return sortOrder === 'desc' ? -comparison : comparison;
+  overlay.innerHTML = `
+    <div style="background:var(--card-bg, #fff);padding:20px;border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,0.2);min-width:280px;">
+      <h3 style="margin:0 0 15px 0;font-size:1.1rem;"><i class="fas fa-clock"></i> Add Custom Timer</h3>
+      <div style="display:flex;flex-direction:column;gap:10px;">
+        <input type="text" id="presetLabel" placeholder="Label (e.g., Quiz)" maxlength="15" style="padding:10px;border:1px solid var(--border-color, #ddd);border-radius:6px;font-size:1rem;">
+        <input type="number" id="presetMinutes" placeholder="Duration (minutes)" min="1" max="480" style="padding:10px;border:1px solid var(--border-color, #ddd);border-radius:6px;font-size:1rem;">
+        <div style="display:flex;gap:10px;margin-top:10px;">
+          <button onclick="document.getElementById('addPresetForm').remove()" style="flex:1;padding:10px;border:1px solid var(--border-color, #ddd);border-radius:6px;background:transparent;cursor:pointer;">Cancel</button>
+          <button onclick="addCustomPreset()" style="flex:1;padding:10px;border:none;border-radius:6px;background:#f97316;color:white;cursor:pointer;font-weight:600;">Add</button>
+        </div>
+      </div>
+    </div>
+  `;
+  
+  // Close on overlay click
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) overlay.remove();
   });
   
-  entries.forEach(([key, value]) => {
-    const tile = document.createElement('div');
-    tile.className = 'tile';
-    tile.setAttribute('tabindex', '0');
-    
-    const isFolder = typeof value === 'object';
-    const isAvailable = typeof value === 'string' && value !== '#';
-    const isUnavailable = value === '#';
-    
-    const icon = isFolder ? 'fa-folder' : (isAvailable ? 'fa-file-pdf' : 'fa-file');
-    const iconColor = isFolder ? 'folder-icon' : (isAvailable ? 'pdf-icon' : '');
-    
-    tile.innerHTML = `
-      <div class="tile-icon ${iconColor}"><i class="fas ${icon}"></i></div>
-      <div class="tile-text">${key}</div>
-      ${isUnavailable ? '<div class="tile-badge unavailable">Coming Soon</div>' : ''}
-    `;
-    
-    tile.onclick = () => {
-      if (isFolder) {
-        path.push(key);
-        renderTiles(value);
-        updateBreadcrumb();
-      } else if (isAvailable) {
-        path.push(key);
-        showPDF(value);
-        addToRecent(key, [...path], value);
-        updateBreadcrumb();
-      }
-    };
-    
-    container.appendChild(tile);
-  });
-  
-  const tilesSection = document.getElementById('tilesSection');
-  const pdfViewer = document.getElementById('pdfViewer');
-  const dashboardHeader = document.querySelector('.dashboard-header');
-  
-  if (tilesSection) tilesSection.style.display = 'block';
-  if (pdfViewer) pdfViewer.style.display = 'none';
-  if (dashboardHeader) dashboardHeader.style.display = 'flex';
+  document.body.appendChild(overlay);
+  document.getElementById('presetLabel').focus();
 }
 
-function isFavorite(title, docPath) {
-  const pathString = Array.isArray(docPath) ? docPath.join('|') : docPath;
-  return favorites.some(f => f.title === title && (Array.isArray(f.path) ? f.path.join('|') : f.path) === pathString);
+function addCustomPreset() {
+  const label = document.getElementById('presetLabel')?.value.trim();
+  const minutesInput = document.getElementById('presetMinutes')?.value;
+  const minutes = parseInt(minutesInput, 10);
+  
+  if (!label) {
+    showNotification('Please enter a label', 'error');
+    return;
+  }
+  
+  if (!minutes || isNaN(minutes) || minutes < 1) {
+    showNotification('Please enter a valid duration (minutes)', 'error');
+    return;
+  }
+  
+  const durationInSeconds = minutes * 60;
+  
+  const preset = {
+    id: Date.now().toString(),
+    label: label,
+    duration: durationInSeconds
+  };
+  
+  customTimerPresets.push(preset);
+  saveCustomPresets();
+  
+  document.getElementById('addPresetForm')?.remove();
+  renderTimerPresets();
+  showNotification(`Timer preset "${label}" added (${minutes} min)`, 'success');
 }
 
-function updateBreadcrumb() {
-  const breadcrumb = document.getElementById('breadcrumb');
-  const backBtn = document.getElementById('backBtn');
-  if (!breadcrumb) return;
+function removeCustomPreset(id) {
+  customTimerPresets = customTimerPresets.filter(p => p.id !== id);
+  saveCustomPresets();
+  const btn = document.querySelector(`[data-preset-id="${id}"]`);
+  btn?.remove();
+  showNotification('Preset removed', 'info');
+}
+
+function formatPresetTime(seconds) {
+  const hours = Math.floor(seconds / 3600);
+  const mins = Math.floor((seconds % 3600) / 60);
+  if (hours > 0) return `${hours}h ${mins}m`;
+  return `${mins}m`;
+}
+
+// Note: selectTimerPreset is already defined above - custom presets use that function directly
+
+window.addCustomPreset = addCustomPreset;
+window.removeCustomPreset = removeCustomPreset;
+
+// Initialize custom presets when DOM loads
+document.addEventListener('DOMContentLoaded', () => setTimeout(initCustomPresets, 100));
+
+// ===== AUTO DARK MODE SCHEDULE =====
+let darkModeSchedule = JSON.parse(localStorage.getItem('questionary-darkmode-schedule') || '{"enabled":false,"darkStart":19,"darkEnd":7}');
+
+function saveDarkModeSchedule() {
+  localStorage.setItem('questionary-darkmode-schedule', JSON.stringify(darkModeSchedule));
+}
+
+function checkDarkModeSchedule() {
+  if (!darkModeSchedule.enabled) return;
   
-  let html = `<span class="breadcrumb-item" onclick="goToRoot()"><i class="fas fa-home"></i> Home</span>`;
-  path.forEach((p, index) => {
-    html += `<span class="breadcrumb-separator"><i class="fas fa-chevron-right"></i></span>`;
-    html += `<span class="breadcrumb-item" onclick="goToPath(${index})">${p}</span>`;
+  const hour = new Date().getHours();
+  const shouldBeDark = (hour >= darkModeSchedule.darkStart || hour < darkModeSchedule.darkEnd);
+  const isDark = document.body.classList.contains('dark-theme');
+  
+  if (shouldBeDark !== isDark) {
+    document.body.classList.toggle('dark-theme', shouldBeDark);
+    const icon = document.getElementById('themeIcon');
+    if (icon) {
+      icon.className = shouldBeDark ? 'fas fa-sun' : 'fas fa-moon';
+    }
+  }
+}
+
+// Check dark mode schedule every minute
+setInterval(checkDarkModeSchedule, 60000);
+document.addEventListener('DOMContentLoaded', checkDarkModeSchedule);
+
+// ===== PAGE BOOKMARKS =====
+let pageBookmarks = JSON.parse(localStorage.getItem('questionary-page-bookmarks') || '{}');
+
+function savePageBookmarks() {
+  localStorage.setItem('questionary-page-bookmarks', JSON.stringify(pageBookmarks));
+}
+
+function addPageBookmark(docPath, pageNumber, label = '') {
+  if (!pageBookmarks[docPath]) {
+    pageBookmarks[docPath] = [];
+  }
+  
+  const existing = pageBookmarks[docPath].find(b => b.page === pageNumber);
+  if (existing) {
+    showNotification('Page already bookmarked', 'info');
+    return;
+  }
+  
+  pageBookmarks[docPath].push({
+    id: Date.now().toString(),
+    page: pageNumber,
+    label: label || `Page ${pageNumber}`,
+    createdAt: Date.now()
   });
+  
+  savePageBookmarks();
+  showNotification(`Bookmarked page ${pageNumber}`, 'success');
+  renderPageBookmarks(docPath);
+}
+
+function removePageBookmark(docPath, bookmarkId) {
+  if (!pageBookmarks[docPath]) return;
+  pageBookmarks[docPath] = pageBookmarks[docPath].filter(b => b.id !== bookmarkId);
+  savePageBookmarks();
   renderPageBookmarks(docPath);
 }
 

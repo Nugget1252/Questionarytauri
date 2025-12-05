@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 {
   "version": "0.1.3",
   "date": "2025-12-02T16:30:00Z",
@@ -7,3 +8,15 @@
       "url": "https://github.com/Nugget1252/Questionarytauri/releases/download/v0.1.1/Questionary_0.1.1_x64-setup.exe"
   }
 }
+=======
+{
+  "version": "0.1.0",
+  "date": "2025-12-02T16:30:00Z",
+  "platforms": {
+    "windows-x86_64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTeEJyakVRYUs1bFp1Wjl2eUJhRks1ZnI0aUZObXF0Mkw5Qzlnb3h6UW1lclJjQjNHanBDbGNWZTh3WEMrR3NHY2g2SWsvNkFjK2psVUdCTHd4YnRjUllzWmplTzNoK0FzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY0NjkyNzk3CWZpbGU6UXVlc3Rpb25hcnlfMC4xLjBfeDY0LXNldHVwLmV4ZQpydG9MZFY2QVEwZG9mYVUzUUMwK1ZrUFQyczVMclp3M3lDa1JnQzRHMnozQXI4ZmtQc0V5MStwWnlCeXp3STVQRTFiSCtMTjNwZnJPZ21RWlRoWDJCdz09Cg==",
+      "url": "https://github.com/Nugget1252/Questionarytauri/releases/download/v0.1.0/Questionary_0.1.0_x64_en-US.msi"
+    }
+  }
+}
+>>>>>>> fb41555e6abd9b7409948e7c56d1362597159e74
