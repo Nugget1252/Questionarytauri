@@ -44,8 +44,6 @@ html {
     font-size: 85%;
 }
 
-/* ===== VIEW SECTIONS VISIBILITY ===== */
-/* Hide all view sections by default - JS will show the active one */
 #favoritesSection,
 #recentSection,
 #analyticsSection,
@@ -57,7 +55,6 @@ html {
     display: none;
 }
 
-/* ===== MODAL STYLING ===== */
 .modal-overlay {
     display: none;
     position: fixed;
@@ -135,12 +132,10 @@ html {
     border-top: 1px solid var(--border);
 }
 
-/* Hide modals when not active */
 .modal-overlay:not(.active) {
     display: none !important;
 }
 
-/* Hide stray body elements only */
 body > h2:not(.section-title),
 body > h3,
 body > label,
@@ -160,7 +155,6 @@ body {
     overflow-x: hidden;
 }
 
-/* ===== HEADER ===== */
 .header {
     background: var(--surface);
     border-bottom: 1px solid var(--border);
@@ -203,7 +197,6 @@ body {
     object-fit: contain;
 }
 
-/* Hide mobile menu toggle only on desktop */
 .mobile-menu-toggle,
 #mobileMenuToggle {
     display: none;
@@ -331,7 +324,6 @@ body {
     text-transform: uppercase;
 }
 
-/* ===== LOGIN ===== */
 .login-screen {
     display: flex;
     justify-content: center;
@@ -366,7 +358,6 @@ body {
     font-size: 1rem;
 }
 
-/* ===== LOGIN CREDENTIALS HINT ===== */
 .login-header {
     text-align: center;
     margin-bottom: 2rem;
@@ -422,7 +413,6 @@ body {
     color: var(--primary-color);
 }
 
-/* ===== FORMS ===== */
 .form-group {
     margin-bottom: 1.5rem;
 }
@@ -521,7 +511,6 @@ body {
     font-size: 0.9rem;
 }
 
-/* ===== BUTTONS ===== */
 .btn {
     padding: 0.75rem 1.5rem;
     border: none;
@@ -577,7 +566,6 @@ body {
     color: var(--primary-color);
 }
 
-/* ===== MESSAGES ===== */
 .error-message {
     background: #fef2f2;
     color: var(--danger-color);
@@ -619,7 +607,6 @@ body {
     margin-top: 1.5rem;
 }
 
-/* ===== TILES ===== */
 .tiles-grid,
 #tilesContainer {
     display: grid;
@@ -774,14 +761,12 @@ body {
     color: white;
 }
 
-/* ===== CONTAINER & DASHBOARD ===== */
 .container {
     max-width: 1200px;
     margin: 0 auto;
     padding: 2rem;
 }
 
-/* ===== BREADCRUMB NAVIGATION ===== */
 .breadcrumb-container {
     display: flex;
     align-items: center;
@@ -885,7 +870,6 @@ body {
     color: var(--text-secondary);
 }
 
-/* ===== STATS ===== */
 .quick-stats {
     display: flex;
     gap: 1rem;
@@ -941,7 +925,6 @@ body {
     letter-spacing: 0.5px;
 }
 
-/* ===== SECTIONS ===== */
 .tiles-section {
     padding: 0;
 }
@@ -969,7 +952,6 @@ body {
     gap: 1rem;
 }
 
-/* ===== VIEW TOGGLES ===== */
 .view-toggle,
 .sort-toggle {
     padding: 0.5rem 0.75rem;
@@ -992,7 +974,6 @@ body {
     color: var(--primary-color);
 }
 
-/* ===== LOADING ===== */
 .loading-overlay {
     position: fixed;
     top: 0;
@@ -1023,7 +1004,6 @@ body {
     to { transform: rotate(360deg); }
 }
 
-/* ===== EMPTY STATE ===== */
 .empty-state {
     text-align: center;
     padding: 3rem 2rem;
@@ -1046,7 +1026,6 @@ body {
     font-size: 0.95rem;
 }
 
-/* ===== QUICK LINKS ===== */
 .quick-links-toggle {
     position: fixed;
     bottom: 20px;
@@ -1168,7 +1147,6 @@ body {
   background: rgba(239, 68, 68, 0.1);
 }
 
-/* ===== CALENDAR / PLANNER ===== */
 .planner-grid {
     display: grid;
     grid-template-columns: 1fr 300px;
@@ -1294,7 +1272,6 @@ body {
     gap: 0.75rem;
 }
 
-/* ===== FLASHCARDS & NOTES GRID ===== */
 .flashcards-grid,
 .notes-grid {
     display: grid;
@@ -1302,7 +1279,6 @@ body {
     gap: 1.5rem;
 }
 
-/* ===== NOTES STYLES ===== */
 .notes-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
@@ -1398,7 +1374,6 @@ body {
     color: #ef4444;
 }
 
-/* ===== FLASHCARDS STYLES ===== */
 .flashcards-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
@@ -1475,7 +1450,6 @@ body {
     flex: 1;
 }
 
-/* Card Editor in Modal */
 .cards-section {
     margin-top: 1rem;
 }
@@ -1556,7 +1530,6 @@ body {
     min-height: 60px;
 }
 
-/* Study Modal Flashcard */
 .modal-study {
     max-width: 600px;
 }
@@ -1630,7 +1603,6 @@ body {
     justify-content: center;
 }
 
-/* ===== STUDY PLANNER STYLES ===== */
 .planner-container {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -1774,7 +1746,6 @@ body {
     gap: 0.75rem;
 }
 
-/* ===== SEARCH HISTORY DROPDOWN ===== */
 .search-history-dropdown {
   position: absolute;
   top: 100%;
@@ -1847,7 +1818,6 @@ body {
   color: var(--text-primary);
 }
 
-/* ===== SEARCH RESULTS STYLING ===== */
 #searchResults {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -1899,7 +1869,6 @@ body {
   color: var(--text-secondary);
 }
 
-/* ===== PLANNER SESSIONS FIX ===== */
 .session-item {
   display: flex;
   align-items: center;
@@ -1997,7 +1966,6 @@ body {
   gap: 8px;
 }
 
-/* ===== QUICK LINKS EMPTY STATE ===== */
 .quick-links-empty {
   display: flex;
   flex-direction: column;
@@ -2022,7 +1990,6 @@ body {
   white-space: nowrap;
 }
 
-/* ===== ACCESSIBILITY PANEL FIX ===== */
 .accessibility-panel {
   position: fixed;
   top: 70px;
@@ -2107,7 +2074,6 @@ body {
   background: white;
 }
 
-/* ===== ACCESSIBILITY EFFECTS ===== */
 body.high-contrast {
   --text-primary: #000000 !important;
   --text-secondary: #333333 !important;
@@ -2181,7 +2147,6 @@ html.enhanced-focus *:focus {
   box-shadow: 0 0 0 6px rgba(249, 115, 22, 0.3) !important;
 }
 
-/* ===== PDF VIEWER FIX ===== */
 #pdfViewer {
   width: 100%;
   height: calc(100vh - 140px);
@@ -2192,7 +2157,6 @@ html.enhanced-focus *:focus {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
-/* ===== TIMER PANEL REDESIGN ===== */
 .timer-panel {
   position: fixed;
   bottom: 20px;
@@ -2444,7 +2408,6 @@ html.enhanced-focus *:focus {
   background: #2563eb;
 }
 
-/* Timer Laps */
 #timerLaps {
   max-height: 150px;
   overflow-y: auto;
@@ -2528,7 +2491,6 @@ html.enhanced-focus *:focus {
   background: rgba(239, 68, 68, 0.1);
 }
 
-/* Timer Resize Handle */
 .timer-resize-handle {
   position: absolute;
   bottom: 0;
@@ -2540,7 +2502,6 @@ html.enhanced-focus *:focus {
   border-radius: 0 0 16px 0;
 }
 
-/* Timer Minimized State */
 .timer-panel.minimized {
   width: auto;
   min-width: 200px;
@@ -2575,7 +2536,6 @@ html.enhanced-focus *:focus {
   display: none;
 }
 
-/* Timer Reopen Button */
 .timer-reopen-btn {
   position: fixed;
   bottom: 20px;
@@ -2618,7 +2578,6 @@ html.enhanced-focus *:focus {
   50% { box-shadow: 0 4px 20px rgba(249, 115, 22, 0.6); }
 }
 
-/* ===== PROGRESS SECTION ===== */
 #progressSection {
   padding: 0;
 }
@@ -2894,7 +2853,6 @@ html.enhanced-focus *:focus {
   text-align: right;
 }
 
-/* ===== ANALYTICS SECTION ===== */
 #analyticsSection .analytics-grid,
 .analytics-grid {
   display: grid;
