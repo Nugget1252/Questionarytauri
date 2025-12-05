@@ -21,17 +21,17 @@ let accessibilitySettings = {
   enhancedFocus: localStorage.getItem('accessibility-enhanced-focus') === 'true'
 };
 
-// New feature state variables (duplicates removed — variables are declared above)
 
-// Initialize favorites from storage
+
+
 async function initializeFavorites() {
   try {
-    // Try to load from Tauri file system first (if available)
+    
     if (window.__TAURI__) {
       const loaded = await loadFavoritesFromTauri();
       if (loaded) return;
     }
-    // Fallback to localStorage
+    
     favorites = JSON.parse(localStorage.getItem('questionary-favorites') || '[]');
   } catch (e) {
     console.error('Error loading favorites:', e);
@@ -39,13 +39,13 @@ async function initializeFavorites() {
   }
 }
 
-// Save favorites to storage
+
 async function saveFavorites() {
   try {
-    // Save to localStorage (always)
+    
     localStorage.setItem('questionary-favorites', JSON.stringify(favorites));
     
-    // Also save to Tauri file system if available
+    
     if (window.__TAURI__) {
       await saveFavoritesToTauri();
     }
@@ -54,7 +54,7 @@ async function saveFavorites() {
   }
 }
 
-// Tauri-specific favorites persistence
+
 async function loadFavoritesFromTauri() {
   try {
     const { readTextFile, BaseDirectory } = window.__TAURI__.fs || {};
@@ -63,12 +63,12 @@ async function loadFavoritesFromTauri() {
     if (readTextFile && appDataDir) {
       const data = await readTextFile('favorites.json', { dir: BaseDirectory.AppData });
       favorites = JSON.parse(data);
-      // Sync to localStorage as backup
+      
       localStorage.setItem('questionary-favorites', JSON.stringify(favorites));
       return true;
     }
   } catch (e) {
-    // File doesn't exist yet or Tauri APIs not available
+    
     console.log('Loading favorites from localStorage instead');
   }
   return false;
@@ -79,11 +79,11 @@ async function saveFavoritesToTauri() {
     const { writeTextFile, createDir, BaseDirectory } = window.__TAURI__.fs || {};
     
     if (writeTextFile && createDir) {
-      // Ensure app data directory exists
+      
       try {
         await createDir('', { dir: BaseDirectory.AppData, recursive: true });
       } catch (e) {
-        // Directory may already exist
+        
       }
       
       await writeTextFile('favorites.json', JSON.stringify(favorites, null, 2), { 
@@ -95,7 +95,7 @@ async function saveFavoritesToTauri() {
   }
 }
 
-// Recent documents persistence
+
 async function loadRecentFromTauri() {
   try {
     const { readTextFile, BaseDirectory } = window.__TAURI__.fs || {};
@@ -132,7 +132,7 @@ async function saveRecentToStorage(recent) {
   }
 }
 
-// Timer state
+
 let timerState = {
   duration: 0,
   remaining: 0,
@@ -162,13 +162,13 @@ const users = {
 let documents = {
     "Study Material Class 9": {
         "Physics FT": {
-            "Upthrust in Fluids, Archimedes' Principle and Floatation": "https://drive.google.com/file/d/1A5IbecU77W4krqBj2zaiahZh46Q8Je6E/preview", "Heat and Energy": "https://drive.google.com/file/d/1pyvt2igU8prlMty5nwhhi6woR6a3RSeJ/preview", "Reflection of Light": "https://drive.google.com/file/d/1Fo6DpHIp658q9JiFfzf4I8puPhph0WoA/preview", "Propagation of Sound Waves": "https://drive.google.com/file/d/1uxLKeXoP5LOP-kI9B4EhHmvKrpka5A6M/preview", "Current Electricity": "https://drive.google.com/file/d/1a8oXvkZPDJpTZKRO8-lYcvk1uuLB39I8/preview", "Magnetism": "https://drive.google.com/file/d/1ijJWkhghtNb2I5Z1bOeClcA9Mg8l4Qf7/preview"},
+            "Upthrust in Fluids, Archimedes' Principle and Floatation": "https:
         "Biology Class 10 Book PDFS": {
-            "Excretory System": "https://drive.google.com/file/d/16b4aqhobYQm_XqXgadk5383J-Mkq6bNm/preview", "Full Book": "https://drive.google.com/file/d/1NCj_IUP8Kss0gQ3uj6cUBtLMNqKvkIRI/preview"
+            "Excretory System": "https:
         }
     }
 };
-// Show notification toast
+
 function showNotification(message, type = 'info') {
   const existing = document.querySelector('.notification-toast');
   if (existing) existing.remove();
@@ -202,12 +202,12 @@ function showNotification(message, type = 'info') {
   }, 3000);
 }
 
-// Show auto-login notification
+
 function showAutoLoginNotification(username) {
   showNotification(`Welcome back, ${username}!`, 'success');
 }
 
-// Show the main app and hide login screen
+
 function showApp() {
   const loginScreen = document.getElementById('loginScreen');
   const app = document.getElementById('app');
@@ -235,7 +235,7 @@ function showApp() {
   }
 }
 
-// Perform search
+
 function performSearch(e) {
   const query = typeof e === 'string' ? e : (e?.target?.value || '').trim().toLowerCase();
   const searchResults = document.getElementById('searchResults');
@@ -270,19 +270,19 @@ function performSearch(e) {
   
   searchInDocuments(documents);
   
-  // Search in notes
+  
   notes.forEach(note => {
     if (note.title.toLowerCase().includes(query) || (note.content && note.content.toLowerCase().includes(query))) {
       results.push({ name: note.title, path: ['Notes', note.title], url: null, type: 'note', id: note.id });
     }
   });
   
-  // Search in flashcard decks
+  
   flashcardDecks.forEach(deck => {
     if (deck.name.toLowerCase().includes(query) || (deck.subject && deck.subject.toLowerCase().includes(query))) {
       results.push({ name: deck.name, path: ['Flashcards', deck.name], url: null, type: 'flashcard', id: deck.id });
     }
-    // Also search in card content
+    
     if (deck.cards) {
       deck.cards.forEach(card => {
         if ((card.front && card.front.toLowerCase().includes(query)) || (card.back && card.back.toLowerCase().includes(query))) {
@@ -326,7 +326,7 @@ function navigateToSearchResult(pathArr, url, type, id) {
   if (searchResults) searchResults.style.display = 'none';
   if (globalSearch) globalSearch.value = '';
   
-  // Handle different result types
+  
   if (type === 'note' && id) {
     showView('notes');
     setActiveNav('notesNav');
@@ -344,7 +344,7 @@ function navigateToSearchResult(pathArr, url, type, id) {
     return;
   }
   
-  // Handle documents and folders
+  
   path = pathArr.slice(0, -1);
   const name = pathArr[pathArr.length - 1];
   
@@ -362,7 +362,7 @@ function navigateToSearchResult(pathArr, url, type, id) {
 
 window.navigateToSearchResult = navigateToSearchResult;
 
-// ===== CORE TILE AND NAVIGATION FUNCTIONS =====
+
 
 function getCurrentLevel() {
   let current = documents;
@@ -382,7 +382,7 @@ function renderTiles(obj) {
   
   container.innerHTML = '';
   
-  // Make sure container is visible
+  
   container.style.display = '';
   
   if (!obj || typeof obj !== 'object') {
@@ -494,11 +494,11 @@ function showPDF(url) {
   const dashboardHeader = document.querySelector('.dashboard-header');
   if (!pdfViewer) return;
   
-  // Hide tiles container
+  
   if (tilesContainer) tilesContainer.style.display = 'none';
   if (dashboardHeader) dashboardHeader.style.display = 'none';
   
-  // Show PDF viewer
+  
   pdfViewer.src = url;
   pdfViewer.style.display = 'block';
   
@@ -506,7 +506,7 @@ function showPDF(url) {
   showTimer();
   trackPdfViewStart();
   
-  // Record study activity for streak tracking
+  
   recordStudyActivity();
 }
 
@@ -667,7 +667,7 @@ function updateDashboardStats() {
   function countDocs(obj) {
     for (let key in obj) {
       if (typeof obj[key] === 'string') {
-        // Only count available documents (not '#' placeholders)
+        
         if (obj[key] !== '#') count++;
       } else if (typeof obj[key] === 'object') {
         countDocs(obj[key]);
@@ -691,7 +691,7 @@ function updateDashboardStats() {
     recentCountEl.textContent = recentDocs.length;
   }
   
-  // Update streak on dashboard
+  
   if (dashboardStreakEl) {
     dashboardStreakEl.textContent = studyStats.streak || 0;
   }
@@ -703,12 +703,12 @@ function setActiveNav(activeId) {
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
-  // Initialize favorites from storage
+  
   await initializeFavorites();
   
   applyAccessibilitySettings();
   
-  // Initialize new features
+  
   if (typeof initializeNewFeatures === 'function') {
     initializeNewFeatures();
   }
@@ -717,10 +717,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   const themeToggle = document.getElementById('themeToggle');
   const themeIcon = document.getElementById('themeIcon');
   
-  // Check for saved theme first, then system preference, default to light
+  
   let savedTheme = localStorage.getItem('theme');
   if (!savedTheme) {
-    // Detect system preference
+    
     if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
       savedTheme = 'dark';
     } else {
@@ -730,10 +730,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.documentElement.setAttribute('data-theme', savedTheme);
   updateThemeIcon(savedTheme);
   
-  // Listen for system theme changes
+  
   if (window.matchMedia) {
     window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
-      // Only auto-switch if user hasn't manually set a preference
+      
       if (!localStorage.getItem('theme')) {
         const newTheme = e.matches ? 'dark' : 'light';
         document.documentElement.setAttribute('data-theme', newTheme);
@@ -769,13 +769,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
   
-  // Set up login form event listener first (always needed for manual login)
+  
   const loginForm = document.getElementById('loginForm');
   if (loginForm) {
     loginForm.addEventListener('submit', handleLogin);
   }
   
-  // Then check for saved/auto login
+  
   checkSavedLogin();
   
   document.addEventListener('click', e => {
@@ -906,15 +906,15 @@ function initializeNavigation() {
   const navLinks = document.getElementById('navLinks');
   const backBtn = document.getElementById('backBtn');
   
-  // Back button handler
+  
   if (backBtn) {
     backBtn.addEventListener('click', handleBackButton);
   }
   
-  // Mobile menu toggle
+  
   mobileMenuToggle && mobileMenuToggle.addEventListener('click', () => {
     navLinks && navLinks.classList.toggle('active');
-    // Toggle icon between bars and times
+    
     const icon = mobileMenuToggle.querySelector('i');
     if (icon) {
       icon.classList.toggle('fa-bars');
@@ -922,7 +922,7 @@ function initializeNavigation() {
     }
   });
   
-  // Close mobile menu when clicking outside
+  
   document.addEventListener('click', (e) => {
     if (navLinks && navLinks.classList.contains('active')) {
       if (!e.target.closest('.nav-links') && !e.target.closest('.mobile-menu-toggle')) {
@@ -936,7 +936,7 @@ function initializeNavigation() {
     }
   });
   
-  // Close mobile menu when a nav link is clicked
+  
   const closeMenuOnClick = () => {
     if (navLinks && window.innerWidth <= 768) {
       navLinks.classList.remove('active');
@@ -1024,10 +1024,10 @@ function initializeAccessibility() {
   setupAccessibilityToggle('reducedMotionToggle', 'reducedMotion', 'reduced-motion');
   setupAccessibilityToggle('enhancedFocusToggle', 'enhancedFocus', 'enhanced-focus');
   
-  // Apply saved settings on load
+  
   applyAccessibilitySettings();
   
-  // Update toggle visual states to match saved settings
+  
   updateAccessibilityToggleStates();
 }
 
@@ -1038,10 +1038,10 @@ function setupAccessibilityToggle(toggleId, settingKey, className) {
     return;
   }
   
-  // Find the switch element inside the option
+  
   const switchEl = toggle.querySelector('.accessibility-switch');
   
-  // Set initial state based on saved settings
+  
   if (accessibilitySettings[settingKey]) {
     toggle.classList.add('active');
     if (switchEl) switchEl.classList.add('active');
@@ -1077,25 +1077,25 @@ function updateAccessibilityToggleStates() {
 
 function initializeKeyboardNavigation() {
   document.addEventListener('keydown', (e) => {
-    // Don't handle shortcuts when typing in input fields (except Escape)
+    
     const isInputFocused = e.target.closest('input, textarea');
     
     if (e.key === 'Escape') {
-      // Close search results first
+      
       const searchResults = document.getElementById('searchResults');
       if (searchResults && searchResults.style.display !== 'none') {
         searchResults.style.display = 'none';
         return;
       }
       
-      // Close accessibility panel if open
+      
       const accessibilityPanel = document.getElementById('accessibilityPanel');
       if (accessibilityPanel && accessibilityPanel.classList.contains('active')) {
         accessibilityPanel.classList.remove('active');
         return;
       }
       
-      // If PDF viewer is open, go back to tiles
+      
       const pdfViewer = document.getElementById('pdfViewer');
       if (pdfViewer && pdfViewer.style.display === 'block') {
         pdfViewer.style.display = 'none';
@@ -1108,13 +1108,13 @@ function initializeKeyboardNavigation() {
         return;
       }
       
-      // If we're in a subfolder, go back one level
+      
       if (path.length > 0) {
         handleBackButton();
         return;
       }
       
-      // If in a special view (favorites, recent, analytics), go back to home
+      
       if (currentView !== 'home') {
         showView('home');
         path = [];
@@ -1134,7 +1134,7 @@ function initializeKeyboardNavigation() {
       handleBackButton();
     }
     
-    // Alt + Left Arrow to go back (like browser back)
+    
     if (e.altKey && e.key === 'ArrowLeft' && !isInputFocused) {
       e.preventDefault();
       const pdfViewer = document.getElementById('pdfViewer');
@@ -1157,7 +1157,7 @@ function initializeKeyboardNavigation() {
       }
     }
     
-    // Alt + Home to go to root/home
+    
     if (e.altKey && e.key === 'Home' && !isInputFocused) {
       e.preventDefault();
       const pdfViewer = document.getElementById('pdfViewer');
@@ -1179,7 +1179,7 @@ function initializeKeyboardNavigation() {
 function showView(viewName) {
   currentView = viewName;
   
-  // Get all section elements
+  
   const tilesSection = document.getElementById('tilesSection');
   const favoritesSection = document.getElementById('favoritesSection');
   const recentSection = document.getElementById('recentSection');
@@ -1194,7 +1194,7 @@ function showView(viewName) {
   const backBtn = document.getElementById('backBtn');
   const pdfViewer = document.getElementById('pdfViewer');
   
-  // Hide all sections first
+  
   const allSections = [tilesSection, favoritesSection, recentSection, analyticsSection, 
                        plannerSection, flashcardsSection, notesSection, progressSection];
   allSections.forEach(section => {
@@ -1203,7 +1203,7 @@ function showView(viewName) {
   if (searchResults) searchResults.style.display = 'none';
   if (pdfViewer) pdfViewer.style.display = 'none';
   
-  // Show the appropriate section based on viewName
+  
   switch(viewName) {
     case 'home':
       if (tilesSection) tilesSection.style.display = 'block';
@@ -1277,7 +1277,7 @@ function addToRecent(title, docPath, url) {
   if (existing > -1) recent.splice(existing, 1);
   recent.unshift({ title, path: docPath, url, timestamp: Date.now() });
   const updatedRecent = recent.slice(0, 20);
-  // Save to both localStorage and Tauri
+  
   saveRecentToStorage(updatedRecent);
 }
 
@@ -1292,7 +1292,7 @@ function toggleFavorite(title, docPath, url) {
     favorites.push({ title, path: docPath, url });
     showNotification('Added to favorites', 'success');
   }
-  // Save to both localStorage and Tauri (if available)
+  
   saveFavorites();
   updateDashboardStats();
 }
@@ -1388,7 +1388,7 @@ function handleBackButton() {
   }
 }
 
-// Timer Functions
+
 function initializeTimer() {
   const timerPanel = document.getElementById('timerPanel');
   const timerClose = document.getElementById('timerClose');
@@ -1402,13 +1402,13 @@ function initializeTimer() {
   const timerMiniLap = document.getElementById('timerMiniLap');
   const timerReopenBtn = document.getElementById('timerReopenBtn');
 
-  // Initialize drag functionality
+  
   initializeTimerDrag();
   
-  // Initialize resize functionality
+  
   initializeTimerResize();
 
-  // Reopen button
+  
   if (timerReopenBtn) {
     const newReopen = timerReopenBtn.cloneNode(true);
     timerReopenBtn.parentNode.replaceChild(newReopen, timerReopenBtn);
@@ -1418,26 +1418,26 @@ function initializeTimer() {
     });
   }
 
-  // Preset buttons - only handle built-in presets (not custom ones)
+  
   timerPresets.forEach(btn => {
-    // Skip custom presets and the add button (they have their own handlers)
+    
     if (btn.dataset.presetId || btn.id === 'addPresetBtn' || btn.classList.contains('custom-preset') || btn.classList.contains('add-custom')) return;
     
-    // Skip if already initialized
+    
     if (btn.dataset.initialized === 'true') return;
     
-    // Skip if no duration attribute
+    
     const durationAttr = btn.getAttribute('data-duration');
     if (!durationAttr) return;
     
-    // Get duration before cloning
+    
     const duration = parseInt(durationAttr, 10);
     if (!duration || isNaN(duration) || duration <= 0) return;
     
-    // Mark as initialized before cloning
+    
     btn.dataset.initialized = 'true';
     
-    // Remove existing listeners by cloning
+    
     const newBtn = btn.cloneNode(true);
     btn.parentNode.replaceChild(newBtn, btn);
     
@@ -1446,56 +1446,56 @@ function initializeTimer() {
     });
   });
 
-  // Close timer
+  
   if (timerClose) {
     const newClose = timerClose.cloneNode(true);
     timerClose.parentNode.replaceChild(newClose, timerClose);
     newClose.addEventListener('click', () => hideTimer());
   }
 
-  // Minimize timer
+  
   if (timerMinimize) {
     const newMinimize = timerMinimize.cloneNode(true);
     timerMinimize.parentNode.replaceChild(newMinimize, timerMinimize);
     newMinimize.addEventListener('click', () => toggleTimerMinimize());
   }
 
-  // Start timer
+  
   if (timerStart) {
     const newStart = timerStart.cloneNode(true);
     timerStart.parentNode.replaceChild(newStart, timerStart);
     newStart.addEventListener('click', () => startTimer());
   }
 
-  // Pause timer
+  
   if (timerPause) {
     const newPause = timerPause.cloneNode(true);
     timerPause.parentNode.replaceChild(newPause, timerPause);
     newPause.addEventListener('click', () => pauseTimer());
   }
 
-  // Resume timer
+  
   if (timerResume) {
     const newResume = timerResume.cloneNode(true);
     timerResume.parentNode.replaceChild(newResume, timerResume);
     newResume.addEventListener('click', () => resumeTimer());
   }
 
-  // Reset timer
+  
   if (timerReset) {
     const newReset = timerReset.cloneNode(true);
     timerReset.parentNode.replaceChild(newReset, timerReset);
     newReset.addEventListener('click', () => resetTimer());
   }
 
-  // Lap timer (main button)
+  
   if (timerLap) {
     const newLap = timerLap.cloneNode(true);
     timerLap.parentNode.replaceChild(newLap, timerLap);
     newLap.addEventListener('click', () => addLap());
   }
 
-  // Lap timer (mini button)
+  
   if (timerMiniLap) {
     const newMiniLap = timerMiniLap.cloneNode(true);
     timerMiniLap.parentNode.replaceChild(newMiniLap, timerMiniLap);
@@ -1516,7 +1516,7 @@ function initializeTimerDrag() {
   dragHandle.addEventListener('touchstart', startDrag, { passive: false });
   
   function startDrag(e) {
-    // Don't start drag if clicking on buttons
+    
     if (e.target.closest('button')) return;
     
     isDragging = true;
@@ -1534,7 +1534,7 @@ function initializeTimerDrag() {
       startY = e.clientY;
     }
     
-    // Convert from bottom/left positioning to top/left
+    
     timerPanel.style.bottom = 'auto';
     timerPanel.style.right = 'auto';
     timerPanel.style.left = initialLeft + 'px';
@@ -1566,7 +1566,7 @@ function initializeTimerDrag() {
     let newLeft = initialLeft + deltaX;
     let newTop = initialTop + deltaY;
     
-    // Boundary constraints
+    
     const panelRect = timerPanel.getBoundingClientRect();
     const maxLeft = window.innerWidth - panelRect.width;
     const maxTop = window.innerHeight - panelRect.height;
@@ -1686,28 +1686,28 @@ function toggleTimerMinimize() {
 }
 
 function selectTimerPreset(btn, duration) {
-  // Validate duration
+  
   if (!duration || isNaN(duration) || duration <= 0) {
     console.error('Invalid timer duration:', duration);
     return;
   }
   
-  // Remove active from all presets
+  
   document.querySelectorAll('.timer-preset-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
   
-  // Set duration
+  
   timerState.duration = duration;
   timerState.remaining = duration;
   
-  // Update display
+  
   updateTimerDisplay();
   
-  // Show controls
+  
   const timerControls = document.getElementById('timerControls');
   timerControls && (timerControls.style.display = 'flex');
   
-  // Reset button states
+  
   const startBtn = document.getElementById('timerStart');
   const pauseBtn = document.getElementById('timerPause');
   const resumeBtn = document.getElementById('timerResume');
@@ -1716,15 +1716,15 @@ function selectTimerPreset(btn, duration) {
   if (pauseBtn) pauseBtn.style.display = 'none';
   if (resumeBtn) resumeBtn.style.display = 'none';
   
-  // Update status
+  
   updateTimerStatus('Ready to start');
   
-  // Reset progress bar
+  
   const progressBar = document.getElementById('timerProgressBar');
   progressBar && (progressBar.style.width = '100%');
   progressBar && progressBar.classList.remove('warning', 'danger');
   
-  // Reset display styling
+  
   const timerDisplay = document.getElementById('timerDisplay');
   timerDisplay && timerDisplay.classList.remove('warning', 'danger');
 }
@@ -1736,13 +1736,13 @@ function startTimer() {
   timerState.isPaused = false;
   timerState.lastLapTime = timerState.duration;
   
-  // Update button visibility
+  
   document.getElementById('timerStart').style.display = 'none';
   document.getElementById('timerPause').style.display = 'flex';
   document.getElementById('timerResume').style.display = 'none';
   document.getElementById('timerLap').style.display = 'flex';
   
-  // Enable mini lap button
+  
   const miniLap = document.getElementById('timerMiniLap');
   if (miniLap) {
     miniLap.disabled = false;
@@ -1751,7 +1751,7 @@ function startTimer() {
   
   updateTimerStatus('Timer running', 'active');
   
-  // Start interval
+  
   timerState.interval = setInterval(() => {
     if (timerState.remaining > 0) {
       timerState.remaining--;
@@ -1769,7 +1769,7 @@ function pauseTimer() {
   
   clearInterval(timerState.interval);
   
-  // Update button visibility
+  
   document.getElementById('timerPause').style.display = 'none';
   document.getElementById('timerResume').style.display = 'flex';
   
@@ -1780,13 +1780,13 @@ function resumeTimer() {
   timerState.isRunning = true;
   timerState.isPaused = false;
   
-  // Update button visibility
+  
   document.getElementById('timerPause').style.display = 'flex';
   document.getElementById('timerResume').style.display = 'none';
   
   updateTimerStatus('Timer running', 'active');
   
-  // Resume interval
+  
   timerState.interval = setInterval(() => {
     if (timerState.remaining > 0) {
       timerState.remaining--;
@@ -1807,13 +1807,13 @@ function resetTimer() {
   timerState.laps = [];
   timerState.lastLapTime = timerState.duration;
   
-  // Update button visibility
+  
   document.getElementById('timerStart').style.display = 'flex';
   document.getElementById('timerPause').style.display = 'none';
   document.getElementById('timerResume').style.display = 'none';
   document.getElementById('timerLap').style.display = 'none';
   
-  // Disable mini lap button
+  
   const miniLap = document.getElementById('timerMiniLap');
   if (miniLap) {
     miniLap.disabled = true;
@@ -1823,12 +1823,12 @@ function resetTimer() {
   updateTimerDisplay();
   renderLaps();
   
-  // Reset progress bar
+  
   const progressBar = document.getElementById('timerProgressBar');
   progressBar && (progressBar.style.width = '100%');
   progressBar && progressBar.classList.remove('warning', 'danger');
   
-  // Reset display styling
+  
   const timerDisplay = document.getElementById('timerDisplay');
   timerDisplay && timerDisplay.classList.remove('warning', 'danger');
   
@@ -1841,17 +1841,17 @@ function timerFinished() {
   timerState.isRunning = false;
   timerState.isPaused = false;
   
-  // Update button visibility
+  
   document.getElementById('timerStart').style.display = 'none';
   document.getElementById('timerPause').style.display = 'none';
   document.getElementById('timerResume').style.display = 'none';
   
   updateTimerStatus('Time\'s up!', 'finished');
   
-  // Play alert sound (using Web Audio API)
+  
   playTimerAlert();
   
-  // Show notification
+  
   showNotification('⏰ Time\'s up! Your exam time has ended.', 'error');
 }
 
@@ -1860,9 +1860,9 @@ function updateTimerDisplay() {
   const timerTitle = document.querySelector('.timer-title');
   if (!display) return;
   
-  // Handle NaN case
+  
   const remaining = timerState.remaining || 0;
-  const duration = timerState.duration || 1; // Avoid division by zero
+  const duration = timerState.duration || 1; 
   
   const hours = Math.floor(remaining / 3600);
   const minutes = Math.floor((remaining % 3600) / 60);
@@ -1871,12 +1871,12 @@ function updateTimerDisplay() {
   const timeStr = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
   display.textContent = timeStr;
   
-  // Update timer title data attribute for minimized view
+  
   if (timerTitle) {
     timerTitle.setAttribute('data-time', timeStr);
   }
   
-  // Add warning/danger classes based on remaining time
+  
   const percentRemaining = (remaining / duration) * 100;
   
   display.classList.remove('warning', 'danger');
@@ -1931,11 +1931,11 @@ function hideTimer() {
   if (timerPanel) {
     timerPanel.style.display = 'none';
   }
-  // Show reopen button only if PDF is visible
+  
   const pdfViewer = document.getElementById('pdfViewer');
   if (reopenBtn && pdfViewer && pdfViewer.style.display === 'block') {
     reopenBtn.style.display = 'flex';
-    // Add pulse animation if timer is running
+    
     if (timerState.isRunning) {
       reopenBtn.classList.add('pulse');
     }
@@ -1953,7 +1953,7 @@ function hideTimerCompletely() {
     reopenBtn.classList.remove('pulse');
   }
   
-  // Stop timer if running
+  
   if (timerState.isRunning) {
     clearInterval(timerState.interval);
     timerState.isRunning = false;
@@ -1964,7 +1964,7 @@ function playTimerAlert() {
   try {
     const audioContext = new (window.AudioContext || window.webkitAudioContext)();
     
-    // Create a series of beeps
+    
     const beepDuration = 0.2;
     const beepCount = 3;
     
@@ -1989,7 +1989,7 @@ function playTimerAlert() {
   }
 }
 
-// Lap Functions
+
 function addLap() {
   if (!timerState.isRunning || timerState.remaining <= 0) {
     console.log('Cannot add lap - timer not running or no time remaining');
@@ -2008,13 +2008,13 @@ function addLap() {
   timerState.lastLapTime = lapTime;
   renderLaps();
   
-  // Visual feedback
+  
   showNotification(`Lap ${timerState.laps.length} recorded`, 'success');
 }
 
 function deleteLap(index) {
   timerState.laps.splice(index, 1);
-  // Renumber remaining laps
+  
   timerState.laps.forEach((lap, i) => {
     lap.number = i + 1;
   });
@@ -2056,7 +2056,7 @@ function renderLaps() {
     </div>
   `;
   
-  // Show laps in reverse order (newest first)
+  
   const reversedLaps = [...timerState.laps].reverse();
   reversedLaps.forEach((lap, i) => {
     const actualIndex = timerState.laps.length - 1 - i;
@@ -2078,14 +2078,14 @@ function renderLaps() {
 }
 
 window.addEventListener('contextmenu', e => {
-  // Allow right-click on custom timer presets (for delete option)
+  
   if (e.target.closest('.custom-preset')) return;
   e.preventDefault();
 });
 
-// Tauri updater - only runs in Tauri environment
+
 async function checkForUpdates() {
-  // Check if running in Tauri
+  
   if (window.__TAURI__) {
     try {
       const { check, install } = window.__TAURI__.updater || {};
@@ -2093,7 +2093,7 @@ async function checkForUpdates() {
         const update = await check();
         if (update && update.available) {
           await install();
-          // app will restart into new version
+          
         }
       }
     } catch (e) {
@@ -2104,11 +2104,11 @@ async function checkForUpdates() {
 
 checkForUpdates();
 
-// ===== NEW FEATURES: Notes, Flashcards, Planner, Progress, Quick Links =====
 
-// Initialize new feature event listeners
+
+
 function initializeNewFeatures() {
-  // Load data from storage
+  
   loadNotes();
   loadFlashcardDecks();
   loadStudySessions();
@@ -2116,7 +2116,7 @@ function initializeNewFeatures() {
   loadQuickLinks();
   loadStudyStats();
   
-  // Notes - use safe event binding
+  
   const createNoteBtn = document.getElementById('createNoteBtn');
   const closeNoteModal = document.getElementById('closeNoteModal');
   const cancelNoteBtn = document.getElementById('cancelNoteBtn');
@@ -2128,7 +2128,7 @@ function initializeNewFeatures() {
   if (cancelNoteBtn && noteModal) cancelNoteBtn.onclick = () => noteModal.classList.remove('active');
   if (saveNoteBtn) saveNoteBtn.onclick = saveNote;
   
-  // Flashcards - use safe event binding
+  
   const createDeckBtn = document.getElementById('createDeckBtn');
   const closeFlashcardModal = document.getElementById('closeFlashcardModal');
   const cancelFlashcardBtn = document.getElementById('cancelFlashcardBtn');
@@ -2142,7 +2142,7 @@ function initializeNewFeatures() {
   if (saveDeckBtn) saveDeckBtn.onclick = saveDeck;
   if (addCardBtn) addCardBtn.onclick = addCardEditor;
   
-  // Study modal
+  
   const closeStudyModal = document.getElementById('closeStudyModal');
   const flipCardBtn = document.getElementById('flipCardBtn');
   const nextCardBtn = document.getElementById('nextCardBtn');
@@ -2156,7 +2156,7 @@ function initializeNewFeatures() {
   if (prevCardBtn) prevCardBtn.onclick = prevCard;
   if (activeFlashcard) activeFlashcard.onclick = flipCard;
   
-  // Study Planner
+  
   const addStudySessionBtn = document.getElementById('addStudySessionBtn');
   const closeSessionModal = document.getElementById('closeSessionModal');
   const cancelSessionBtn = document.getElementById('cancelSessionBtn');
@@ -2184,7 +2184,7 @@ function initializeNewFeatures() {
     };
   }
   
-  // Progress filters
+  
   document.querySelectorAll('.progress-filter').forEach(btn => {
     btn.onclick = () => {
       document.querySelectorAll('.progress-filter').forEach(b => b.classList.remove('active'));
@@ -2193,7 +2193,7 @@ function initializeNewFeatures() {
     };
   });
   
-  // Quick links
+  
   const quickLinksToggle = document.getElementById('quickLinksToggle');
   const quickLinksPanel = document.getElementById('quickLinksPanel');
   const quickLinksClose = document.getElementById('quickLinksClose');
@@ -2203,12 +2203,12 @@ function initializeNewFeatures() {
     quickLinksToggle.onclick = () => quickLinksPanel.classList.toggle('active');
   }
   
-  // Quick links close button
+  
   if (quickLinksClose && quickLinksPanel) {
     quickLinksClose.onclick = () => quickLinksPanel.classList.remove('active');
   }
   
-  // Close quick links when clicking outside
+  
   document.addEventListener('click', (e) => {
     if (quickLinksPanel && quickLinksPanel.classList.contains('active')) {
       if (!e.target.closest('.quick-links-panel') && !e.target.closest('.quick-links-toggle')) {
@@ -2217,7 +2217,7 @@ function initializeNewFeatures() {
     }
   });
   
-  // Add quick link button
+  
   if (addQuickLinkBtn) {
     addQuickLinkBtn.onclick = (e) => {
       e.stopPropagation();
@@ -2226,7 +2226,7 @@ function initializeNewFeatures() {
         return;
       }
       
-      // Check if already exists
+      
       const pathStr = path.join('|');
       if (quickLinks.some(ql => ql.pathArray.join('|') === pathStr)) {
         showNotification('This location is already in quick links', 'info');
@@ -2244,7 +2244,7 @@ function initializeNewFeatures() {
     };
   }
   
-  // Render quick links on init
+  
   renderQuickLinks();
   
   console.log('New features initialized');
@@ -2262,7 +2262,7 @@ function filterProgress(filter) {
   });
 }
 
-// ===== SEARCH HISTORY =====
+
 let searchHistory = JSON.parse(localStorage.getItem('questionary-search-history') || '[]');
 
 function saveSearchHistory() {
@@ -2281,7 +2281,7 @@ function initSearchHistory() {
   const searchInput = document.getElementById('globalSearch');
   if (!searchInput) return;
   
-  // Create suggestions dropdown
+  
   const container = searchInput.parentElement;
   let dropdown = document.getElementById('searchHistoryDropdown');
   if (!dropdown) {
@@ -2339,10 +2339,10 @@ function clearSearchHistory() {
 window.useSearchHistory = useSearchHistory;
 window.clearSearchHistory = clearSearchHistory;
 
-// Initialize search history on load
+
 document.addEventListener('DOMContentLoaded', initSearchHistory);
 
-// ===== CUSTOM TIMER PRESETS =====
+
 let customTimerPresets = JSON.parse(localStorage.getItem('questionary-timer-presets') || '[]');
 
 function saveCustomPresets() {
@@ -2350,7 +2350,7 @@ function saveCustomPresets() {
 }
 
 function initCustomPresets() {
-  // Clean up any invalid presets from localStorage
+  
   customTimerPresets = customTimerPresets.filter(p => {
     const duration = parseInt(p.duration, 10);
     return duration && duration > 0;
@@ -2360,11 +2360,11 @@ function initCustomPresets() {
   renderTimerPresets();
   addCustomPresetButton();
   
-  // Reset timer display to show 00:00:00 initially
+  
   const display = document.getElementById('timerDisplay');
   if (display) display.textContent = '00:00:00';
   
-  // Reset timerState to valid defaults
+  
   timerState.duration = 0;
   timerState.remaining = 0;
 }
@@ -2373,12 +2373,12 @@ function renderTimerPresets() {
   const container = document.getElementById('timerPresets');
   if (!container) return;
   
-  // Remove old custom presets first (but keep built-in ones)
+  
   container.querySelectorAll('[data-preset-id]').forEach(el => el.remove());
   
-  // Add custom presets
+  
   customTimerPresets.forEach(preset => {
-    // Ensure duration is a number
+    
     const duration = parseInt(preset.duration, 10);
     if (!duration || duration <= 0) return;
     
@@ -2392,13 +2392,13 @@ function renderTimerPresets() {
       <small>${formatPresetTime(duration)}</small>
     `;
     
-    // Click to select
+    
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       selectTimerPreset(btn, duration);
     });
     
-    // Right-click to delete
+    
     btn.addEventListener('contextmenu', (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -2407,7 +2407,7 @@ function renderTimerPresets() {
       }
     });
     
-    // Insert before the add button if it exists
+    
     const addBtn = document.getElementById('addPresetBtn');
     if (addBtn) {
       container.insertBefore(btn, addBtn);
@@ -2434,14 +2434,14 @@ function addCustomPresetButton() {
 }
 
 function showAddPresetForm() {
-  // Remove existing form if any
+  
   const existingForm = document.getElementById('addPresetForm');
   if (existingForm) {
     existingForm.remove();
     return;
   }
   
-  // Create modal-style form
+  
   const overlay = document.createElement('div');
   overlay.id = 'addPresetForm';
   overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:10001;';
@@ -2460,7 +2460,7 @@ function showAddPresetForm() {
     </div>
   `;
   
-  // Close on overlay click
+  
   overlay.addEventListener('click', (e) => {
     if (e.target === overlay) overlay.remove();
   });
@@ -2515,15 +2515,15 @@ function formatPresetTime(seconds) {
   return `${mins}m`;
 }
 
-// Note: selectTimerPreset is already defined above - custom presets use that function directly
+
 
 window.addCustomPreset = addCustomPreset;
 window.removeCustomPreset = removeCustomPreset;
 
-// Initialize custom presets when DOM loads
+
 document.addEventListener('DOMContentLoaded', () => setTimeout(initCustomPresets, 100));
 
-// ===== AUTO DARK MODE SCHEDULE =====
+
 let darkModeSchedule = JSON.parse(localStorage.getItem('questionary-darkmode-schedule') || '{"enabled":false,"darkStart":19,"darkEnd":7}');
 
 function saveDarkModeSchedule() {
@@ -2546,11 +2546,11 @@ function checkDarkModeSchedule() {
   }
 }
 
-// Check dark mode schedule every minute
+
 setInterval(checkDarkModeSchedule, 60000);
 document.addEventListener('DOMContentLoaded', checkDarkModeSchedule);
 
-// ===== PAGE BOOKMARKS =====
+
 let pageBookmarks = JSON.parse(localStorage.getItem('questionary-page-bookmarks') || '{}');
 
 function savePageBookmarks() {
@@ -2612,8 +2612,8 @@ function renderPageBookmarks(docPath) {
 function goToPage(pageNumber) {
   const pdfViewer = document.getElementById('pdfViewer');
   if (pdfViewer && pdfViewer.src) {
-    // For Google Drive embeds, we can't directly control page
-    // But we can show a notification
+    
+    
     showNotification(`Navigate to page ${pageNumber}`, 'info');
   }
 }
@@ -2622,10 +2622,10 @@ window.addPageBookmark = addPageBookmark;
 window.removePageBookmark = removePageBookmark;
 window.goToPage = goToPage;
 
-// ===== DOCUMENT PREVIEW TOOLTIP =====
-// Disabled - was causing unwanted preview popups
+
+
 function initDocumentPreview() {
-  // Remove any existing preview tooltip
+  
   const existingTooltip = document.getElementById('previewTooltip');
   if (existingTooltip) {
     existingTooltip.remove();
@@ -2635,7 +2635,7 @@ function initDocumentPreview() {
 let previewTimeout = null;
 
 function showPreviewTooltip(element, url, name) {
-  // Disabled - do nothing
+  
   return;
 }
 
@@ -2649,7 +2649,7 @@ function hidePreviewTooltip() {
 
 document.addEventListener('DOMContentLoaded', initDocumentPreview);
 
-// ===== SHARE LINKS =====
+
 function generateShareLink(docPath) {
   const baseUrl = window.location.origin + window.location.pathname;
   const params = new URLSearchParams({ path: docPath.join('/') });
@@ -2687,7 +2687,7 @@ function handleShareLink() {
 window.generateShareLink = generateShareLink;
 document.addEventListener('DOMContentLoaded', handleShareLink);
 
-// ===== EXPORT/PRINT QUEUE =====
+
 let printQueue = [];
 
 function addToPrintQueue(docPath, url) {
@@ -2754,7 +2754,7 @@ window.addToPrintQueue = addToPrintQueue;
 window.removeFromPrintQueue = removeFromPrintQueue;
 window.clearPrintQueue = clearPrintQueue;
 
-// ===== OFFLINE MODE (Service Worker) =====
+
 function registerServiceWorker() {
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js')
@@ -2763,10 +2763,10 @@ function registerServiceWorker() {
   }
 }
 
-// Uncomment to enable offline mode:
-// document.addEventListener('DOMContentLoaded', registerServiceWorker);
 
-// ===== INTEGRATION: Track study time when viewing PDFs =====
+
+
+
 let pdfViewStartTime = null;
 
 function trackPdfViewStart() {
@@ -2779,7 +2779,7 @@ function trackPdfViewEnd(docPath) {
     if (viewedMinutes >= 1) {
       trackStudyTime(viewedMinutes);
       
-      // Update document progress
+      
       const currentProgress = documentProgress[docPath]?.progress || 0;
       const newProgress = Math.min(100, currentProgress + Math.min(viewedMinutes * 5, 25));
       updateDocProgress(docPath, newProgress);
@@ -2791,12 +2791,12 @@ function trackPdfViewEnd(docPath) {
 window.trackPdfViewStart = trackPdfViewStart;
 window.trackPdfViewEnd = trackPdfViewEnd;
 
-// ===== KEYBOARD SHORTCUTS FOR NEW FEATURES =====
+
 document.addEventListener('keydown', (e) => {
-  // Skip if typing in input
+  
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
   
-  // N - New note
+  
   if (e.key === 'n' || e.key === 'N') {
     if (typeof openNoteModal === 'function') {
       e.preventDefault();
@@ -2804,7 +2804,7 @@ document.addEventListener('keydown', (e) => {
     }
   }
   
-  // F - New flashcard deck
+  
   if (e.key === 'f' || e.key === 'F') {
     if (typeof openFlashcardModal === 'function') {
       e.preventDefault();
@@ -2812,7 +2812,7 @@ document.addEventListener('keydown', (e) => {
     }
   }
   
-  // S - Share current path
+  
   if (e.key === 's' || e.key === 'S') {
     if (path.length > 0 && typeof generateShareLink === 'function') {
       e.preventDefault();
@@ -2820,7 +2820,7 @@ document.addEventListener('keydown', (e) => {
     }
   }
   
-  // Q - Toggle quick links
+  
   if (e.key === 'q' || e.key === 'Q') {
     e.preventDefault();
     const panel = document.getElementById('quickLinksPanel');
@@ -2843,9 +2843,9 @@ function initializeApp() {
   updateDashboardStats();
 }
 
-// ===== MISSING FUNCTION IMPLEMENTATIONS =====
 
-// Utility function
+
+
 function escapeHtml(text) {
   if (!text) return '';
   const div = document.createElement('div');
@@ -2853,7 +2853,7 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
-// ===== NOTES FUNCTIONS =====
+
 function loadNotes() {
   notes = JSON.parse(localStorage.getItem('questionary-notes') || '[]');
 }
@@ -2896,7 +2896,7 @@ function saveNote() {
   }
   
   if (currentEditingNote) {
-    // Update existing note
+    
     const index = notes.findIndex(n => n.id === currentEditingNote.id);
     if (index > -1) {
       notes[index] = {
@@ -2909,7 +2909,7 @@ function saveNote() {
     }
     showNotification('Note updated!', 'success');
   } else {
-    // Create new note
+    
     notes.unshift({
       id: Date.now().toString(),
       title: noteTitle,
@@ -2971,7 +2971,7 @@ window.openNoteModal = openNoteModal;
 
 function initializeNotesUI() {}
 
-// ===== FLASHCARDS FUNCTIONS =====
+
 function loadFlashcardDecks() {
   flashcardDecks = JSON.parse(localStorage.getItem('questionary-flashcards') || '[]');
 }
@@ -3058,7 +3058,7 @@ function saveDeck() {
     return;
   }
   
-  // Validate cards - at least one complete card
+  
   const validCards = tempCards.filter(c => c.front.trim() && c.back.trim());
   if (validCards.length === 0) {
     showNotification('Please add at least one complete card', 'error');
@@ -3066,7 +3066,7 @@ function saveDeck() {
   }
   
   if (currentEditingDeck) {
-    // Update existing deck
+    
     const index = flashcardDecks.findIndex(d => d.id === currentEditingDeck.id);
     if (index > -1) {
       flashcardDecks[index] = {
@@ -3079,7 +3079,7 @@ function saveDeck() {
     }
     showNotification('Deck updated!', 'success');
   } else {
-    // Create new deck
+    
     flashcardDecks.unshift({
       id: Date.now().toString(),
       name: deckName,
@@ -3191,7 +3191,7 @@ function prevCard() {
 
 function initializeFlashcardsUI() {}
 
-// ===== STUDY PLANNER FUNCTIONS =====
+
 function loadStudySessions() {
   studySessions = JSON.parse(localStorage.getItem('questionary-sessions') || '[]');
 }
@@ -3407,7 +3407,7 @@ function renderSessions() {
 
 function initializePlannerUI() {}
 
-// ===== PROGRESS FUNCTIONS =====
+
 function loadDocumentProgress() {
   documentProgress = JSON.parse(localStorage.getItem('questionary-progress') || '{}');
 }
@@ -3438,7 +3438,7 @@ function renderProgressList() {
     return;
   }
   
-  // Sort by last accessed
+  
   progressEntries.sort((a, b) => b[1].lastAccessed - a[1].lastAccessed);
   
   container.innerHTML = progressEntries.map(([pathKey, data]) => {
@@ -3469,7 +3469,7 @@ function renderProgressList() {
 }
 
 function updateProgressDisplay() {
-  // Update overall progress ring
+  
   const progressEntries = Object.entries(documentProgress);
   const totalProgress = progressEntries.length > 0 
     ? progressEntries.reduce((sum, [, data]) => sum + (data.progress || 0), 0) / progressEntries.length 
@@ -3479,7 +3479,7 @@ function updateProgressDisplay() {
   const overallProgress = document.getElementById('overallProgress');
   
   if (progressRing) {
-    const circumference = 377; // 2 * π * 60 (radius)
+    const circumference = 377; 
     const offset = circumference - (totalProgress / 100) * circumference;
     progressRing.style.strokeDashoffset = offset;
   }
@@ -3488,14 +3488,14 @@ function updateProgressDisplay() {
     overallProgress.textContent = `${Math.round(totalProgress)}%`;
   }
   
-  // Update completed count
+  
   const completedDocs = document.getElementById('completedDocs');
   if (completedDocs) {
     const completed = progressEntries.filter(([, data]) => data.progress >= 100).length;
     completedDocs.textContent = completed;
   }
   
-  // Update streak on progress page
+  
   const streakDisplay = document.getElementById('currentStreak');
   if (streakDisplay) {
     streakDisplay.textContent = `${studyStats.streak || 0} days`;
@@ -3507,7 +3507,7 @@ function updateProgressDisplay() {
 
 function initializeProgressUI() {}
 
-// ===== STUDY STATS FUNCTIONS =====
+
 function loadStudyStats() {
   studyStats = JSON.parse(localStorage.getItem('questionary-study-stats') || '{"totalTime":0,"streak":0,"lastStudyDate":null,"hourlyActivity":{}}');
 }
@@ -3519,7 +3519,7 @@ function saveStudyStats() {
 function trackStudyTime(minutes) {
   studyStats.totalTime = (studyStats.totalTime || 0) + minutes;
   
-  // Track hourly activity
+  
   const hour = new Date().getHours();
   studyStats.hourlyActivity = studyStats.hourlyActivity || {};
   studyStats.hourlyActivity[hour] = (studyStats.hourlyActivity[hour] || 0) + minutes;
@@ -3532,12 +3532,12 @@ function recordStudyActivity() {
   const today = new Date().toISOString().split('T')[0];
   
   if (studyStats.lastStudyDate !== today) {
-    // Check if yesterday was the last study date for streak
+    
     const yesterday = getYesterday();
     if (studyStats.lastStudyDate === yesterday) {
       studyStats.streak = (studyStats.streak || 0) + 1;
     } else if (studyStats.lastStudyDate !== today) {
-      // Reset streak if more than one day gap
+      
       studyStats.streak = 1;
     }
     studyStats.lastStudyDate = today;
@@ -3591,7 +3591,7 @@ function updateStudyStatsDisplay() {
   }
 }
 
-// ===== QUICK LINKS FUNCTIONS =====
+
 function loadQuickLinks() {
   quickLinks = JSON.parse(localStorage.getItem('questionary-quick-links') || '[]');
 }
@@ -3624,7 +3624,7 @@ function renderQuickLinks() {
     </div>
   `).join('');
   
-  // Add click handlers for navigation
+  
   container.querySelectorAll('.quick-link-item').forEach(item => {
     item.addEventListener('click', (e) => {
       if (e.target.closest('.quick-link-delete')) return;
@@ -3650,13 +3650,13 @@ function deleteQuickLink(id) {
 window.deleteQuickLink = deleteQuickLink; 
 
 function initializeQuickLinksUI() { 
-  // This is now handled in initializeNewFeatures
+  
 }
 
 function initializeCompareUI() {}
 
 function loadFavorites() {
-  // Already handled by initializeFavorites
+  
 }
 function updatePrintQueueBadge() {
   const badge = document.getElementById('printQueueBadge');
