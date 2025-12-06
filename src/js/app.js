@@ -22,30 +22,38 @@ let accessibilitySettings = {
 };
 
 
+
+
 async function initializeFavorites() {
   try {
-        if (window.__TAURI__) {
+    
+    if (window.__TAURI__) {
       const loaded = await loadFavoritesFromTauri();
       if (loaded) return;
     }
-        favorites = JSON.parse(localStorage.getItem('questionary-favorites') || '[]');
+    
+    favorites = JSON.parse(localStorage.getItem('questionary-favorites') || '[]');
   } catch (e) {
     console.error('Error loading favorites:', e);
     favorites = [];
   }
 }
 
+
 async function saveFavorites() {
   try {
-        localStorage.setItem('questionary-favorites', JSON.stringify(favorites));
     
-        if (window.__TAURI__) {
+    localStorage.setItem('questionary-favorites', JSON.stringify(favorites));
+    
+    
+    if (window.__TAURI__) {
       await saveFavoritesToTauri();
     }
   } catch (e) {
     console.error('Error saving favorites:', e);
   }
 }
+
 
 async function loadFavoritesFromTauri() {
   try {
@@ -55,11 +63,13 @@ async function loadFavoritesFromTauri() {
     if (readTextFile && appDataDir) {
       const data = await readTextFile('favorites.json', { dir: BaseDirectory.AppData });
       favorites = JSON.parse(data);
-            localStorage.setItem('questionary-favorites', JSON.stringify(favorites));
+      
+      localStorage.setItem('questionary-favorites', JSON.stringify(favorites));
       return true;
     }
   } catch (e) {
-        console.log('Loading favorites from localStorage instead');
+    
+    console.log('Loading favorites from localStorage instead');
   }
   return false;
 }
@@ -69,10 +79,12 @@ async function saveFavoritesToTauri() {
     const { writeTextFile, createDir, BaseDirectory } = window.__TAURI__.fs || {};
     
     if (writeTextFile && createDir) {
-            try {
+      
+      try {
         await createDir('', { dir: BaseDirectory.AppData, recursive: true });
       } catch (e) {
-              }
+        
+      }
       
       await writeTextFile('favorites.json', JSON.stringify(favorites, null, 2), { 
         dir: BaseDirectory.AppData 
@@ -82,6 +94,7 @@ async function saveFavoritesToTauri() {
     console.error('Error saving favorites to Tauri:', e);
   }
 }
+
 
 async function loadRecentFromTauri() {
   try {
@@ -119,6 +132,7 @@ async function saveRecentToStorage(recent) {
   }
 }
 
+
 let timerState = {
   duration: 0,
   remaining: 0,
@@ -145,7 +159,790 @@ const users = {
   "ADMIN": { password: "DPSNTCLASSLOGIN@@", role: "admin" }
 };
 
+// ==================== MISSING CORE FUNCTIONS ====================
 
+// Show the main app and hide login screen
+function showApp() {
+  const loginScreen = document.getElementById('loginScreen');
+  const app = document.getElementById('app');
+  const loadingOverlay = document.getElementById('loadingOverlay');
+  
+  if (loginScreen) loginScreen.style.display = 'none';
+  if (app) app.style.display = 'block';
+  if (loadingOverlay) loadingOverlay.classList.remove('active');
+  
+  console.log('App displayed');
+}
+
+// Show notification toast
+function showNotification(message, type = 'info') {
+  // Remove existing notification
+  const existing = document.querySelector('.notification-toast');
+  if (existing) existing.remove();
+  
+  const toast = document.createElement('div');
+  toast.className = `notification-toast notification-${type}`;
+  
+  // Choose icon based on type
+  let icon = 'fa-info-circle';
+  let bgColor = '#3b82f6';
+  if (type === 'success') {
+    icon = 'fa-check-circle';
+    bgColor = '#22c55e';
+  } else if (type === 'error') {
+    icon = 'fa-exclamation-circle';
+    bgColor = '#ef4444';
+  } else if (type === 'warning') {
+    icon = 'fa-exclamation-triangle';
+    bgColor = '#f59e0b';
+  }
+  
+  toast.style.cssText = `
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%) translateY(100px);
+    padding: 14px 24px;
+    border-radius: 12px;
+    color: white;
+    font-weight: 500;
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+    background: ${bgColor};
+    font-size: 0.95rem;
+    max-width: 90%;
+    animation: slideUpToast 0.3s ease forwards;
+  `;
+  
+  toast.innerHTML = `<i class="fas ${icon}"></i><span>${message}</span>`;
+  
+  // Add animation keyframes if not exists
+  if (!document.getElementById('toast-animations')) {
+    const style = document.createElement('style');
+    style.id = 'toast-animations';
+    style.textContent = `
+      @keyframes slideUpToast {
+        from { transform: translateX(-50%) translateY(100px); opacity: 0; }
+        to { transform: translateX(-50%) translateY(0); opacity: 1; }
+      }
+      @keyframes slideDownToast {
+        from { transform: translateX(-50%) translateY(0); opacity: 1; }
+        to { transform: translateX(-50%) translateY(100px); opacity: 0; }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+  
+  document.body.appendChild(toast);
+  
+  setTimeout(() => {
+    toast.style.animation = 'slideDownToast 0.3s ease forwards';
+    setTimeout(() => toast.remove(), 300);
+  }, 3000);
+}
+
+// Initialize app after successful login
+function initializeAppAfterLogin() {
+  // Update username display
+  const usernameDisplay = document.getElementById('username-display');
+  if (usernameDisplay && currentUser) {
+    usernameDisplay.textContent = currentUser.username;
+  }
+  
+  // Show admin badge if admin
+  const adminBadge = document.getElementById('adminBadge');
+  if (adminBadge && currentUser && currentUser.role === 'admin') {
+    adminBadge.style.display = 'inline-block';
+  }
+  
+  // Initialize features
+  if (typeof initializeNewFeatures === 'function') {
+    initializeNewFeatures();
+  }
+  
+  // Render initial tiles
+  if (typeof renderTiles === 'function' && typeof documents !== 'undefined') {
+    renderTiles(documents);
+  }
+  
+  // Update breadcrumb
+  if (typeof updateBreadcrumb === 'function') {
+    updateBreadcrumb();
+  }
+  
+  // Update stats
+  if (typeof updateDashboardStats === 'function') {
+    updateDashboardStats();
+  }
+}
+
+// Show auto-login notification
+function showAutoLoginNotification(username) {
+  console.log('Auto-logging in as:', username);
+  showNotification(`Welcome back, ${username}!`, 'success');
+}
+
+// Perform search
+function performSearch(e) {
+  const query = typeof e === 'string' ? e : (e?.target?.value || '');
+  const searchResults = document.getElementById('searchResults');
+  
+  if (!query || query.length < 2) {
+    if (searchResults) searchResults.style.display = 'none';
+    return;
+  }
+  
+  // Add to search history
+  if (typeof addToSearchHistory === 'function') {
+    addToSearchHistory(query);
+  }
+  
+  // Search through documents
+  const results = [];
+  if (typeof documents !== 'undefined') {
+    searchInDocuments(documents, [], query.toLowerCase(), results);
+  }
+  
+  if (searchResults) {
+    if (results.length === 0) {
+      searchResults.innerHTML = '<div style="padding: 1rem; text-align: center; color: var(--text-secondary);">No results found</div>';
+    } else {
+      searchResults.innerHTML = results.slice(0, 10).map(r => `
+        <div class="search-result-item" onclick="navigateToSearchResult(${JSON.stringify(r.path).replace(/"/g, '&quot;')}, '${r.url || ''}')">
+          <i class="fas ${r.isFolder ? 'fa-folder' : 'fa-file-pdf'}"></i>
+          <div class="search-result-info">
+            <span class="search-result-name">${escapeHtml(r.name)}</span>
+            <span class="search-result-path">${r.path.join(' > ')}</span>
+          </div>
+        </div>
+      `).join('');
+    }
+    searchResults.style.display = 'block';
+  }
+}
+
+function searchInDocuments(obj, currentPath, query, results) {
+  for (const key in obj) {
+    const newPath = [...currentPath, key];
+    const value = obj[key];
+    
+    if (key.toLowerCase().includes(query)) {
+      results.push({
+        name: key,
+        path: newPath,
+        isFolder: typeof value === 'object',
+        url: typeof value === 'string' ? value : null
+      });
+    }
+    
+    if (typeof value === 'object' && value !== null) {
+      searchInDocuments(value, newPath, query, results);
+    }
+  }
+}
+
+function navigateToSearchResult(pathArray, url) {
+  const searchResults = document.getElementById('searchResults');
+  if (searchResults) searchResults.style.display = 'none';
+  
+  document.getElementById('globalSearch').value = '';
+  
+  if (url && url !== '#' && url !== '') {
+    path = pathArray.slice(0, -1);
+    showPDF(url);
+  } else {
+    path = pathArray;
+    if (typeof renderTiles === 'function' && typeof getCurrentLevel === 'function') {
+      renderTiles(getCurrentLevel());
+    }
+  }
+  if (typeof updateBreadcrumb === 'function') {
+    updateBreadcrumb();
+  }
+  showView('home');
+  setActiveNav('homeNav');
+}
+
+// Escape HTML for safe rendering
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+// Set active navigation item
+function setActiveNav(navId) {
+  document.querySelectorAll('.nav-link').forEach(link => link.classList.remove('active'));
+  const activeNav = document.getElementById(navId);
+  if (activeNav) activeNav.classList.add('active');
+}
+
+// Placeholder functions for features that might be in another file
+function loadDocuments() { console.log('loadDocuments called'); }
+function trackDailyAccess() { 
+  console.log('trackDailyAccess called');
+  const today = new Date().toISOString().split('T')[0];
+  const accessData = JSON.parse(localStorage.getItem('questionary-daily-access') || '{}');
+  accessData[today] = (accessData[today] || 0) + 1;
+  localStorage.setItem('questionary-daily-access', JSON.stringify(accessData));
+}
+function saveUserPreferences() { /* silent */ }
+
+// Render document tiles
+function renderTiles(docs) {
+  const container = document.getElementById('tilesContainer');
+  if (!container) {
+    console.error('tilesContainer not found');
+    return;
+  }
+  
+  container.innerHTML = '';
+  
+  if (!docs || Object.keys(docs).length === 0) {
+    container.innerHTML = '<p style="text-align: center; color: var(--text-secondary); padding: 2rem;">No documents available.</p>';
+    return;
+  }
+  
+  // Get sort order
+  const sortOrder = localStorage.getItem('questionary-sort-order') || 'asc';
+  const keys = Object.keys(docs).sort((a, b) => {
+    return sortOrder === 'asc' ? a.localeCompare(b) : b.localeCompare(a);
+  });
+  
+  keys.forEach(key => {
+    const value = docs[key];
+    const isFolder = typeof value === 'object';
+    
+    const tile = document.createElement('div');
+    tile.className = 'tile';
+    tile.innerHTML = `
+      <div class="tile-icon">
+        <i class="fas ${isFolder ? 'fa-folder' : 'fa-file-pdf'}"></i>
+      </div>
+      <div class="tile-text">${escapeHtml(key)}</div>
+      ${!isFolder ? `<button class="tile-favorite" onclick="event.stopPropagation(); toggleFavorite('${escapeHtml(key)}', ${JSON.stringify([...path, key]).replace(/"/g, '&quot;')}, '${escapeHtml(value)}')" title="Toggle Favorite"><i class="fas fa-star"></i></button>` : ''}
+    `;
+    
+    tile.onclick = () => {
+      if (isFolder) {
+        path.push(key);
+        renderTiles(value);
+        updateBreadcrumb();
+      } else {
+        // It's a PDF link
+        addToRecent(key, [...path, key], value);
+        showPDF(value);
+      }
+    };
+    
+    container.appendChild(tile);
+  });
+  
+  // Update stats
+  updateDashboardStats();
+}
+
+// Update breadcrumb navigation
+function updateBreadcrumb() {
+  const breadcrumb = document.getElementById('breadcrumb');
+  const backBtn = document.getElementById('backBtn');
+  
+  if (!breadcrumb) return;
+  
+  // Clear existing content
+  breadcrumb.innerHTML = '';
+  
+  // Create Home link
+  const homeSpan = document.createElement('span');
+  homeSpan.className = 'breadcrumb-item';
+  homeSpan.textContent = 'Home';
+  homeSpan.onclick = function() {
+    navigateToPath([]);
+  };
+  breadcrumb.appendChild(homeSpan);
+  
+  // Add path segments
+  let currentPath = [];
+  path.forEach((segment, index) => {
+    currentPath.push(segment);
+    const pathCopy = [...currentPath];
+    
+    // Add separator
+    const separator = document.createElement('i');
+    separator.className = 'fas fa-chevron-right';
+    separator.style.cssText = 'font-size: 0.7rem; opacity: 0.5; margin: 0 0.5rem;';
+    breadcrumb.appendChild(separator);
+    
+    // Add path segment
+    const segmentSpan = document.createElement('span');
+    segmentSpan.className = 'breadcrumb-item';
+    segmentSpan.textContent = segment;
+    segmentSpan.onclick = function() {
+      navigateToPath(pathCopy);
+    };
+    breadcrumb.appendChild(segmentSpan);
+  });
+  
+  if (backBtn) {
+    backBtn.style.display = path.length > 0 ? 'flex' : 'none';
+  }
+}
+
+// Navigate to a specific path
+function navigateToPath(newPath) {
+  console.log('navigateToPath called with:', newPath);
+  
+  // Close PDF if open
+  const pdfViewer = document.getElementById('pdfViewer');
+  if (pdfViewer) {
+    pdfViewer.style.cssText = 'display: none !important;';
+    pdfViewer.classList.remove('active');
+    pdfViewer.src = '';
+  }
+  
+  // Show tiles again
+  const tilesContainer = document.getElementById('tilesContainer');
+  const sectionHeader = document.querySelector('#tilesSection .section-header');
+  const dashboardHeader = document.querySelector('.dashboard-header');
+  const tilesSection = document.getElementById('tilesSection');
+  
+  if (tilesSection) tilesSection.style.display = 'block';
+  if (tilesContainer) tilesContainer.style.display = 'grid';
+  if (sectionHeader) sectionHeader.style.display = 'flex';
+  if (dashboardHeader) dashboardHeader.style.display = newPath.length === 0 ? 'flex' : 'none';
+  
+  // Hide timer
+  if (typeof hideTimerCompletely === 'function') hideTimerCompletely();
+  
+  // Update path and render
+  path = newPath;
+  
+  // Get the correct level to render
+  let level = documents;
+  for (const segment of path) {
+    if (level && typeof level === 'object' && level[segment]) {
+      level = level[segment];
+    } else {
+      // Invalid path, reset to root
+      path = [];
+      level = documents;
+      break;
+    }
+  }
+  
+  renderTiles(level);
+  updateBreadcrumb();
+}
+
+// Make navigateToPath globally available
+window.navigateToPath = navigateToPath;
+
+// Get current level in document tree
+function getCurrentLevel() {
+  let current = documents;
+  for (const segment of path) {
+    if (current && typeof current === 'object' && current[segment]) {
+      current = current[segment];
+    } else {
+      return documents;
+    }
+  }
+  return current;
+}
+
+// Update dashboard statistics
+function updateDashboardStats() {
+  // Count total documents (only actual URLs, not # or empty strings)
+  let totalDocs = 0;
+  function countDocs(obj) {
+    for (const key in obj) {
+      const value = obj[key];
+      if (typeof value === 'string') {
+        // Only count if it's a real URL (not # or empty)
+        if (value && value !== '#' && value.trim() !== '') {
+          totalDocs++;
+        }
+      } else if (typeof value === 'object' && value !== null) {
+        countDocs(value);
+      }
+    }
+  }
+  countDocs(documents);
+  
+  const totalDocsEl = document.getElementById('totalDocuments');
+  if (totalDocsEl) totalDocsEl.textContent = totalDocs;
+  
+  const favoriteCountEl = document.getElementById('favoriteCount');
+  if (favoriteCountEl) favoriteCountEl.textContent = favorites.length;
+  
+  const recent = JSON.parse(localStorage.getItem('questionary-recent') || '[]');
+  const recentCountEl = document.getElementById('recentCount');
+  if (recentCountEl) recentCountEl.textContent = recent.length;
+  
+  const streakEl = document.getElementById('dashboardStreak');
+  if (streakEl) streakEl.textContent = studyStats.streak || 0;
+}
+
+function showPDF(url) { 
+  console.log('showPDF called with:', url);
+  
+  if (!url || url === '' || url === '#') {
+    console.error('Invalid PDF URL');
+    return;
+  }
+  
+  const pdfViewer = document.getElementById('pdfViewer');
+  const tilesContainer = document.getElementById('tilesContainer');
+  const sectionHeader = document.querySelector('#tilesSection .section-header');
+  const dashboardHeader = document.querySelector('.dashboard-header');
+  const breadcrumbContainer = document.querySelector('.breadcrumb-container');
+  const tilesSection = document.getElementById('tilesSection');
+  
+  // Show the PDF viewer
+  if (pdfViewer) {
+    pdfViewer.src = url;
+    pdfViewer.classList.add('active');
+    pdfViewer.style.cssText = ''; // Clear any inline styles, let CSS handle it
+    console.log('PDF viewer should now be visible, src:', url);
+  } else {
+    console.error('PDF viewer element not found!');
+    return;
+  }
+  
+  // Make sure tiles section is visible (contains the pdf viewer)
+  if (tilesSection) tilesSection.style.display = 'block';
+  
+  // Hide tiles when showing PDF
+  if (tilesContainer) tilesContainer.style.display = 'none';
+  if (sectionHeader) sectionHeader.style.display = 'none';
+  if (dashboardHeader) dashboardHeader.style.display = 'none';
+  
+  // Keep breadcrumb visible for navigation
+  if (breadcrumbContainer) breadcrumbContainer.style.display = 'flex';
+  
+  // Update breadcrumb to show current location
+  updateBreadcrumb();
+  
+  // Show timer panel when viewing PDF
+  const timerPanel = document.getElementById('timerPanel');
+  if (timerPanel) timerPanel.style.display = 'flex';
+  
+  // Initialize timer if not already
+  if (typeof initializeTimer === 'function') initializeTimer();
+  
+  // Track PDF view start
+  if (typeof trackPdfViewStart === 'function') trackPdfViewStart();
+}
+
+// Close PDF and return to tiles
+function closePDF() {
+  const pdfViewer = document.getElementById('pdfViewer');
+  const tilesContainer = document.getElementById('tilesContainer');
+  const sectionHeader = document.querySelector('#tilesSection .section-header');
+  const dashboardHeader = document.querySelector('.dashboard-header');
+  
+  if (pdfViewer) {
+    pdfViewer.style.cssText = 'display: none !important;';
+    pdfViewer.classList.remove('active');
+    pdfViewer.src = '';
+  }
+  
+  if (tilesContainer) tilesContainer.style.display = 'grid';
+  if (sectionHeader) sectionHeader.style.display = 'flex';
+  if (dashboardHeader && path.length === 0) dashboardHeader.style.display = 'flex';
+  
+  if (typeof hideTimerCompletely === 'function') hideTimerCompletely();
+  
+  // Track PDF view end
+  if (typeof trackPdfViewEnd === 'function') trackPdfViewEnd(path.join('/'));
+}
+
+function renderAnalytics() {
+  console.log('renderAnalytics called');
+  
+  // Get analytics data
+  const accessData = JSON.parse(localStorage.getItem('questionary-daily-access') || '{}');
+  const recent = JSON.parse(localStorage.getItem('questionary-recent') || '[]');
+  const subjectAccess = JSON.parse(localStorage.getItem('questionary-subject-access') || '{}');
+  
+  // Calculate stats
+  const totalSessions = Object.values(accessData).reduce((sum, count) => sum + count, 0);
+  const totalDocsViewed = recent.length;
+  const daysActive = Object.keys(accessData).length;
+  const avgSessionsPerDay = daysActive > 0 ? (totalSessions / daysActive).toFixed(1) : 0;
+  
+  // Update stats display
+  const totalSessionsEl = document.getElementById('totalSessions');
+  const totalDocsViewedEl = document.getElementById('totalDocsViewed');
+  const daysActiveEl = document.getElementById('daysActive');
+  const avgSessionsEl = document.getElementById('avgSessions');
+  
+  if (totalSessionsEl) totalSessionsEl.textContent = totalSessions;
+  if (totalDocsViewedEl) totalDocsViewedEl.textContent = totalDocsViewed;
+  if (daysActiveEl) daysActiveEl.textContent = daysActive;
+  if (avgSessionsEl) avgSessionsEl.textContent = avgSessionsPerDay;
+  
+  // Render charts
+  renderAccessChart(accessData);
+  renderSubjectChart(subjectAccess);
+  renderRecentActivity(recent);
+}
+function renderCalendar() { 
+  const calendarGrid = document.getElementById('calendarDays') || document.getElementById('calendarGrid');
+  const currentMonthEl = document.getElementById('currentMonth');
+  if (!calendarGrid) return;
+  
+  const year = currentCalendarDate.getFullYear();
+  const month = currentCalendarDate.getMonth();
+  
+  if (currentMonthEl) {
+    currentMonthEl.textContent = new Date(year, month).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  }
+  
+  const firstDay = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const today = new Date();
+  
+  let html = '';
+  for (let i = 0; i < firstDay; i++) {
+    html += '<div class="calendar-day empty"></div>';
+  }
+  
+  for (let day = 1; day <= daysInMonth; day++) {
+    const date = new Date(year, month, day);
+    const isToday = date.toDateString() === today.toDateString();
+    const dateStr = date.toISOString().split('T')[0];
+    const sessionsOnDay = studySessions.filter(s => s.date === dateStr);
+    
+    html += `
+      <div class="calendar-day ${isToday ? 'today' : ''} ${sessionsOnDay.length > 0 ? 'has-session' : ''}" 
+           onclick="showDaySessions('${dateStr}')">
+        <span class="day-number">${day}</span>
+        ${sessionsOnDay.length > 0 ? `<span class="session-dot">${sessionsOnDay.length}</span>` : ''}
+      </div>
+    `;
+  }
+  
+  calendarGrid.innerHTML = html;
+}
+function renderSessions() { 
+  const container = document.getElementById('sessionsList') || document.getElementById('sessionsContainer');
+  if (!container) return;
+  
+  if (studySessions.length === 0) {
+    container.innerHTML = '<p style="text-align: center; color: var(--text-secondary); padding: 2rem;">No study sessions scheduled. Click "Add Session" to create one.</p>';
+    return;
+  }
+  
+  const sorted = [...studySessions].sort((a, b) => new Date(a.date) - new Date(b.date));
+  container.innerHTML = sorted.map(session => `
+    <div class="session-item">
+      <div class="session-info">
+        <strong>${escapeHtml(session.subject)}</strong>
+        <span>${session.date} at ${session.time}</span>
+      </div>
+      <button class="btn-icon" onclick="deleteSession('${session.id}')"><i class="fas fa-trash"></i></button>
+    </div>
+  `).join('');
+}
+function renderFlashcardDecks() { 
+  const container = document.getElementById('flashcardsGrid') || document.getElementById('flashcardDecksContainer');
+  if (!container) return;
+  
+  if (flashcardDecks.length === 0) {
+    container.innerHTML = '<p style="text-align: center; color: var(--text-secondary); padding: 2rem;">No flashcard decks yet. Click "Create Deck" to add one.</p>';
+    return;
+  }
+  
+  container.innerHTML = flashcardDecks.map(deck => `
+    <div class="deck-card" onclick="startStudyDeck('${deck.id}')">
+      <h4>${escapeHtml(deck.name)}</h4>
+      <p>${deck.cards.length} cards</p>
+      <button class="btn-icon delete" onclick="event.stopPropagation(); deleteDeck('${deck.id}')"><i class="fas fa-trash"></i></button>
+    </div>
+  `).join('');
+}
+function renderNotes() { 
+  const container = document.getElementById('notesGrid') || document.getElementById('notesContainer');
+  if (!container) return;
+  
+  if (notes.length === 0) {
+    container.innerHTML = '<p style="text-align: center; color: var(--text-secondary); padding: 2rem;">No notes yet. Click "Create Note" to add one.</p>';
+    return;
+  }
+  
+  container.innerHTML = notes.map(note => `
+    <div class="note-card" onclick="editNote('${note.id}')">
+      <h4>${escapeHtml(note.title)}</h4>
+      <p>${escapeHtml(note.content.substring(0, 100))}${note.content.length > 100 ? '...' : ''}</p>
+      <small>${new Date(note.updatedAt).toLocaleDateString()}</small>
+      <button class="btn-icon delete" onclick="event.stopPropagation(); deleteNote('${note.id}')"><i class="fas fa-trash"></i></button>
+    </div>
+  `).join('');
+}
+function updateProgressDisplay() { console.log('updateProgressDisplay called'); }
+function renderQuickLinks() { console.log('renderQuickLinks called'); }
+function saveQuickLinks() { localStorage.setItem('questionary-quick-links', JSON.stringify(quickLinks)); }
+function loadQuickLinks() { quickLinks = JSON.parse(localStorage.getItem('questionary-quick-links') || '[]'); }
+function trackStudyTime(minutes) { 
+  console.log('Tracked study time:', minutes);
+  studyStats.totalTime = (studyStats.totalTime || 0) + minutes;
+  localStorage.setItem('questionary-study-stats', JSON.stringify(studyStats));
+}
+
+function updateDocProgress(docPath, progress) { 
+  console.log('Updated progress:', docPath, progress);
+  documentProgress[docPath] = { progress, lastAccessed: Date.now() };
+  localStorage.setItem('questionary-doc-progress', JSON.stringify(documentProgress));
+}
+
+// Track subject/folder access for analytics
+function trackSubjectAccess(subjectName) {
+  if (!subjectName) return;
+  const subjectAccess = JSON.parse(localStorage.getItem('questionary-subject-access') || '{}');
+  subjectAccess[subjectName] = (subjectAccess[subjectName] || 0) + 1;
+  localStorage.setItem('questionary-subject-access', JSON.stringify(subjectAccess));
+}
+
+// Render access chart (last 7 days)
+function renderAccessChart(accessData) {
+  const container = document.getElementById('accessChart');
+  if (!container) return;
+  
+  // Get last 7 days
+  const days = [];
+  const today = new Date();
+  for (let i = 6; i >= 0; i--) {
+    const date = new Date(today);
+    date.setDate(date.getDate() - i);
+    const dateStr = date.toISOString().split('T')[0];
+    const dayName = date.toLocaleDateString('en-US', { weekday: 'short' });
+    days.push({
+      date: dateStr,
+      day: dayName,
+      count: accessData[dateStr] || 0
+    });
+  }
+  
+  const maxCount = Math.max(...days.map(d => d.count), 1);
+  
+  container.innerHTML = `
+    <div style="display: flex; align-items: flex-end; justify-content: space-between; height: 140px; gap: 8px; padding: 10px 0;">
+      ${days.map(d => `
+        <div style="display: flex; flex-direction: column; align-items: center; flex: 1;">
+          <div style="
+            width: 100%;
+            max-width: 40px;
+            height: ${Math.max((d.count / maxCount) * 100, 8)}px;
+            background: ${d.count > 0 ? 'var(--primary-color)' : 'var(--border)'};
+            border-radius: 4px 4px 0 0;
+            transition: height 0.3s ease;
+          " title="${d.count} sessions"></div>
+          <span style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 6px;">${d.day}</span>
+          <span style="font-size: 0.7rem; color: var(--text-primary); font-weight: 600;">${d.count}</span>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+// Render subject chart (top 5 subjects)
+function renderSubjectChart(subjectAccess) {
+  const container = document.getElementById('subjectChart');
+  if (!container) return;
+  
+  const subjects = Object.entries(subjectAccess)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5);
+  
+  if (subjects.length === 0) {
+    container.innerHTML = `
+      <div style="text-align: center; padding: 2rem; color: var(--text-secondary);">
+        <i class="fas fa-chart-pie" style="font-size: 2rem; opacity: 0.3; margin-bottom: 0.5rem; display: block;"></i>
+        <p style="margin: 0;">No subject data yet. Browse some documents!</p>
+      </div>
+    `;
+    return;
+  }
+  
+  const maxCount = subjects[0][1];
+  const colors = ['#f97316', '#3b82f6', '#22c55e', '#a855f7', '#f59e0b'];
+  
+  container.innerHTML = `
+    <div style="display: flex; flex-direction: column; gap: 12px;">
+      ${subjects.map(([name, count], i) => `
+        <div>
+          <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+            <span style="font-size: 0.85rem; font-weight: 500; color: var(--text-primary);">${escapeHtml(name)}</span>
+            <span style="font-size: 0.8rem; color: var(--text-secondary);">${count} views</span>
+          </div>
+          <div style="height: 8px; background: var(--border); border-radius: 4px; overflow: hidden;">
+            <div style="
+              width: ${(count / maxCount) * 100}%;
+              height: 100%;
+              background: ${colors[i % colors.length]};
+              border-radius: 4px;
+              transition: width 0.3s ease;
+            "></div>
+          </div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+// Render recent activity timeline
+function renderRecentActivity(recent) {
+  const container = document.getElementById('recentActivityList');
+  if (!container) return;
+  
+  const recentItems = recent.slice(0, 10);
+  
+  if (recentItems.length === 0) {
+    container.innerHTML = `
+      <div style="text-align: center; padding: 2rem; color: var(--text-secondary);">
+        <i class="fas fa-clock" style="font-size: 2rem; opacity: 0.3; margin-bottom: 0.5rem; display: block;"></i>
+        <p style="margin: 0;">No recent activity yet.</p>
+      </div>
+    `;
+    return;
+  }
+  
+  container.innerHTML = recentItems.map(item => {
+    const timeAgo = getTimeAgo(item.timestamp);
+    return `
+      <div style="display: flex; align-items: center; gap: 12px; padding: 10px; border-radius: 8px; background: var(--surface-hover); margin-bottom: 8px;">
+        <i class="fas fa-file-pdf" style="color: var(--primary-color); font-size: 1.1rem;"></i>
+        <div style="flex: 1; min-width: 0;">
+          <div style="font-weight: 500; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(item.title)}</div>
+          <div style="font-size: 0.75rem; color: var(--text-secondary);">${timeAgo}</div>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+// Helper function to get relative time
+function getTimeAgo(timestamp) {
+  if (!timestamp) return 'Unknown';
+  const seconds = Math.floor((Date.now() - timestamp) / 1000);
+  
+  if (seconds < 60) return 'Just now';
+  if (seconds < 3600) return `${Math.floor(seconds / 60)} minutes ago`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)} hours ago`;
+  if (seconds < 604800) return `${Math.floor(seconds / 86400)} days ago`;
+  return new Date(timestamp).toLocaleDateString();
+}
+
+// Make navigateToSearchResult available globally
+window.navigateToSearchResult = navigateToSearchResult;
+
+// ==================== DOCUMENTS DATA ====================
+// Store your document links here in a nested object structure
+// Folders are objects, PDF files are strings (URLs)
 let documents = {
     "Study Material Class 9": {
         "Physics FT": {
@@ -392,530 +1189,366 @@ let documents = {
         }
     }
 };
-function showNotification(message, type = 'info') {
-  const existing = document.querySelector('.notification-toast');
-  if (existing) existing.remove();
-  
-  const toast = document.createElement('div');
-  toast.className = `notification-toast ${type}`;
-  toast.style.cssText = 'position:fixed;top:20px;right:20px;padding:12px 20px;border-radius:8px;display:flex;align-items:center;gap:10px;z-index:10000;animation:slideIn 0.3s ease;box-shadow:0 4px 12px rgba(0,0,0,0.15);';
-  
-  if (type === 'success') {
-    toast.style.background = '#003d29ff';
-    toast.style.color = 'white';
-  } else if (type === 'error') {
-    toast.style.background = '#ef4444';
-    toast.style.color = 'white';
-  } else {
-    toast.style.background = '#3b82f6';
-    toast.style.color = 'white';
-  }
-  
-  toast.innerHTML = `
-    <i class="fas ${type === 'success' ? 'fa-check-circle' : type === 'error' ? 'fa-exclamation-circle' : 'fa-info-circle'}"></i>
-    <span>${message}</span>
-  `;
-  document.body.appendChild(toast);
-  
-  setTimeout(() => {
-    toast.style.opacity = '0';
-    toast.style.transform = 'translateX(100%)';
-    toast.style.transition = 'all 0.3s ease';
-    setTimeout(() => toast.remove(), 300);
-  }, 3000);
+
+
+
+// ==================== NOTES FUNCTIONS ====================
+function loadNotes() {
+  notes = JSON.parse(localStorage.getItem('questionary-notes') || '[]');
 }
 
-function showAutoLoginNotification(username) {
-  showNotification(`Welcome back, ${username}!`, 'success');
+function saveNotes() {
+  localStorage.setItem('questionary-notes', JSON.stringify(notes));
 }
 
-function showApp() {
-  const loginScreen = document.getElementById('loginScreen');
-  const app = document.getElementById('app');
+function openNoteModal(noteId = null) {
+  const modal = document.getElementById('noteModal');
+  const titleInput = document.getElementById('noteTitle');
+  const contentInput = document.getElementById('noteContent');
+  const modalTitle = document.getElementById('noteModalTitle');
   
-  if (loginScreen) loginScreen.style.display = 'none';
-  if (app) app.style.display = 'block';
+  if (!modal) { console.error('Note modal not found'); return; }
   
-  const usernameDisplay = document.getElementById('username-display');
-  const welcomeUsername = document.getElementById('welcomeUsername');
-  
-  if (usernameDisplay && currentUser) {
-    usernameDisplay.textContent = currentUser.username;
-  }
-  if (welcomeUsername && currentUser) {
-    welcomeUsername.textContent = currentUser.username;
-  }
-  
-  const adminBadge = document.getElementById('adminBadge');
-  if (adminBadge && currentUser && currentUser.role === 'admin') {
-    adminBadge.style.display = 'inline-block';
-  }
-  
-  if (typeof updateDashboardStats === 'function') {
-    updateDashboardStats();
-  }
-}
-
-function performSearch(e) {
-  const query = typeof e === 'string' ? e : (e?.target?.value || '').trim().toLowerCase();
-  const searchResults = document.getElementById('searchResults');
-  const searchResultsContainer = document.getElementById('searchResultsContainer');
-  
-  if (!query || query.length < 2) {
-    if (searchResults) searchResults.style.display = 'none';
-    return;
-  }
-  
-  if (typeof addToSearchHistory === 'function') {
-    addToSearchHistory(query);
-  }
-  
-  const results = [];
-  
-  function searchInDocuments(obj, pathArr = []) {
-    for (const [key, value] of Object.entries(obj)) {
-      const currentPath = [...pathArr, key];
-      if (key.toLowerCase().includes(query)) {
-        if (typeof value === 'string' && value !== '#') {
-          results.push({ name: key, path: currentPath, url: value, type: 'document' });
-        } else if (typeof value === 'object') {
-          results.push({ name: key, path: currentPath, url: null, type: 'folder' });
-        }
-      }
-      if (typeof value === 'object') {
-        searchInDocuments(value, currentPath);
-      }
-    }
-  }
-  
-  searchInDocuments(documents);
-  
-    notes.forEach(note => {
-    if (note.title.toLowerCase().includes(query) || (note.content && note.content.toLowerCase().includes(query))) {
-      results.push({ name: note.title, path: ['Notes', note.title], url: null, type: 'note', id: note.id });
-    }
-  });
-  
-    flashcardDecks.forEach(deck => {
-    if (deck.name.toLowerCase().includes(query) || (deck.subject && deck.subject.toLowerCase().includes(query))) {
-      results.push({ name: deck.name, path: ['Flashcards', deck.name], url: null, type: 'flashcard', id: deck.id });
-    }
-        if (deck.cards) {
-      deck.cards.forEach(card => {
-        if ((card.front && card.front.toLowerCase().includes(query)) || (card.back && card.back.toLowerCase().includes(query))) {
-          if (!results.some(r => r.type === 'flashcard' && r.id === deck.id)) {
-            results.push({ name: deck.name, path: ['Flashcards', deck.name], url: null, type: 'flashcard', id: deck.id });
-          }
-        }
-      });
-    }
-  });
-  
-  if (results.length === 0) {
-    if (searchResultsContainer) {
-      searchResultsContainer.innerHTML = '<div style="text-align:center;padding:2rem;color:var(--text-secondary);"><i class="fas fa-search" style="font-size:2rem;margin-bottom:1rem;opacity:0.3;"></i><p>No results found</p></div>';
-    }
-  } else if (searchResultsContainer) {
-    searchResultsContainer.innerHTML = results.slice(0, 20).map(result => {
-      let icon = 'fa-file-pdf';
-      if (result.type === 'folder') icon = 'fa-folder';
-      else if (result.type === 'note') icon = 'fa-sticky-note';
-      else if (result.type === 'flashcard') icon = 'fa-layer-group';
-      
-      return `
-        <div class="search-result-item" onclick="navigateToSearchResult(${JSON.stringify(result.path)}, '${result.url || ''}', '${result.type}', '${result.id || ''}')">
-          <i class="fas ${icon}"></i>
-          <div class="search-result-info">
-            <span class="search-result-name">${result.name}</span>
-            <span class="search-result-path">${result.path.join(' > ')}</span>
-          </div>
-        </div>
-      `;
-    }).join('');
-  }
-  
-  if (searchResults) searchResults.style.display = 'block';
-}
-
-function navigateToSearchResult(pathArr, url, type, id) {
-  const searchResults = document.getElementById('searchResults');
-  const globalSearch = document.getElementById('globalSearch');
-  if (searchResults) searchResults.style.display = 'none';
-  if (globalSearch) globalSearch.value = '';
-  
-    if (type === 'note' && id) {
-    showView('notes');
-    setActiveNav('notesNav');
-    const note = notes.find(n => n.id === id);
+  if (noteId) {
+    const note = notes.find(n => n.id === noteId);
     if (note) {
-      setTimeout(() => openNoteModal(note), 100);
+      currentEditingNote = note;
+      if (titleInput) titleInput.value = note.title;
+      if (contentInput) contentInput.value = note.content;
+      if (modalTitle) modalTitle.innerHTML = '<i class="fas fa-sticky-note"></i> Edit Note';
     }
-    return;
-  }
-  
-  if (type === 'flashcard' && id) {
-    showView('flashcards');
-    setActiveNav('flashcardsNav');
-    setTimeout(() => startStudyDeck(id), 100);
-    return;
-  }
-  
-    path = pathArr.slice(0, -1);
-  const name = pathArr[pathArr.length - 1];
-  
-  if (url && url !== '#') {
-    path = pathArr;
-    showPDF(url);
-    addToRecent(name, pathArr, url);
   } else {
-    path = pathArr;
-    renderTiles(getCurrentLevel());
+    currentEditingNote = null;
+    if (titleInput) titleInput.value = '';
+    if (contentInput) contentInput.value = '';
+    if (modalTitle) modalTitle.innerHTML = '<i class="fas fa-sticky-note"></i> Create Note';
   }
   
-  updateBreadcrumb();
+  modal.classList.add('active');
 }
 
-window.navigateToSearchResult = navigateToSearchResult;
-
-
-function getCurrentLevel() {
-  let current = documents;
-  for (const p of path) {
-    if (current[p]) {
-      current = current[p];
-    } else {
-      return documents;
-    }
+function saveNote() {
+  const titleInput = document.getElementById('noteTitle');
+  const contentInput = document.getElementById('noteContent');
+  const modal = document.getElementById('noteModal');
+  
+  const title = titleInput?.value.trim();
+  const content = contentInput?.value.trim();
+  
+  if (!title) {
+    showNotification('Please enter a title', 'error');
+    return;
   }
-  return current;
+  
+  if (currentEditingNote) {
+    currentEditingNote.title = title;
+    currentEditingNote.content = content;
+    currentEditingNote.updatedAt = Date.now();
+  } else {
+    notes.push({
+      id: Date.now().toString(),
+      title,
+      content,
+      createdAt: Date.now(),
+      updatedAt: Date.now()
+    });
+  }
+  
+  saveNotes();
+  renderNotes();
+  modal?.classList.remove('active');
+  showNotification(currentEditingNote ? 'Note updated!' : 'Note created!', 'success');
+  currentEditingNote = null;
 }
 
-function renderTiles(obj) {
-  const container = document.getElementById('tilesContainer');
+function editNote(noteId) {
+  openNoteModal(noteId);
+}
+
+function deleteNote(noteId) {
+  if (confirm('Delete this note?')) {
+    notes = notes.filter(n => n.id !== noteId);
+    saveNotes();
+    renderNotes();
+    showNotification('Note deleted', 'info');
+  }
+}
+
+// ==================== FLASHCARD FUNCTIONS ====================
+function loadFlashcardDecks() {
+  flashcardDecks = JSON.parse(localStorage.getItem('questionary-flashcards') || '[]');
+}
+
+function saveFlashcardDecks() {
+  localStorage.setItem('questionary-flashcards', JSON.stringify(flashcardDecks));
+}
+
+function openFlashcardModal(deckId = null) {
+  const modal = document.getElementById('flashcardModal');
+  const nameInput = document.getElementById('deckName');
+  const cardsContainer = document.getElementById('cardsContainer');
+  const modalTitle = document.getElementById('flashcardModalTitle');
+  
+  if (!modal) { console.error('Flashcard modal not found'); return; }
+  
+  if (deckId) {
+    const deck = flashcardDecks.find(d => d.id === deckId);
+    if (deck) {
+      currentEditingDeck = deck;
+      if (nameInput) nameInput.value = deck.name;
+      if (modalTitle) modalTitle.innerHTML = '<i class="fas fa-layer-group"></i> Edit Deck';
+      renderCardEditors(deck.cards);
+    }
+  } else {
+    currentEditingDeck = null;
+    if (nameInput) nameInput.value = '';
+    if (modalTitle) modalTitle.innerHTML = '<i class="fas fa-layer-group"></i> Create Flashcard Deck';
+    if (cardsContainer) cardsContainer.innerHTML = '';
+    addCardEditor();
+  }
+  
+  modal.classList.add('active');
+}
+
+function addCardEditor(front = '', back = '') {
+  const container = document.getElementById('cardsContainer');
   if (!container) return;
   
+  const cardDiv = document.createElement('div');
+  cardDiv.className = 'card-editor';
+  cardDiv.style.cssText = 'display:flex;gap:8px;margin-bottom:8px;align-items:center;';
+  cardDiv.innerHTML = `
+    <input type="text" class="card-front form-input" placeholder="Front (question)" value="${escapeHtml(front)}" style="flex:1;">
+    <input type="text" class="card-back form-input" placeholder="Back (answer)" value="${escapeHtml(back)}" style="flex:1;">
+    <button type="button" class="btn btn-secondary" onclick="this.parentElement.remove()" style="padding:8px 12px;"><i class="fas fa-times"></i></button>
+  `;
+  container.appendChild(cardDiv);
+}
+
+function renderCardEditors(cards) {
+  const container = document.getElementById('cardsContainer');
+  if (!container) return;
   container.innerHTML = '';
+  cards.forEach(card => addCardEditor(card.front, card.back));
+}
+
+function saveDeck() {
+  const nameInput = document.getElementById('deckName');
+  const modal = document.getElementById('flashcardModal');
+  const name = nameInput?.value.trim();
   
-    container.style.display = '';
-  
-  if (!obj || typeof obj !== 'object') {
-    container.innerHTML = '<div style="text-align:center;padding:3rem;color:var(--text-secondary);"><p>No items found</p></div>';
+  if (!name) {
+    showNotification('Please enter a deck name', 'error');
     return;
   }
   
-  const entries = Object.entries(obj);
-  const sortOrder = localStorage.getItem('questionary-sort-order') || 'asc';
-  
-  entries.sort((a, b) => {
-    const aIsFolder = typeof a[1] === 'object';
-    const bIsFolder = typeof b[1] === 'object';
-    if (aIsFolder && !bIsFolder) return -1;
-    if (!aIsFolder && bIsFolder) return 1;
-    const comparison = a[0].localeCompare(b[0]);
-    return sortOrder === 'desc' ? -comparison : comparison;
+  const cardEditors = document.querySelectorAll('.card-editor');
+  const cards = [];
+  cardEditors.forEach(editor => {
+    const front = editor.querySelector('.card-front')?.value.trim();
+    const back = editor.querySelector('.card-back')?.value.trim();
+    if (front && back) {
+      cards.push({ front, back });
+    }
   });
   
-  entries.forEach(([key, value]) => {
-    const tile = document.createElement('div');
-    tile.className = 'tile';
-    tile.setAttribute('tabindex', '0');
-    
-    const isFolder = typeof value === 'object';
-    const isAvailable = typeof value === 'string' && value !== '#';
-    const isUnavailable = value === '#';
-    
-    const icon = isFolder ? 'fa-folder' : (isAvailable ? 'fa-file-pdf' : 'fa-file');
-    const iconColor = isFolder ? 'folder-icon' : (isAvailable ? 'pdf-icon' : '');
-    
-    tile.innerHTML = `
-      <div class="tile-icon ${iconColor}"><i class="fas ${icon}"></i></div>
-      <div class="tile-text">${key}</div>
-      ${isUnavailable ? '<div class="tile-badge unavailable">Coming Soon</div>' : ''}
-    `;
-    
-    tile.onclick = () => {
-      if (isFolder) {
-        path.push(key);
-        renderTiles(value);
-        updateBreadcrumb();
-      } else if (isAvailable) {
-        path.push(key);
-        showPDF(value);
-        addToRecent(key, [...path], value);
-        updateBreadcrumb();
-      }
-    };
-    
-    container.appendChild(tile);
-  });
+  if (cards.length === 0) {
+    showNotification('Please add at least one card with both front and back', 'error');
+    return;
+  }
   
-  const tilesSection = document.getElementById('tilesSection');
-  const pdfViewer = document.getElementById('pdfViewer');
-  const dashboardHeader = document.querySelector('.dashboard-header');
-  
-  if (tilesSection) tilesSection.style.display = 'block';
-  if (pdfViewer) pdfViewer.style.display = 'none';
-  if (dashboardHeader) dashboardHeader.style.display = 'flex';
-}
-
-function isFavorite(title, docPath) {
-  const pathString = Array.isArray(docPath) ? docPath.join('|') : docPath;
-  return favorites.some(f => f.title === title && (Array.isArray(f.path) ? f.path.join('|') : f.path) === pathString);
-}
-
-function updateBreadcrumb() {
-  const breadcrumb = document.getElementById('breadcrumb');
-  const backBtn = document.getElementById('backBtn');
-  if (!breadcrumb) return;
-  
-  let html = `<span class="breadcrumb-item" onclick="goToRoot()"><i class="fas fa-home"></i> Home</span>`;
-  path.forEach((p, index) => {
-    html += `<span class="breadcrumb-separator"><i class="fas fa-chevron-right"></i></span>`;
-    html += `<span class="breadcrumb-item" onclick="goToPath(${index})">${p}</span>`;
-  });
-  breadcrumb.innerHTML = html;
-  if (backBtn) backBtn.style.display = path.length > 0 ? 'flex' : 'none';
-}
-
-function goToRoot() {
-  path = [];
-  renderTiles(documents);
-  updateBreadcrumb();
-  const pdfViewer = document.getElementById('pdfViewer');
-  if (pdfViewer) { pdfViewer.style.display = 'none'; pdfViewer.src = ''; }
-  hideTimerCompletely();
-}
-
-function goToPath(index) {
-  path = path.slice(0, index + 1);
-  const level = getCurrentLevel();
-  if (typeof level === 'string') {
-    path.pop();
-    renderTiles(getCurrentLevel());
+  if (currentEditingDeck) {
+    currentEditingDeck.name = name;
+    currentEditingDeck.cards = cards;
   } else {
-    renderTiles(level);
+    flashcardDecks.push({
+      id: Date.now().toString(),
+      name,
+      cards
+    });
   }
-  updateBreadcrumb();
-  const pdfViewer = document.getElementById('pdfViewer');
-  if (pdfViewer) { pdfViewer.style.display = 'none'; pdfViewer.src = ''; }
-  hideTimerCompletely();
+  
+  saveFlashcardDecks();
+  renderFlashcardDecks();
+  modal?.classList.remove('active');
+  showNotification(currentEditingDeck ? 'Deck updated!' : 'Deck created!', 'success');
+  currentEditingDeck = null;
 }
 
-function showPDF(url) {
-  const pdfViewer = document.getElementById('pdfViewer');
-  const tilesContainer = document.getElementById('tilesContainer');
-  const dashboardHeader = document.querySelector('.dashboard-header');
-  if (!pdfViewer) return;
-  
-    if (tilesContainer) tilesContainer.style.display = 'none';
-  if (dashboardHeader) dashboardHeader.style.display = 'none';
-  
-    pdfViewer.src = url;
-  pdfViewer.style.display = 'block';
-  
-  initializeTimer();
-  showTimer();
-  trackPdfViewStart();
-  
-    recordStudyActivity();
+function deleteDeck(deckId) {
+  if (confirm('Delete this deck?')) {
+    flashcardDecks = flashcardDecks.filter(d => d.id !== deckId);
+    saveFlashcardDecks();
+    renderFlashcardDecks();
+    showNotification('Deck deleted', 'info');
+  }
 }
 
-function loadDocuments() {
-  console.log('Documents loaded');
+function startStudyDeck(deckId) {
+  const deck = flashcardDecks.find(d => d.id === deckId);
+  if (!deck || deck.cards.length === 0) return;
+  
+  currentStudyDeck = deck;
+  currentCardIndex = 0;
+  
+  const modal = document.getElementById('studyModal');
+  if (modal) {
+    modal.classList.add('active');
+    showCurrentCard();
+  }
 }
 
-function trackDailyAccess() {
-  const today = new Date().toISOString().split('T')[0];
-  const accessHistory = JSON.parse(localStorage.getItem('dailyAccess') || '{}');
-  accessHistory[today] = (accessHistory[today] || 0) + 1;
-  localStorage.setItem('dailyAccess', JSON.stringify(accessHistory));
+function showCurrentCard() {
+  if (!currentStudyDeck) return;
+  
+  const card = currentStudyDeck.cards[currentCardIndex];
+  const flashcard = document.getElementById('activeFlashcard');
+  const counter = document.getElementById('cardProgress');
+  const frontEl = document.getElementById('cardFront');
+  const backEl = document.getElementById('cardBack');
+  
+  if (flashcard) {
+    flashcard.classList.remove('flipped');
+  }
+  if (frontEl) frontEl.textContent = card.front;
+  if (backEl) backEl.textContent = card.back;
+  
+  if (counter) {
+    counter.textContent = `${currentCardIndex + 1} / ${currentStudyDeck.cards.length}`;
+  }
 }
 
-window.goToRoot = goToRoot;
-window.goToPath = goToPath;
-
-function renderAnalytics() {
-  renderSubjectChart();
-  renderAccessChart();
+function flipCard() {
+  const flashcard = document.getElementById('activeFlashcard');
+  flashcard?.classList.toggle('flipped');
 }
 
-function renderSubjectChart() {
-  const canvas = document.getElementById('subjectChart');
-  if (!canvas) return;
-  const ctx = canvas.getContext('2d');
-  const recentDocuments = JSON.parse(localStorage.getItem('questionary-recent') || '[]');
-  const subjectAccess = {};
+function nextCard() {
+  if (!currentStudyDeck) return;
+  currentCardIndex = (currentCardIndex + 1) % currentStudyDeck.cards.length;
+  showCurrentCard();
+}
+
+function prevCard() {
+  if (!currentStudyDeck) return;
+  currentCardIndex = (currentCardIndex - 1 + currentStudyDeck.cards.length) % currentStudyDeck.cards.length;
+  showCurrentCard();
+}
+
+// ==================== STUDY SESSION FUNCTIONS ====================
+function loadStudySessions() {
+  studySessions = JSON.parse(localStorage.getItem('questionary-sessions') || '[]');
+}
+
+function saveStudySessions() {
+  localStorage.setItem('questionary-sessions', JSON.stringify(studySessions));
+}
+
+function openSessionModal() {
+  const modal = document.getElementById('sessionModal');
+  const subjectInput = document.getElementById('sessionSubject');
+  const dateInput = document.getElementById('sessionDate');
+  const timeInput = document.getElementById('sessionTime');
   
-  recentDocuments.forEach(doc => {
-    if (doc.title) {
-      const subject = doc.title;
-      subjectAccess[subject] = (subjectAccess[subject] || 0) + 1;
-    }
-  });
+  if (!modal) { console.error('Session modal not found'); return; }
   
-  const data = Object.entries(subjectAccess).sort(([, a], [, b]) => b - a).slice(0, 6);
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if (subjectInput) subjectInput.value = '';
+  if (dateInput) dateInput.value = new Date().toISOString().split('T')[0];
+  if (timeInput) timeInput.value = '09:00';
   
-  if (data.length === 0) {
-    ctx.font = '14px Inter, sans-serif';
-    ctx.fillStyle = '#64748b';
-    ctx.textAlign = 'center';
-    ctx.fillText('No subject data available', canvas.width / 2, canvas.height / 2);
-    ctx.fillText('Access documents to see analytics', canvas.width / 2, canvas.height / 2 + 20);
+  modal.classList.add('active');
+}
+
+function saveSession() {
+  const subjectInput = document.getElementById('sessionSubject');
+  const dateInput = document.getElementById('sessionDate');
+  const timeInput = document.getElementById('sessionTime');
+  const modal = document.getElementById('sessionModal');
+  
+  const subject = subjectInput?.value.trim();
+  const date = dateInput?.value;
+  const time = timeInput?.value;
+  
+  if (!subject) {
+    showNotification('Please enter a subject', 'error');
     return;
   }
   
-  const maxValue = Math.max(...data.map(([, c]) => c));
-  const barWidth = (canvas.width - 40) / data.length;
-  
-  data.forEach(([subject, count], index) => {
-    const barHeight = Math.max(10, (count / maxValue) * (canvas.height - 60));
-    const x = 20 + index * barWidth + (barWidth - 30) / 2;
-    const y = canvas.height - barHeight - 30;
-    const gradient = ctx.createLinearGradient(0, y, 0, y + barHeight);
-    gradient.addColorStop(0, '#f97316');
-    gradient.addColorStop(1, '#ea580c');
-    ctx.fillStyle = gradient;
-    ctx.fillRect(x, y, 30, barHeight);
-    ctx.fillStyle = '#374151';
-    ctx.font = '11px Inter, sans-serif';
-    ctx.textAlign = 'center';
-    const displaySubject = subject.length > 8 ? subject.substring(0, 8) + '...' : subject;
-    ctx.fillText(displaySubject, x + 15, canvas.height - 10);
-    ctx.fillStyle = '#1f2937';
-    ctx.font = '600 12px Inter, sans-serif';
-    ctx.fillText(count.toString(), x + 15, y - 5);
-  });
-}
-
-function renderAccessChart() {
-  const canvas = document.getElementById('accessChart');
-  if (!canvas) return;
-  const ctx = canvas.getContext('2d');
-  const accessHistory = JSON.parse(localStorage.getItem('dailyAccess') || '{}');
-  const days = [];
-  const accessCounts = [];
-  
-  for (let i = 6; i >= 0; i--) {
-    const date = new Date();
-    date.setDate(date.getDate() - i);
-    const dateKey = date.toISOString().split('T')[0];
-    const dayName = date.toLocaleDateString('en-US', { weekday: 'short' });
-    days.push(dayName);
-    accessCounts.push(accessHistory[dateKey] || 0);
-  }
-  
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  
-  if (accessCounts.every(c => c === 0)) {
-    ctx.font = '14px Inter, sans-serif';
-    ctx.fillStyle = '#64748b';
-    ctx.textAlign = 'center';
-    ctx.fillText('No access data available', canvas.width / 2, canvas.height / 2);
-    ctx.fillText('Use the app to see your activity', canvas.width / 2, canvas.height / 2 + 20);
+  if (!date) {
+    showNotification('Please select a date', 'error');
     return;
   }
   
-  const maxValue = Math.max(...accessCounts, 1);
-  const pointSpacing = (canvas.width - 40) / (days.length - 1);
-  
-  
-  ctx.strokeStyle = '#e5e7eb';
-  ctx.lineWidth = 1;
-  for (let i = 0; i <= 4; i++) {
-    const y = 20 + (i / 4) * (canvas.height - 60);
-    ctx.beginPath();
-    ctx.moveTo(20, y);
-    ctx.lineTo(canvas.width - 20, y);
-    ctx.stroke();
-  }
-  
-  
-  ctx.beginPath();
-  ctx.strokeStyle = '#f97316';
-  ctx.lineWidth = 2;
-  accessCounts.forEach((count, index) => {
-    const x = 20 + index * pointSpacing;
-    const y = canvas.height - 40 - (count / maxValue) * (canvas.height - 60);
-    index === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  studySessions.push({
+    id: Date.now().toString(),
+    subject,
+    date,
+    time: time || '09:00'
   });
-  ctx.stroke();
   
-  
-  accessCounts.forEach((count, index) => {
-    const x = 20 + index * pointSpacing;
-    const y = canvas.height - 40 - (count / maxValue) * (canvas.height - 60);
-    ctx.fillStyle = '#f97316';
-    ctx.beginPath();
-    ctx.arc(x, y, 4, 0, 2 * Math.PI);
-    ctx.fill();
-    ctx.fillStyle = '#374151';
-    ctx.font = '11px Inter, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText(days[index], x, canvas.height - 10);
-    if (count > 0) {
-      ctx.fillStyle = '#1f2937';
-      ctx.font = '600 12px Inter, sans-serif';
-      ctx.fillText(count.toString(), x, y - 10);
-    }
-  });
+  saveStudySessions();
+  renderCalendar();
+  renderSessions();
+  modal?.classList.remove('active');
+  showNotification('Session added!', 'success');
 }
 
-function saveUserPreferences() {
-  
-}
-
-function updateDashboardStats() {
-  
-  const totalDocsEl = document.getElementById('totalDocuments');
-  const favoriteCountEl = document.getElementById('favoriteCount');
-  const recentCountEl = document.getElementById('recentCount');
-  const dashboardStreakEl = document.getElementById('dashboardStreak');
-  
-  
-  let count = 0;
-  function countDocs(obj) {
-    for (let key in obj) {
-      if (typeof obj[key] === 'string') {
-                if (obj[key] !== '#') count++;
-      } else if (typeof obj[key] === 'object') {
-        countDocs(obj[key]);
-      }
-    }
-  }
-  countDocs(documents);
-  
-  if (totalDocsEl) {
-    totalDocsEl.textContent = count;
-  }
-  
-  
-  if (favoriteCountEl) {
-    favoriteCountEl.textContent = favorites.length;
-  }
-  
-  
-  const recentDocs = JSON.parse(localStorage.getItem('questionary-recent') || '[]');
-  if (recentCountEl) {
-    recentCountEl.textContent = recentDocs.length;
-  }
-  
-    if (dashboardStreakEl) {
-    dashboardStreakEl.textContent = studyStats.streak || 0;
+function deleteSession(sessionId) {
+  if (confirm('Delete this session?')) {
+    studySessions = studySessions.filter(s => s.id !== sessionId);
+    saveStudySessions();
+    renderCalendar();
+    renderSessions();
+    showNotification('Session deleted', 'info');
   }
 }
 
-function setActiveNav(activeId) {
-  document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
-  document.getElementById(activeId)?.classList.add('active');
+function showDaySessions(dateStr) {
+  const sessionsOnDay = studySessions.filter(s => s.date === dateStr);
+  if (sessionsOnDay.length === 0) {
+    showNotification(`No sessions on ${dateStr}`, 'info');
+  } else {
+    const list = sessionsOnDay.map(s => `• ${s.subject} at ${s.time}`).join('\n');
+    alert(`Sessions on ${dateStr}:\n\n${list}`);
+  }
 }
 
+function loadStudyStats() {
+  studyStats = JSON.parse(localStorage.getItem('questionary-study-stats') || '{"totalTime":0,"streak":0,"lastStudyDate":null,"hourlyActivity":{}}');
+}
+
+function loadDocumentProgress() {
+  documentProgress = JSON.parse(localStorage.getItem('questionary-doc-progress') || '{}');
+}
+
+// Make functions globally available
+window.openNoteModal = openNoteModal;
+window.saveNote = saveNote;
+window.deleteNote = deleteNote;
+window.editNote = editNote;
+window.openFlashcardModal = openFlashcardModal;
+window.addCardEditor = addCardEditor;
+window.saveDeck = saveDeck;
+window.deleteDeck = deleteDeck;
+window.startStudyDeck = startStudyDeck;
+window.flipCard = flipCard;
+window.nextCard = nextCard;
+window.prevCard = prevCard;
+window.openSessionModal = openSessionModal;
+window.saveSession = saveSession;
+window.deleteSession = deleteSession;
+window.showDaySessions = showDaySessions;
+
+
+// Initialize favorites, settings, and UI on DOMContentLoaded
 document.addEventListener('DOMContentLoaded', async () => {
-    await initializeFavorites();
+  
+  await initializeFavorites();
   
   applyAccessibilitySettings();
   
-    if (typeof initializeNewFeatures === 'function') {
+  
+  if (typeof initializeNewFeatures === 'function') {
     initializeNewFeatures();
   }
   
@@ -923,9 +1556,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   const themeToggle = document.getElementById('themeToggle');
   const themeIcon = document.getElementById('themeIcon');
   
-    let savedTheme = localStorage.getItem('theme');
+  
+  let savedTheme = localStorage.getItem('theme');
   if (!savedTheme) {
-        if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+    
+    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
       savedTheme = 'dark';
     } else {
       savedTheme = 'light';
@@ -934,9 +1569,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.documentElement.setAttribute('data-theme', savedTheme);
   updateThemeIcon(savedTheme);
   
-    if (window.matchMedia) {
+  
+  if (window.matchMedia) {
     window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
-            if (!localStorage.getItem('theme')) {
+      
+      if (!localStorage.getItem('theme')) {
         const newTheme = e.matches ? 'dark' : 'light';
         document.documentElement.setAttribute('data-theme', newTheme);
         updateThemeIcon(newTheme);
@@ -971,12 +1608,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
   
-    const loginForm = document.getElementById('loginForm');
+  
+  const loginForm = document.getElementById('loginForm');
   if (loginForm) {
     loginForm.addEventListener('submit', handleLogin);
   }
   
-    checkSavedLogin();
+  
+  checkSavedLogin();
   
   document.addEventListener('click', e => {
     e.target.closest('.btn') && createRipple(e);
@@ -1017,8 +1656,7 @@ function handleLogin(e) {
   const rememberMeEl = document.getElementById('rememberMe');
   
   if (!usernameEl || !passwordEl) {
-    console.error('Login form elements not found');
-    showNotification('Login form error', 'error');
+    showNotification('Login form elements not found', 'error');
     return;
   }
   
@@ -1029,65 +1667,54 @@ function handleLogin(e) {
   console.log('Attempting login for:', username);
   
   if (!username || !password) {
-    showNotification('Please enter username and password', 'error');
+    showNotification('Please enter both username and password', 'warning');
     return;
   }
   
   if (users[username] && users[username].password === password) {
     currentUser = { username, role: users[username].role };
+    
     if (rememberMe) {
-      localStorage.setItem('revamp-dpsnt-remember', JSON.stringify({ username, password }));
-    } else {
-      localStorage.removeItem('revamp-dpsnt-remember');
+      localStorage.setItem('revamp-dpsnt-remember', JSON.stringify({ username, role: users[username].role }));
     }
-    sessionStorage.setItem('revamp-dpsnt-session', JSON.stringify(currentUser));
-    showNotification('Login successful!', 'success');
+    sessionStorage.setItem('revamp-dpsnt-session', JSON.stringify({ username, role: users[username].role }));
+    
+    showNotification(`Welcome, ${username}!`, 'success');
+    
+    // Small delay to show the notification before transitioning
     setTimeout(() => {
       showApp();
-      renderTiles(documents);
-      updateBreadcrumb();
-      updateDashboardStats();
+      initializeAppAfterLogin();
     }, 500);
   } else {
-    console.log('Login failed - user not found or wrong password');
     showNotification('Invalid username or password', 'error');
   }
 }
-
 
 function checkSavedLogin() {
   const savedLogin = localStorage.getItem('revamp-dpsnt-remember');
   if (savedLogin) {
     try {
-      const { username, password } = JSON.parse(savedLogin);
-      if (users[username] && users[username].password === password) {
-        currentUser = { username, role: users[username].role };
-        sessionStorage.setItem('revamp-dpsnt-session', JSON.stringify(currentUser));
-        showAutoLoginNotification(username);
-        setTimeout(() => {
-          showApp();
-          loadDocuments();
-          renderTiles(documents);
-          updateDashboardStats();
-        }, 1000);
-        return true;
-      }
-    } catch (e) { console.error('Error checking saved login:', e); }
+      currentUser = JSON.parse(savedLogin);
+      showApp();
+      initializeAppAfterLogin();
+      setTimeout(() => showAutoLoginNotification(currentUser.username), 300);
+      return true;
+    } catch (e) {
+      localStorage.removeItem('revamp-dpsnt-remember');
+    }
   }
   
   const previousLogin = sessionStorage.getItem('revamp-dpsnt-session');
   if (previousLogin) {
     try {
-      const userData = JSON.parse(previousLogin);
-      if (userData && userData.username && users[userData.username]) {
-        currentUser = userData;
-        showApp();
-        loadDocuments();
-        renderTiles(documents);
-        updateDashboardStats();
-        return true;
-      }
-    } catch (e) { console.error('Error checking previous login:', e); }
+      currentUser = JSON.parse(previousLogin);
+      showApp();
+      initializeAppAfterLogin();
+      return true;
+    } catch (e) {
+      sessionStorage.removeItem('revamp-dpsnt-session');
+    }
   }
   return false;
 }
@@ -1106,20 +1733,24 @@ function initializeNavigation() {
   const navLinks = document.getElementById('navLinks');
   const backBtn = document.getElementById('backBtn');
   
-    if (backBtn) {
+  
+  if (backBtn) {
     backBtn.addEventListener('click', handleBackButton);
   }
   
-    mobileMenuToggle && mobileMenuToggle.addEventListener('click', () => {
+  
+  mobileMenuToggle && mobileMenuToggle.addEventListener('click', () => {
     navLinks && navLinks.classList.toggle('active');
-        const icon = mobileMenuToggle.querySelector('i');
+    
+    const icon = mobileMenuToggle.querySelector('i');
     if (icon) {
       icon.classList.toggle('fa-bars');
       icon.classList.toggle('fa-times');
     }
   });
   
-    document.addEventListener('click', (e) => {
+  
+  document.addEventListener('click', (e) => {
     if (navLinks && navLinks.classList.contains('active')) {
       if (!e.target.closest('.nav-links') && !e.target.closest('.mobile-menu-toggle')) {
         navLinks.classList.remove('active');
@@ -1132,7 +1763,8 @@ function initializeNavigation() {
     }
   });
   
-    const closeMenuOnClick = () => {
+  
+  const closeMenuOnClick = () => {
     if (navLinks && window.innerWidth <= 768) {
       navLinks.classList.remove('active');
       const icon = mobileMenuToggle?.querySelector('i');
@@ -1219,9 +1851,11 @@ function initializeAccessibility() {
   setupAccessibilityToggle('reducedMotionToggle', 'reducedMotion', 'reduced-motion');
   setupAccessibilityToggle('enhancedFocusToggle', 'enhancedFocus', 'enhanced-focus');
   
-    applyAccessibilitySettings();
   
-    updateAccessibilityToggleStates();
+  applyAccessibilitySettings();
+  
+  
+  updateAccessibilityToggleStates();
 }
 
 function setupAccessibilityToggle(toggleId, settingKey, className) {
@@ -1231,9 +1865,11 @@ function setupAccessibilityToggle(toggleId, settingKey, className) {
     return;
   }
   
-    const switchEl = toggle.querySelector('.accessibility-switch');
   
-    if (accessibilitySettings[settingKey]) {
+  const switchEl = toggle.querySelector('.accessibility-switch');
+  
+  
+  if (accessibilitySettings[settingKey]) {
     toggle.classList.add('active');
     if (switchEl) switchEl.classList.add('active');
   }
@@ -1268,22 +1904,26 @@ function updateAccessibilityToggleStates() {
 
 function initializeKeyboardNavigation() {
   document.addEventListener('keydown', (e) => {
-        const isInputFocused = e.target.closest('input, textarea');
+    
+    const isInputFocused = e.target.closest('input, textarea');
     
     if (e.key === 'Escape') {
-            const searchResults = document.getElementById('searchResults');
+      
+      const searchResults = document.getElementById('searchResults');
       if (searchResults && searchResults.style.display !== 'none') {
         searchResults.style.display = 'none';
         return;
       }
       
-            const accessibilityPanel = document.getElementById('accessibilityPanel');
+      
+      const accessibilityPanel = document.getElementById('accessibilityPanel');
       if (accessibilityPanel && accessibilityPanel.classList.contains('active')) {
         accessibilityPanel.classList.remove('active');
         return;
       }
       
-            const pdfViewer = document.getElementById('pdfViewer');
+      
+      const pdfViewer = document.getElementById('pdfViewer');
       if (pdfViewer && pdfViewer.style.display === 'block') {
         pdfViewer.style.display = 'none';
         pdfViewer.src = '';
@@ -1295,12 +1935,14 @@ function initializeKeyboardNavigation() {
         return;
       }
       
-            if (path.length > 0) {
+      
+      if (path.length > 0) {
         handleBackButton();
         return;
       }
       
-            if (currentView !== 'home') {
+      
+      if (currentView !== 'home') {
         showView('home');
         path = [];
         renderTiles(documents);
@@ -1319,7 +1961,8 @@ function initializeKeyboardNavigation() {
       handleBackButton();
     }
     
-        if (e.altKey && e.key === 'ArrowLeft' && !isInputFocused) {
+    
+    if (e.altKey && e.key === 'ArrowLeft' && !isInputFocused) {
       e.preventDefault();
       const pdfViewer = document.getElementById('pdfViewer');
       if (pdfViewer && pdfViewer.style.display === 'block') {
@@ -1341,7 +1984,8 @@ function initializeKeyboardNavigation() {
       }
     }
     
-        if (e.altKey && e.key === 'Home' && !isInputFocused) {
+    
+    if (e.altKey && e.key === 'Home' && !isInputFocused) {
       e.preventDefault();
       const pdfViewer = document.getElementById('pdfViewer');
       if (pdfViewer) {
@@ -1362,7 +2006,8 @@ function initializeKeyboardNavigation() {
 function showView(viewName) {
   currentView = viewName;
   
-    const tilesSection = document.getElementById('tilesSection');
+  
+  const tilesSection = document.getElementById('tilesSection');
   const favoritesSection = document.getElementById('favoritesSection');
   const recentSection = document.getElementById('recentSection');
   const analyticsSection = document.getElementById('analyticsSection');
@@ -1376,7 +2021,8 @@ function showView(viewName) {
   const backBtn = document.getElementById('backBtn');
   const pdfViewer = document.getElementById('pdfViewer');
   
-    const allSections = [tilesSection, favoritesSection, recentSection, analyticsSection, 
+  
+  const allSections = [tilesSection, favoritesSection, recentSection, analyticsSection, 
                        plannerSection, flashcardsSection, notesSection, progressSection];
   allSections.forEach(section => {
     if (section) section.style.display = 'none';
@@ -1384,7 +2030,8 @@ function showView(viewName) {
   if (searchResults) searchResults.style.display = 'none';
   if (pdfViewer) pdfViewer.style.display = 'none';
   
-    switch(viewName) {
+  
+  switch(viewName) {
     case 'home':
       if (tilesSection) tilesSection.style.display = 'block';
       if (dashboardHeader) dashboardHeader.style.display = 'flex';
@@ -1457,7 +2104,16 @@ function addToRecent(title, docPath, url) {
   if (existing > -1) recent.splice(existing, 1);
   recent.unshift({ title, path: docPath, url, timestamp: Date.now() });
   const updatedRecent = recent.slice(0, 20);
-    saveRecentToStorage(updatedRecent);
+  
+  saveRecentToStorage(updatedRecent);
+  
+  // Track subject/folder access for analytics
+  if (docPath && docPath.length > 0) {
+    trackSubjectAccess(docPath[0]);
+    if (docPath.length > 1) {
+      trackSubjectAccess(docPath[1]);
+    }
+  }
 }
 
 
@@ -1471,7 +2127,8 @@ function toggleFavorite(title, docPath, url) {
     favorites.push({ title, path: docPath, url });
     showNotification('Added to favorites', 'success');
   }
-    saveFavorites();
+  
+  saveFavorites();
   updateDashboardStats();
 }
 
@@ -1559,12 +2216,17 @@ function handleBackButton() {
   if (path.length > 0) {
     path.pop();
     const pdfViewer = document.getElementById('pdfViewer');
-    pdfViewer && (pdfViewer.style.display = 'none');
+    if (pdfViewer) {
+      pdfViewer.style.cssText = 'display: none !important;';
+      pdfViewer.classList.remove('active');
+      pdfViewer.src = '';
+    }
     renderTiles(getCurrentLevel());
     updateBreadcrumb();
     hideTimerCompletely();
   }
 }
+
 
 function initializeTimer() {
   const timerPanel = document.getElementById('timerPanel');
@@ -1579,11 +2241,14 @@ function initializeTimer() {
   const timerMiniLap = document.getElementById('timerMiniLap');
   const timerReopenBtn = document.getElementById('timerReopenBtn');
 
-    initializeTimerDrag();
   
-    initializeTimerResize();
+  initializeTimerDrag();
+  
+  
+  initializeTimerResize();
 
-    if (timerReopenBtn) {
+  
+  if (timerReopenBtn) {
     const newReopen = timerReopenBtn.cloneNode(true);
     timerReopenBtn.parentNode.replaceChild(newReopen, timerReopenBtn);
     newReopen.addEventListener('click', () => {
@@ -1592,20 +2257,27 @@ function initializeTimer() {
     });
   }
 
-    timerPresets.forEach(btn => {
-        if (btn.dataset.presetId || btn.id === 'addPresetBtn' || btn.classList.contains('custom-preset') || btn.classList.contains('add-custom')) return;
+  
+  timerPresets.forEach(btn => {
     
-        if (btn.dataset.initialized === 'true') return;
+    if (btn.dataset.presetId || btn.id === 'addPresetBtn' || btn.classList.contains('custom-preset') || btn.classList.contains('add-custom')) return;
     
-        const durationAttr = btn.getAttribute('data-duration');
+    
+    if (btn.dataset.initialized === 'true') return;
+    
+    
+    const durationAttr = btn.getAttribute('data-duration');
     if (!durationAttr) return;
     
-        const duration = parseInt(durationAttr, 10);
+    
+    const duration = parseInt(durationAttr, 10);
     if (!duration || isNaN(duration) || duration <= 0) return;
     
-        btn.dataset.initialized = 'true';
     
-        const newBtn = btn.cloneNode(true);
+    btn.dataset.initialized = 'true';
+    
+    
+    const newBtn = btn.cloneNode(true);
     btn.parentNode.replaceChild(newBtn, btn);
     
     newBtn.addEventListener('click', () => {
@@ -1613,49 +2285,57 @@ function initializeTimer() {
     });
   });
 
-    if (timerClose) {
+  
+  if (timerClose) {
     const newClose = timerClose.cloneNode(true);
     timerClose.parentNode.replaceChild(newClose, timerClose);
     newClose.addEventListener('click', () => hideTimer());
   }
 
-    if (timerMinimize) {
+  
+  if (timerMinimize) {
     const newMinimize = timerMinimize.cloneNode(true);
     timerMinimize.parentNode.replaceChild(newMinimize, timerMinimize);
     newMinimize.addEventListener('click', () => toggleTimerMinimize());
   }
 
-    if (timerStart) {
+  
+  if (timerStart) {
     const newStart = timerStart.cloneNode(true);
     timerStart.parentNode.replaceChild(newStart, timerStart);
     newStart.addEventListener('click', () => startTimer());
   }
 
-    if (timerPause) {
+  
+  if (timerPause) {
     const newPause = timerPause.cloneNode(true);
     timerPause.parentNode.replaceChild(newPause, timerPause);
     newPause.addEventListener('click', () => pauseTimer());
   }
 
-    if (timerResume) {
+  
+  if (timerResume) {
     const newResume = timerResume.cloneNode(true);
     timerResume.parentNode.replaceChild(newResume, timerResume);
     newResume.addEventListener('click', () => resumeTimer());
   }
 
-    if (timerReset) {
+  
+  if (timerReset) {
     const newReset = timerReset.cloneNode(true);
     timerReset.parentNode.replaceChild(newReset, timerReset);
     newReset.addEventListener('click', () => resetTimer());
   }
 
-    if (timerLap) {
+  
+  if (timerLap) {
     const newLap = timerLap.cloneNode(true);
     timerLap.parentNode.replaceChild(newLap, timerLap);
     newLap.addEventListener('click', () => addLap());
   }
 
-    if (timerMiniLap) {
+  
+  if (timerMiniLap) {
     const newMiniLap = timerMiniLap.cloneNode(true);
     timerMiniLap.parentNode.replaceChild(newMiniLap, timerMiniLap);
     newMiniLap.addEventListener('click', () => addLap());
@@ -1675,7 +2355,8 @@ function initializeTimerDrag() {
   dragHandle.addEventListener('touchstart', startDrag, { passive: false });
   
   function startDrag(e) {
-        if (e.target.closest('button')) return;
+    
+    if (e.target.closest('button')) return;
     
     isDragging = true;
     timerPanel.style.transition = 'none';
@@ -1692,7 +2373,8 @@ function initializeTimerDrag() {
       startY = e.clientY;
     }
     
-        timerPanel.style.bottom = 'auto';
+    
+    timerPanel.style.bottom = 'auto';
     timerPanel.style.right = 'auto';
     timerPanel.style.left = initialLeft + 'px';
     timerPanel.style.top = initialTop + 'px';
@@ -1723,7 +2405,8 @@ function initializeTimerDrag() {
     let newLeft = initialLeft + deltaX;
     let newTop = initialTop + deltaY;
     
-        const panelRect = timerPanel.getBoundingClientRect();
+    
+    const panelRect = timerPanel.getBoundingClientRect();
     const maxLeft = window.innerWidth - panelRect.width;
     const maxTop = window.innerHeight - panelRect.height;
     
@@ -1799,8 +2482,8 @@ function initializeTimerResize() {
     const deltaX = currentX - startX;
     const deltaY = currentY - startY;
     
-    const newWidth = Math.max(280, Math.min(500, startWidth + deltaX));
-    const newHeight = Math.max(200, startHeight + deltaY);
+    const newWidth = Math.max(280, Math.min(window.innerWidth - 20, startWidth + deltaX));
+    const newHeight = Math.max(200, Math.min(window.innerHeight - 20, startHeight + deltaY));
     
     timerPanel.style.width = newWidth + 'px';
     timerPanel.style.height = newHeight + 'px';
@@ -1827,6 +2510,10 @@ function toggleTimerMinimize() {
   
   timerPanel.classList.toggle('minimized');
   
+  if (!timerPanel) return;
+  
+  timerPanel.classList.toggle('minimized');
+  
   if (minimizeBtn) {
     const icon = minimizeBtn.querySelector('i');
     if (icon) {
@@ -1842,23 +2529,29 @@ function toggleTimerMinimize() {
 }
 
 function selectTimerPreset(btn, duration) {
-    if (!duration || isNaN(duration) || duration <= 0) {
+  
+  if (!duration || isNaN(duration) || duration <= 0) {
     console.error('Invalid timer duration:', duration);
     return;
   }
   
-    document.querySelectorAll('.timer-preset-btn').forEach(b => b.classList.remove('active'));
+  
+  document.querySelectorAll('.timer-preset-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
   
-    timerState.duration = duration;
+  
+  timerState.duration = duration;
   timerState.remaining = duration;
   
-    updateTimerDisplay();
   
-    const timerControls = document.getElementById('timerControls');
+  updateTimerDisplay();
+  
+  
+  const timerControls = document.getElementById('timerControls');
   timerControls && (timerControls.style.display = 'flex');
   
-    const startBtn = document.getElementById('timerStart');
+  
+  const startBtn = document.getElementById('timerStart');
   const pauseBtn = document.getElementById('timerPause');
   const resumeBtn = document.getElementById('timerResume');
   
@@ -1866,13 +2559,16 @@ function selectTimerPreset(btn, duration) {
   if (pauseBtn) pauseBtn.style.display = 'none';
   if (resumeBtn) resumeBtn.style.display = 'none';
   
-    updateTimerStatus('Ready to start');
   
-    const progressBar = document.getElementById('timerProgressBar');
+  updateTimerStatus('Ready to start');
+  
+  
+  const progressBar = document.getElementById('timerProgressBar');
   progressBar && (progressBar.style.width = '100%');
   progressBar && progressBar.classList.remove('warning', 'danger');
   
-    const timerDisplay = document.getElementById('timerDisplay');
+  
+  const timerDisplay = document.getElementById('timerDisplay');
   timerDisplay && timerDisplay.classList.remove('warning', 'danger');
 }
 
@@ -1883,12 +2579,14 @@ function startTimer() {
   timerState.isPaused = false;
   timerState.lastLapTime = timerState.duration;
   
-    document.getElementById('timerStart').style.display = 'none';
+  
+  document.getElementById('timerStart').style.display = 'none';
   document.getElementById('timerPause').style.display = 'flex';
   document.getElementById('timerResume').style.display = 'none';
   document.getElementById('timerLap').style.display = 'flex';
   
-    const miniLap = document.getElementById('timerMiniLap');
+  
+  const miniLap = document.getElementById('timerMiniLap');
   if (miniLap) {
     miniLap.disabled = false;
     miniLap.style.opacity = '1';
@@ -1896,7 +2594,8 @@ function startTimer() {
   
   updateTimerStatus('Timer running', 'active');
   
-    timerState.interval = setInterval(() => {
+  
+  timerState.interval = setInterval(() => {
     if (timerState.remaining > 0) {
       timerState.remaining--;
       updateTimerDisplay();
@@ -1913,7 +2612,8 @@ function pauseTimer() {
   
   clearInterval(timerState.interval);
   
-    document.getElementById('timerPause').style.display = 'none';
+  
+  document.getElementById('timerPause').style.display = 'none';
   document.getElementById('timerResume').style.display = 'flex';
   
   updateTimerStatus('Timer paused', 'paused');
@@ -1923,12 +2623,14 @@ function resumeTimer() {
   timerState.isRunning = true;
   timerState.isPaused = false;
   
-    document.getElementById('timerPause').style.display = 'flex';
+  
+  document.getElementById('timerPause').style.display = 'flex';
   document.getElementById('timerResume').style.display = 'none';
   
   updateTimerStatus('Timer running', 'active');
   
-    timerState.interval = setInterval(() => {
+  
+  timerState.interval = setInterval(() => {
     if (timerState.remaining > 0) {
       timerState.remaining--;
       updateTimerDisplay();
@@ -1948,12 +2650,14 @@ function resetTimer() {
   timerState.laps = [];
   timerState.lastLapTime = timerState.duration;
   
-    document.getElementById('timerStart').style.display = 'flex';
+  
+  document.getElementById('timerStart').style.display = 'flex';
   document.getElementById('timerPause').style.display = 'none';
   document.getElementById('timerResume').style.display = 'none';
   document.getElementById('timerLap').style.display = 'none';
   
-    const miniLap = document.getElementById('timerMiniLap');
+  
+  const miniLap = document.getElementById('timerMiniLap');
   if (miniLap) {
     miniLap.disabled = true;
     miniLap.style.opacity = '0.5';
@@ -1962,31 +2666,18 @@ function resetTimer() {
   updateTimerDisplay();
   renderLaps();
   
-    const progressBar = document.getElementById('timerProgressBar');
-  progressBar && (progressBar.style.width = '100%');
-  progressBar && progressBar.classList.remove('warning', 'danger');
+  // Reset progress bar
+  const progressBar = document.getElementById('timerProgressBar');
+  if (progressBar) {
+    progressBar.style.width = '100%';
+    progressBar.classList.remove('warning', 'danger');
+  }
   
-    const timerDisplay = document.getElementById('timerDisplay');
-  timerDisplay && timerDisplay.classList.remove('warning', 'danger');
+  // Reset display colors
+  const timerDisplay = document.getElementById('timerDisplay');
+  if (timerDisplay) timerDisplay.classList.remove('warning', 'danger');
   
   updateTimerStatus('Timer reset');
-}
-
-function timerFinished() {
-  clearInterval(timerState.interval);
-  
-  timerState.isRunning = false;
-  timerState.isPaused = false;
-  
-    document.getElementById('timerStart').style.display = 'none';
-  document.getElementById('timerPause').style.display = 'none';
-  document.getElementById('timerResume').style.display = 'none';
-  
-  updateTimerStatus('Time\'s up!', 'finished');
-  
-    playTimerAlert();
-  
-    showNotification('⏰ Time\'s up! Your exam time has ended.', 'error');
 }
 
 function updateTimerDisplay() {
@@ -1994,8 +2685,10 @@ function updateTimerDisplay() {
   const timerTitle = document.querySelector('.timer-title');
   if (!display) return;
   
-    const remaining = timerState.remaining || 0;
-  const duration = timerState.duration || 1;   
+  
+  const remaining = timerState.remaining || 0;
+  const duration = timerState.duration || 1; 
+  
   const hours = Math.floor(remaining / 3600);
   const minutes = Math.floor((remaining % 3600) / 60);
   const seconds = remaining % 60;
@@ -2003,11 +2696,13 @@ function updateTimerDisplay() {
   const timeStr = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
   display.textContent = timeStr;
   
-    if (timerTitle) {
+  
+  if (timerTitle) {
     timerTitle.setAttribute('data-time', timeStr);
   }
   
-    const percentRemaining = (remaining / duration) * 100;
+  
+  const percentRemaining = (remaining / duration) * 100;
   
   display.classList.remove('warning', 'danger');
   
@@ -2061,10 +2756,12 @@ function hideTimer() {
   if (timerPanel) {
     timerPanel.style.display = 'none';
   }
-    const pdfViewer = document.getElementById('pdfViewer');
+  
+  const pdfViewer = document.getElementById('pdfViewer');
   if (reopenBtn && pdfViewer && pdfViewer.style.display === 'block') {
     reopenBtn.style.display = 'flex';
-        if (timerState.isRunning) {
+    
+    if (timerState.isRunning) {
       reopenBtn.classList.add('pulse');
     }
   }
@@ -2081,7 +2778,8 @@ function hideTimerCompletely() {
     reopenBtn.classList.remove('pulse');
   }
   
-    if (timerState.isRunning) {
+  
+  if (timerState.isRunning) {
     clearInterval(timerState.interval);
     timerState.isRunning = false;
   }
@@ -2091,7 +2789,8 @@ function playTimerAlert() {
   try {
     const audioContext = new (window.AudioContext || window.webkitAudioContext)();
     
-        const beepDuration = 0.2;
+    
+    const beepDuration = 0.2;
     const beepCount = 3;
     
     for (let i = 0; i < beepCount; i++) {
@@ -2115,6 +2814,7 @@ function playTimerAlert() {
   }
 }
 
+
 function addLap() {
   if (!timerState.isRunning || timerState.remaining <= 0) {
     console.log('Cannot add lap - timer not running or no time remaining');
@@ -2133,12 +2833,14 @@ function addLap() {
   timerState.lastLapTime = lapTime;
   renderLaps();
   
-    showNotification(`Lap ${timerState.laps.length} recorded`, 'success');
+  
+  showNotification(`Lap ${timerState.laps.length} recorded`, 'success');
 }
 
 function deleteLap(index) {
   timerState.laps.splice(index, 1);
-    timerState.laps.forEach((lap, i) => {
+  
+  timerState.laps.forEach((lap, i) => {
     lap.number = i + 1;
   });
   renderLaps();
@@ -2179,7 +2881,8 @@ function renderLaps() {
     </div>
   `;
   
-    const reversedLaps = [...timerState.laps].reverse();
+  
+  const reversedLaps = [...timerState.laps].reverse();
   reversedLaps.forEach((lap, i) => {
     const actualIndex = timerState.laps.length - 1 - i;
     html += `
@@ -2200,62 +2903,107 @@ function renderLaps() {
 }
 
 window.addEventListener('contextmenu', e => {
-    if (e.target.closest('.custom-preset')) return;
+  
+  if (e.target.closest('.custom-preset')) return;
   e.preventDefault();
 });
 
-async function checkForUpdates() {
-    if (window.__TAURI__) {
-    try {
-      const { check, install } = window.__TAURI__.updater || {};
-      if (check && install) {
-        const update = await check();
-        if (update && update.available) {
-          await install();
-                  }
-      }
-    } catch (e) {
-      console.error('Update check failed', e);
+// Check for updates using Tauri updater plugin
+async function checkForUpdatesManual() {
+    console.log('checkForUpdatesManual function called');
+    
+    const btn = document.getElementById('checkUpdatesBtn');
+    if (btn) {
+        btn.classList.add('checking');
+        btn.disabled = true;
     }
-  }
+    
+    try {
+        // Check if running in Tauri desktop app with proper invoke function
+        if (window.__TAURI__ && 
+            window.__TAURI__.core && 
+            typeof window.__TAURI__.core.invoke === 'function') {
+            const result = await window.__TAURI__.core.invoke('check_for_updates');
+            showNotification(result, 'success');
+        } else if (window.__TAURI__ && typeof window.__TAURI__.invoke === 'function') {
+            const result = await window.__TAURI__.invoke('check_for_updates');
+            showNotification(result, 'success');
+        } else {
+            // Not in Tauri or invoke not available - show friendly message
+            showNotification('Update checking is only available in the desktop app.', 'info');
+        }
+    } catch (error) {
+        console.error('Update check error:', error);
+        showNotification('Could not check for updates. Please try again later.', 'warning');
+    } finally {
+        if (btn) {
+            btn.classList.remove('checking');
+            btn.disabled = false;
+        }
+    }
 }
 
-checkForUpdates();
+// Initialize update button
+(function initUpdateButton() {
+    function setupButton() {
+        const btn = document.getElementById('checkUpdatesBtn');
+        if (btn && !btn.dataset.initialized) {
+            console.log('Update button found, attaching click handler');
+            btn.dataset.initialized = 'true';
+            btn.addEventListener('click', checkForUpdatesManual);
+        }
+    }
+    
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', setupButton);
+    } else {
+        setupButton();
+    }
+    
+    setTimeout(setupButton, 1000);
+    setTimeout(setupButton, 3000);
+})();
+
+
 
 
 function initializeNewFeatures() {
-    loadNotes();
-  loadFlashcardDecks();
-  loadStudySessions();
-  loadDocumentProgress();
-  loadQuickLinks();
-  loadStudyStats();
+  // Load data with error handling for missing functions
+  try { if (typeof loadNotes === 'function') loadNotes(); } catch(e) { console.log('loadNotes not available'); }
+  try { if (typeof loadFlashcardDecks === 'function') loadFlashcardDecks(); } catch(e) { console.log('loadFlashcardDecks not available'); }
+  try { if (typeof loadStudySessions === 'function') loadStudySessions(); } catch(e) { console.log('loadStudySessions not available'); }
+  try { if (typeof loadDocumentProgress === 'function') loadDocumentProgress(); } catch(e) { console.log('loadDocumentProgress not available'); }
+  try { if (typeof loadQuickLinks === 'function') loadQuickLinks(); } catch(e) { console.log('loadQuickLinks not available'); }
+  try { if (typeof loadStudyStats === 'function') loadStudyStats(); } catch(e) { console.log('loadStudyStats not available'); }
   
-    const createNoteBtn = document.getElementById('createNoteBtn');
+  
+  const createNoteBtn = document.getElementById('createNoteBtn');
   const closeNoteModal = document.getElementById('closeNoteModal');
   const cancelNoteBtn = document.getElementById('cancelNoteBtn');
   const saveNoteBtn = document.getElementById('saveNoteBtn');
   const noteModal = document.getElementById('noteModal');
   
-  if (createNoteBtn) createNoteBtn.onclick = () => openNoteModal();
+  if (createNoteBtn && typeof openNoteModal === 'function') createNoteBtn.onclick = () => openNoteModal();
   if (closeNoteModal && noteModal) closeNoteModal.onclick = () => noteModal.classList.remove('active');
   if (cancelNoteBtn && noteModal) cancelNoteBtn.onclick = () => noteModal.classList.remove('active');
-  if (saveNoteBtn) saveNoteBtn.onclick = saveNote;
+  if (saveNoteBtn && typeof saveNote === 'function') saveNoteBtn.onclick = saveNote;
   
-    const createDeckBtn = document.getElementById('createDeckBtn');
+  
+  const createDeckBtn = document.getElementById('createDeckBtn');
   const closeFlashcardModal = document.getElementById('closeFlashcardModal');
   const cancelFlashcardBtn = document.getElementById('cancelFlashcardBtn');
   const saveDeckBtn = document.getElementById('saveDeckBtn');
   const addCardBtn = document.getElementById('addCardBtn');
   const flashcardModal = document.getElementById('flashcardModal');
   
-  if (createDeckBtn) createDeckBtn.onclick = () => openFlashcardModal();
+  if (createDeckBtn && typeof openFlashcardModal === 'function') createDeckBtn.onclick = () => openFlashcardModal();
   if (closeFlashcardModal && flashcardModal) closeFlashcardModal.onclick = () => flashcardModal.classList.remove('active');
   if (cancelFlashcardBtn && flashcardModal) cancelFlashcardBtn.onclick = () => flashcardModal.classList.remove('active');
-  if (saveDeckBtn) saveDeckBtn.onclick = saveDeck;
-  if (addCardBtn) addCardBtn.onclick = addCardEditor;
+  if (saveDeckBtn && typeof saveDeck === 'function') saveDeckBtn.onclick = saveDeck;
+  if (addCardBtn && typeof addCardEditor === 'function') addCardBtn.onclick = addCardEditor;
   
-    const closeStudyModal = document.getElementById('closeStudyModal');
+  
+  const closeStudyModal = document.getElementById('closeStudyModal');
   const flipCardBtn = document.getElementById('flipCardBtn');
   const nextCardBtn = document.getElementById('nextCardBtn');
   const prevCardBtn = document.getElementById('prevCardBtn');
@@ -2263,12 +3011,13 @@ function initializeNewFeatures() {
   const studyModal = document.getElementById('studyModal');
   
   if (closeStudyModal && studyModal) closeStudyModal.onclick = () => studyModal.classList.remove('active');
-  if (flipCardBtn) flipCardBtn.onclick = flipCard;
-  if (nextCardBtn) nextCardBtn.onclick = nextCard;
-  if (prevCardBtn) prevCardBtn.onclick = prevCard;
-  if (activeFlashcard) activeFlashcard.onclick = flipCard;
+  if (flipCardBtn && typeof flipCard === 'function') flipCardBtn.onclick = flipCard;
+  if (nextCardBtn && typeof nextCard === 'function') nextCardBtn.onclick = nextCard;
+  if (prevCardBtn && typeof prevCard === 'function') prevCardBtn.onclick = prevCard;
+  if (activeFlashcard && typeof flipCard === 'function') activeFlashcard.onclick = flipCard;
   
-    const addStudySessionBtn = document.getElementById('addStudySessionBtn');
+  
+  const addStudySessionBtn = document.getElementById('addStudySessionBtn');
   const closeSessionModal = document.getElementById('closeSessionModal');
   const cancelSessionBtn = document.getElementById('cancelSessionBtn');
   const saveSessionBtn = document.getElementById('saveSessionBtn');
@@ -2276,26 +3025,27 @@ function initializeNewFeatures() {
   const nextMonth = document.getElementById('nextMonth');
   const sessionModal = document.getElementById('sessionModal');
   
-  if (addStudySessionBtn) addStudySessionBtn.onclick = () => openSessionModal();
+  if (addStudySessionBtn && typeof openSessionModal === 'function') addStudySessionBtn.onclick = () => openSessionModal();
   if (closeSessionModal && sessionModal) closeSessionModal.onclick = () => sessionModal.classList.remove('active');
   if (cancelSessionBtn && sessionModal) cancelSessionBtn.onclick = () => sessionModal.classList.remove('active');
-  if (saveSessionBtn) saveSessionBtn.onclick = saveSession;
+  if (saveSessionBtn && typeof saveSession === 'function') saveSessionBtn.onclick = saveSession;
   
-  if (prevMonth) {
+  if (prevMonth && typeof renderCalendar === 'function') {
     prevMonth.onclick = () => {
       currentCalendarDate.setMonth(currentCalendarDate.getMonth() - 1);
       renderCalendar();
     };
   }
   
-  if (nextMonth) {
+  if (nextMonth && typeof renderCalendar === 'function') {
     nextMonth.onclick = () => {
       currentCalendarDate.setMonth(currentCalendarDate.getMonth() + 1);
       renderCalendar();
     };
   }
   
-    document.querySelectorAll('.progress-filter').forEach(btn => {
+  
+  document.querySelectorAll('.progress-filter').forEach(btn => {
     btn.onclick = () => {
       document.querySelectorAll('.progress-filter').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
@@ -2303,7 +3053,8 @@ function initializeNewFeatures() {
     };
   });
   
-    const quickLinksToggle = document.getElementById('quickLinksToggle');
+  
+  const quickLinksToggle = document.getElementById('quickLinksToggle');
   const quickLinksPanel = document.getElementById('quickLinksPanel');
   const quickLinksClose = document.getElementById('quickLinksClose');
   const addQuickLinkBtn = document.getElementById('addQuickLinkBtn');
@@ -2312,11 +3063,13 @@ function initializeNewFeatures() {
     quickLinksToggle.onclick = () => quickLinksPanel.classList.toggle('active');
   }
   
-    if (quickLinksClose && quickLinksPanel) {
+  
+  if (quickLinksClose && quickLinksPanel) {
     quickLinksClose.onclick = () => quickLinksPanel.classList.remove('active');
   }
   
-    document.addEventListener('click', (e) => {
+  
+  document.addEventListener('click', (e) => {
     if (quickLinksPanel && quickLinksPanel.classList.contains('active')) {
       if (!e.target.closest('.quick-links-panel') && !e.target.closest('.quick-links-toggle')) {
         quickLinksPanel.classList.remove('active');
@@ -2324,17 +3077,19 @@ function initializeNewFeatures() {
     }
   });
   
-    if (addQuickLinkBtn) {
+  
+  if (addQuickLinkBtn) {
     addQuickLinkBtn.onclick = (e) => {
       e.stopPropagation();
       if (path.length === 0) {
-        showNotification('Navigate to a folder first', 'info');
+        if (typeof showNotification === 'function') showNotification('Navigate to a folder first', 'info');
         return;
       }
       
-            const pathStr = path.join('|');
+      
+      const pathStr = path.join('|');
       if (quickLinks.some(ql => ql.pathArray.join('|') === pathStr)) {
-        showNotification('This location is already in quick links', 'info');
+        if (typeof showNotification === 'function') showNotification('This location is already in quick links', 'info');
         return;
       }
       
@@ -2343,13 +3098,14 @@ function initializeNewFeatures() {
         name: path[path.length - 1], 
         pathArray: [...path] 
       });
-      saveQuickLinks();
-      renderQuickLinks();
-      showNotification('Added to quick links!', 'success');
+      if (typeof saveQuickLinks === 'function') saveQuickLinks();
+      if (typeof renderQuickLinks === 'function') renderQuickLinks();
+      if (typeof showNotification === 'function') showNotification('Added to quick links!', 'success');
     };
   }
   
-    renderQuickLinks();
+  
+  if (typeof renderQuickLinks === 'function') renderQuickLinks();
   
   console.log('New features initialized');
 }
@@ -2365,6 +3121,7 @@ function filterProgress(filter) {
     }
   });
 }
+
 
 let searchHistory = JSON.parse(localStorage.getItem('questionary-search-history') || '[]');
 
@@ -2384,7 +3141,8 @@ function initSearchHistory() {
   const searchInput = document.getElementById('globalSearch');
   if (!searchInput) return;
   
-    const container = searchInput.parentElement;
+  
+  const container = searchInput.parentElement;
   let dropdown = document.getElementById('searchHistoryDropdown');
   if (!dropdown) {
     dropdown = document.createElement('div');
@@ -2441,7 +3199,6 @@ function clearSearchHistory() {
 window.useSearchHistory = useSearchHistory;
 window.clearSearchHistory = clearSearchHistory;
 
-document.addEventListener('DOMContentLoaded', initSearchHistory);
 
 let customTimerPresets = JSON.parse(localStorage.getItem('questionary-timer-presets') || '[]');
 
@@ -2450,7 +3207,8 @@ function saveCustomPresets() {
 }
 
 function initCustomPresets() {
-    customTimerPresets = customTimerPresets.filter(p => {
+  
+  customTimerPresets = customTimerPresets.filter(p => {
     const duration = parseInt(p.duration, 10);
     return duration && duration > 0;
   });
@@ -2459,10 +3217,12 @@ function initCustomPresets() {
   renderTimerPresets();
   addCustomPresetButton();
   
-    const display = document.getElementById('timerDisplay');
+  
+  const display = document.getElementById('timerDisplay');
   if (display) display.textContent = '00:00:00';
   
-    timerState.duration = 0;
+  
+  timerState.duration = 0;
   timerState.remaining = 0;
 }
 
@@ -2470,10 +3230,13 @@ function renderTimerPresets() {
   const container = document.getElementById('timerPresets');
   if (!container) return;
   
-    container.querySelectorAll('[data-preset-id]').forEach(el => el.remove());
   
-    customTimerPresets.forEach(preset => {
-        const duration = parseInt(preset.duration, 10);
+  container.querySelectorAll('[data-preset-id]').forEach(el => el.remove());
+  
+  
+  customTimerPresets.forEach(preset => {
+    
+    const duration = parseInt(preset.duration, 10);
     if (!duration || duration <= 0) return;
     
     const btn = document.createElement('button');
@@ -2486,12 +3249,14 @@ function renderTimerPresets() {
       <small>${formatPresetTime(duration)}</small>
     `;
     
-        btn.addEventListener('click', (e) => {
+    
+    btn.addEventListener('click', (e) => {
       e.stopPropagation();
       selectTimerPreset(btn, duration);
     });
     
-        btn.addEventListener('contextmenu', (e) => {
+    
+    btn.addEventListener('contextmenu', (e) => {
       e.preventDefault();
       e.stopPropagation();
       if (confirm(`Delete "${preset.label}" preset?`)) {
@@ -2499,7 +3264,8 @@ function renderTimerPresets() {
       }
     });
     
-        const addBtn = document.getElementById('addPresetBtn');
+    
+    const addBtn = document.getElementById('addPresetBtn');
     if (addBtn) {
       container.insertBefore(btn, addBtn);
     } else {
@@ -2525,13 +3291,15 @@ function addCustomPresetButton() {
 }
 
 function showAddPresetForm() {
-    const existingForm = document.getElementById('addPresetForm');
+  
+  const existingForm = document.getElementById('addPresetForm');
   if (existingForm) {
     existingForm.remove();
     return;
   }
   
-    const overlay = document.createElement('div');
+  
+  const overlay = document.createElement('div');
   overlay.id = 'addPresetForm';
   overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:10001;';
   
@@ -2549,7 +3317,8 @@ function showAddPresetForm() {
     </div>
   `;
   
-    overlay.addEventListener('click', (e) => {
+  
+  overlay.addEventListener('click', (e) => {
     if (e.target === overlay) overlay.remove();
   });
   
@@ -2604,10 +3373,13 @@ function formatPresetTime(seconds) {
 }
 
 
+
 window.addCustomPreset = addCustomPreset;
 window.removeCustomPreset = removeCustomPreset;
 
+
 document.addEventListener('DOMContentLoaded', () => setTimeout(initCustomPresets, 100));
+
 
 let darkModeSchedule = JSON.parse(localStorage.getItem('questionary-darkmode-schedule') || '{"enabled":false,"darkStart":19,"darkEnd":7}');
 
@@ -2631,8 +3403,10 @@ function checkDarkModeSchedule() {
   }
 }
 
+
 setInterval(checkDarkModeSchedule, 60000);
 document.addEventListener('DOMContentLoaded', checkDarkModeSchedule);
+
 
 let pageBookmarks = JSON.parse(localStorage.getItem('questionary-page-bookmarks') || '{}');
 
@@ -2640,7 +3414,7 @@ function savePageBookmarks() {
   localStorage.setItem('questionary-page-bookmarks', JSON.stringify(pageBookmarks));
 }
 
-function addPageBookmark(docPath, pageNumber, label = '') {
+function addToPrintQueue(docPath, pageNumber, label = '') {
   if (!pageBookmarks[docPath]) {
     pageBookmarks[docPath] = [];
   }
@@ -2695,7 +3469,9 @@ function renderPageBookmarks(docPath) {
 function goToPage(pageNumber) {
   const pdfViewer = document.getElementById('pdfViewer');
   if (pdfViewer && pdfViewer.src) {
-            showNotification(`Navigate to page ${pageNumber}`, 'info');
+    
+    
+    showNotification(`Navigate to page ${pageNumber}`, 'info');
   }
 }
 
@@ -2703,8 +3479,11 @@ window.addPageBookmark = addPageBookmark;
 window.removePageBookmark = removePageBookmark;
 window.goToPage = goToPage;
 
+
+
 function initDocumentPreview() {
-    const existingTooltip = document.getElementById('previewTooltip');
+  
+  const existingTooltip = document.getElementById('previewTooltip');
   if (existingTooltip) {
     existingTooltip.remove();
   }
@@ -2713,7 +3492,8 @@ function initDocumentPreview() {
 let previewTimeout = null;
 
 function showPreviewTooltip(element, url, name) {
-    return;
+  
+  return;
 }
 
 function hidePreviewTooltip() {
@@ -2725,6 +3505,7 @@ function hidePreviewTooltip() {
 }
 
 document.addEventListener('DOMContentLoaded', initDocumentPreview);
+
 
 function generateShareLink(docPath) {
   const baseUrl = window.location.origin + window.location.pathname;
@@ -2762,6 +3543,7 @@ function handleShareLink() {
 
 window.generateShareLink = generateShareLink;
 document.addEventListener('DOMContentLoaded', handleShareLink);
+
 
 let printQueue = [];
 
@@ -2829,6 +3611,7 @@ window.addToPrintQueue = addToPrintQueue;
 window.removeFromPrintQueue = removeFromPrintQueue;
 window.clearPrintQueue = clearPrintQueue;
 
+
 function registerServiceWorker() {
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js')
@@ -2836,6 +3619,9 @@ function registerServiceWorker() {
       .catch(err => console.log('Service Worker registration failed:', err));
   }
 }
+
+
+
 
 
 let pdfViewStartTime = null;
@@ -2850,7 +3636,8 @@ function trackPdfViewEnd(docPath) {
     if (viewedMinutes >= 1) {
       trackStudyTime(viewedMinutes);
       
-            const currentProgress = documentProgress[docPath]?.progress || 0;
+      
+      const currentProgress = documentProgress[docPath]?.progress || 0;
       const newProgress = Math.min(100, currentProgress + Math.min(viewedMinutes * 5, 25));
       updateDocProgress(docPath, newProgress);
     }
@@ -2861,850 +3648,39 @@ function trackPdfViewEnd(docPath) {
 window.trackPdfViewStart = trackPdfViewStart;
 window.trackPdfViewEnd = trackPdfViewEnd;
 
+
 document.addEventListener('keydown', (e) => {
-    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
   
-    if (e.key === 'n' || e.key === 'N') {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+  
+  
+  if (e.key === 'n' || e.key === 'N') {
     if (typeof openNoteModal === 'function') {
       e.preventDefault();
       openNoteModal();
     }
   }
   
-    if (e.key === 'f' || e.key === 'F') {
+  
+  if (e.key === 'f' || e.key === 'F') {
     if (typeof openFlashcardModal === 'function') {
       e.preventDefault();
       openFlashcardModal();
     }
   }
   
-    if (e.key === 's' || e.key === 'S') {
+  
+  if (e.key === 's' || e.key === 'S') {
     if (path.length > 0 && typeof generateShareLink === 'function') {
       e.preventDefault();
       generateShareLink(path);
     }
   }
   
-    if (e.key === 'q' || e.key === 'Q') {
+  
+  if (e.key === 'q' || e.key === 'Q') {
     e.preventDefault();
     const panel = document.getElementById('quickLinksPanel');
     panel?.classList.toggle('active');
   }
 });
-
-function initializeApp() {
-  initializeNavigation();
-  initializeSearch();
-  initializeTheme();
-  initializeAccessibility();
-  initializeTimer();
-  initializeNewFeatures();
-  loadFavorites();
-  loadStudyStats();
-  updateStudyStreak();
-  renderTiles(documents);
-  updateBreadcrumb();
-  updateDashboardStats();
-}
-
-
-function escapeHtml(text) {
-  if (!text) return '';
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
-}
-
-function loadNotes() {
-  notes = JSON.parse(localStorage.getItem('questionary-notes') || '[]');
-}
-
-function saveNotes() {
-  localStorage.setItem('questionary-notes', JSON.stringify(notes));
-}
-
-function openNoteModal(note = null) {
-  currentEditingNote = note;
-  const modal = document.getElementById('noteModal');
-  const title = document.getElementById('noteModalTitle');
-  const noteTitle = document.getElementById('noteTitle');
-  const noteCategory = document.getElementById('noteCategory');
-  const noteContent = document.getElementById('noteContent');
-  
-  if (note) {
-    title.innerHTML = '<i class="fas fa-edit"></i> Edit Note';
-    noteTitle.value = note.title || '';
-    noteCategory.value = note.category || 'general';
-    noteContent.value = note.content || '';
-  } else {
-    title.innerHTML = '<i class="fas fa-sticky-note"></i> Create Note';
-    noteTitle.value = '';
-    noteCategory.value = 'general';
-    noteContent.value = '';
-  }
-  
-  modal.classList.add('active');
-}
-
-function saveNote() {
-  const noteTitle = document.getElementById('noteTitle').value.trim();
-  const noteCategory = document.getElementById('noteCategory').value;
-  const noteContent = document.getElementById('noteContent').value.trim();
-  
-  if (!noteTitle) {
-    showNotification('Please enter a title', 'error');
-    return;
-  }
-  
-  if (currentEditingNote) {
-        const index = notes.findIndex(n => n.id === currentEditingNote.id);
-    if (index > -1) {
-      notes[index] = {
-        ...notes[index],
-        title: noteTitle,
-        category: noteCategory,
-        content: noteContent,
-        updatedAt: Date.now()
-      };
-    }
-    showNotification('Note updated!', 'success');
-  } else {
-        notes.unshift({
-      id: Date.now().toString(),
-      title: noteTitle,
-      category: noteCategory,
-      content: noteContent,
-      createdAt: Date.now(),
-      updatedAt: Date.now()
-    });
-    showNotification('Note created!', 'success');
-  }
-  
-  saveNotes();
-  renderNotes();
-  document.getElementById('noteModal').classList.remove('active');
-  currentEditingNote = null;
-}
-
-function deleteNote(id) {
-  if (!confirm('Delete this note?')) return;
-  notes = notes.filter(n => n.id !== id);
-  saveNotes();
-  renderNotes();
-  showNotification('Note deleted', 'info');
-}
-
-function renderNotes() {
-  const container = document.getElementById('notesGrid');
-  if (!container) return;
-  
-  if (notes.length === 0) {
-    container.innerHTML = '<div class="empty-state"><i class="fas fa-sticky-note"></i><h3>No notes yet</h3><p>Create your first note to get started.</p></div>';
-    return;
-  }
-  
-  container.innerHTML = notes.map(note => `
-    <div class="note-card" onclick="openNoteModal(notes.find(n => n.id === '${note.id}'))">
-      <div class="note-card-header">
-        <h4 class="note-card-title">${escapeHtml(note.title)}</h4>
-        <span class="note-card-category">${escapeHtml(note.category)}</span>
-      </div>
-      <div class="note-card-content">${escapeHtml(note.content || '').substring(0, 150)}${note.content && note.content.length > 150 ? '...' : ''}</div>
-      <div class="note-card-footer">
-        <span class="note-card-date">${new Date(note.updatedAt || note.createdAt).toLocaleDateString()}</span>
-        <div class="note-card-actions">
-          <button class="note-action-btn" onclick="event.stopPropagation(); openNoteModal(notes.find(n => n.id === '${note.id}'))" title="Edit">
-            <i class="fas fa-edit"></i>
-          </button>
-          <button class="note-action-btn delete" onclick="event.stopPropagation(); deleteNote('${note.id}')" title="Delete">
-            <i class="fas fa-trash"></i>
-          </button>
-        </div>
-      </div>
-    </div>
-  `).join('');
-}
-
-window.deleteNote = deleteNote;
-window.openNoteModal = openNoteModal;
-
-function initializeNotesUI() {}
-
-function loadFlashcardDecks() {
-  flashcardDecks = JSON.parse(localStorage.getItem('questionary-flashcards') || '[]');
-}
-
-function saveFlashcardDecks() {
-  localStorage.setItem('questionary-flashcards', JSON.stringify(flashcardDecks));
-}
-
-let tempCards = [];
-
-function openFlashcardModal(deck = null) {
-  currentEditingDeck = deck;
-  const modal = document.getElementById('flashcardModal');
-  const title = document.getElementById('flashcardModalTitle');
-  const deckName = document.getElementById('deckName');
-  const deckSubject = document.getElementById('deckSubject');
-  
-  if (deck) {
-    title.innerHTML = '<i class="fas fa-edit"></i> Edit Flashcard Deck';
-    deckName.value = deck.name || '';
-    deckSubject.value = deck.subject || 'physics';
-    tempCards = [...(deck.cards || [])];
-  } else {
-    title.innerHTML = '<i class="fas fa-layer-group"></i> Create Flashcard Deck';
-    deckName.value = '';
-    deckSubject.value = 'physics';
-    tempCards = [{ id: Date.now().toString(), front: '', back: '' }];
-  }
-  
-  renderCardEditors();
-  modal.classList.add('active');
-}
-
-function addCardEditor() {
-  tempCards.push({ id: Date.now().toString(), front: '', back: '' });
-  renderCardEditors();
-}
-
-function removeCardEditor(cardId) {
-  if (tempCards.length <= 1) {
-    showNotification('Deck must have at least one card', 'error');
-    return;
-  }
-  tempCards = tempCards.filter(c => c.id !== cardId);
-  renderCardEditors();
-}
-
-function renderCardEditors() {
-  const container = document.getElementById('cardsContainer');
-  if (!container) return;
-  
-  container.innerHTML = tempCards.map((card, index) => `
-    <div class="card-editor" data-card-id="${card.id}">
-      <div class="card-editor-header">
-        <span class="card-editor-number">Card ${index + 1}</span>
-        <button class="card-editor-delete" onclick="removeCardEditor('${card.id}')" title="Remove card">
-          <i class="fas fa-times"></i>
-        </button>
-      </div>
-      <div class="card-editor-inputs">
-        <input type="text" placeholder="Question (Front)" value="${escapeHtml(card.front)}" onchange="updateTempCard('${card.id}', 'front', this.value)">
-        <textarea placeholder="Answer (Back)" onchange="updateTempCard('${card.id}', 'back', this.value)">${escapeHtml(card.back)}</textarea>
-      </div>
-    </div>
-  `).join('');
-}
-
-function updateTempCard(cardId, field, value) {
-  const card = tempCards.find(c => c.id === cardId);
-  if (card) {
-    card[field] = value;
-  }
-}
-
-window.removeCardEditor = removeCardEditor;
-window.updateTempCard = updateTempCard;
-
-function saveDeck() {
-  const deckName = document.getElementById('deckName').value.trim();
-  const deckSubject = document.getElementById('deckSubject').value;
-  
-  if (!deckName) {
-    showNotification('Please enter a deck name', 'error');
-    return;
-  }
-  
-    const validCards = tempCards.filter(c => c.front.trim() && c.back.trim());
-  if (validCards.length === 0) {
-    showNotification('Please add at least one complete card', 'error');
-    return;
-  }
-  
-  if (currentEditingDeck) {
-        const index = flashcardDecks.findIndex(d => d.id === currentEditingDeck.id);
-    if (index > -1) {
-      flashcardDecks[index] = {
-        ...flashcardDecks[index],
-        name: deckName,
-        subject: deckSubject,
-        cards: validCards,
-        updatedAt: Date.now()
-      };
-    }
-    showNotification('Deck updated!', 'success');
-  } else {
-        flashcardDecks.unshift({
-      id: Date.now().toString(),
-      name: deckName,
-      subject: deckSubject,
-      cards: validCards,
-      createdAt: Date.now(),
-      updatedAt: Date.now()
-    });
-    showNotification('Deck created!', 'success');
-  }
-  
-  saveFlashcardDecks();
-  renderFlashcardDecks();
-  document.getElementById('flashcardModal').classList.remove('active');
-  currentEditingDeck = null;
-  tempCards = [];
-}
-
-function deleteDeck(id) {
-  if (!confirm('Delete this flashcard deck?')) return;
-  flashcardDecks = flashcardDecks.filter(d => d.id !== id);
-  saveFlashcardDecks();
-  renderFlashcardDecks();
-  showNotification('Deck deleted', 'info');
-}
-
-function renderFlashcardDecks() {
-  const container = document.getElementById('flashcardsGrid');
-  if (!container) return;
-  
-  if (flashcardDecks.length === 0) {
-    container.innerHTML = '<div class="empty-state"><i class="fas fa-layer-group"></i><h3>No flashcard decks</h3><p>Create your first deck to start studying.</p></div>';
-    return;
-  }
-  
-  container.innerHTML = flashcardDecks.map(deck => `
-    <div class="deck-card">
-      <div class="deck-card-header">
-        <h4 class="deck-card-title">${escapeHtml(deck.name)}</h4>
-        <span class="deck-card-subject">${escapeHtml(deck.subject)}</span>
-      </div>
-      <div class="deck-card-stats">
-        <div class="deck-stat">
-          <span class="deck-stat-value">${deck.cards ? deck.cards.length : 0}</span>
-          <span class="deck-stat-label">Cards</span>
-        </div>
-      </div>
-      <div class="deck-card-actions">
-        <button class="btn btn-primary" onclick="startStudyDeck('${deck.id}')"><i class="fas fa-graduation-cap"></i> Study</button>
-        <button class="btn btn-secondary" onclick="openFlashcardModal(flashcardDecks.find(d => d.id === '${deck.id}'))"><i class="fas fa-edit"></i></button>
-        <button class="btn btn-secondary" onclick="deleteDeck('${deck.id}')" style="color: var(--danger-color);"><i class="fas fa-trash"></i></button>
-      </div>
-    </div>
-  `).join('');
-}
-
-function startStudyDeck(deckId) {
-  const deck = flashcardDecks.find(d => d.id === deckId);
-  if (!deck || !deck.cards || deck.cards.length === 0) {
-    showNotification('This deck has no cards', 'error');
-    return;
-  }
-  
-  currentStudyDeck = deck;
-  currentCardIndex = 0;
-  
-  const modal = document.getElementById('studyModal');
-  const title = document.getElementById('studyModalTitle');
-  title.innerHTML = `<i class="fas fa-graduation-cap"></i> ${escapeHtml(deck.name)}`;
-  
-  updateStudyCard();
-  modal.classList.add('active');
-}
-
-function updateStudyCard() {
-  if (!currentStudyDeck || !currentStudyDeck.cards) return;
-  
-  const card = currentStudyDeck.cards[currentCardIndex];
-  const cardFront = document.getElementById('cardFront');
-  const cardBack = document.getElementById('cardBack');
-  const cardProgress = document.getElementById('cardProgress');
-  const flashcard = document.getElementById('activeFlashcard');
-  
-  cardFront.textContent = card.front;
-  cardBack.textContent = card.back;
-  cardProgress.textContent = `${currentCardIndex + 1} / ${currentStudyDeck.cards.length}`;
-  flashcard.classList.remove('flipped');
-}
-
-window.startStudyDeck = startStudyDeck;
-window.deleteDeck = deleteDeck;
-window.openFlashcardModal = openFlashcardModal;
-
-function flipCard() {
-  document.getElementById('activeFlashcard')?.classList.toggle('flipped');
-}
-
-function nextCard() {
-  if (!currentStudyDeck) return;
-  currentCardIndex = (currentCardIndex + 1) % currentStudyDeck.cards.length;
-  updateStudyCard();
-}
-
-function prevCard() {
-  if (!currentStudyDeck) return;
-  currentCardIndex = (currentCardIndex - 1 + currentStudyDeck.cards.length) % currentStudyDeck.cards.length;
-  updateStudyCard();
-}
-
-function initializeFlashcardsUI() {}
-
-function loadStudySessions() {
-  studySessions = JSON.parse(localStorage.getItem('questionary-sessions') || '[]');
-}
-
-function saveStudySessions() {
-  localStorage.setItem('questionary-sessions', JSON.stringify(studySessions));
-}
-
-let currentEditingSession = null;
-
-function openSessionModal(session = null) {
-  currentEditingSession = session;
-  const modal = document.getElementById('sessionModal');
-  const title = document.getElementById('sessionModalTitle');
-  const sessionSubject = document.getElementById('sessionSubject');
-  const sessionDate = document.getElementById('sessionDate');
-  const sessionTime = document.getElementById('sessionTime');
-  const sessionDuration = document.getElementById('sessionDuration');
-  const sessionNotes = document.getElementById('sessionNotes');
-  
-  if (!modal) return;
-  
-  if (session) {
-    title.innerHTML = '<i class="fas fa-edit"></i> Edit Study Session';
-    sessionSubject.value = session.subject || '';
-    sessionDate.value = session.date || '';
-    sessionTime.value = session.time || '';
-    sessionDuration.value = session.duration || 60;
-    sessionNotes.value = session.notes || '';
-  } else {
-    title.innerHTML = '<i class="fas fa-calendar-plus"></i> Add Study Session';
-    sessionSubject.value = '';
-    const today = new Date().toISOString().split('T')[0];
-    sessionDate.value = today;
-    sessionTime.value = '09:00';
-    sessionDuration.value = 60;
-    sessionNotes.value = '';
-  }
-  
-  modal.classList.add('active');
-}
-
-function saveSession() {
-  const sessionSubject = document.getElementById('sessionSubject')?.value.trim();
-  const sessionDate = document.getElementById('sessionDate')?.value;
-  const sessionTime = document.getElementById('sessionTime')?.value;
-  const sessionDuration = parseInt(document.getElementById('sessionDuration')?.value) || 60;
-  const sessionNotes = document.getElementById('sessionNotes')?.value.trim();
-  
-  if (!sessionSubject) {
-    showNotification('Please enter a subject', 'error');
-    return;
-  }
-  
-  if (!sessionDate) {
-    showNotification('Please select a date', 'error');
-    return;
-  }
-  
-  if (currentEditingSession) {
-    const index = studySessions.findIndex(s => s.id === currentEditingSession.id);
-    if (index > -1) {
-      studySessions[index] = {
-        ...studySessions[index],
-        subject: sessionSubject,
-        date: sessionDate,
-        time: sessionTime,
-        duration: sessionDuration,
-        notes: sessionNotes,
-        updatedAt: Date.now()
-      };
-    }
-    showNotification('Session updated!', 'success');
-  } else {
-    studySessions.push({
-      id: Date.now().toString(),
-      subject: sessionSubject,
-      date: sessionDate,
-      time: sessionTime,
-      duration: sessionDuration,
-      notes: sessionNotes,
-      completed: false,
-      createdAt: Date.now()
-    });
-    showNotification('Session added!', 'success');
-  }
-  
-  studySessions.sort((a, b) => new Date(a.date + ' ' + a.time) - new Date(b.date + ' ' + b.time));
-  
-  saveStudySessions();
-  renderCalendar();
-  renderSessions();
-  document.getElementById('sessionModal')?.classList.remove('active');
-  currentEditingSession = null;
-}
-
-function deleteSession(id) {
-  if (!confirm('Delete this study session?')) return;
-  studySessions = studySessions.filter(s => s.id !== id);
-  saveStudySessions();
-  renderCalendar();
-  renderSessions();
-  showNotification('Session deleted', 'info');
-}
-
-function toggleSessionComplete(id) {
-  const session = studySessions.find(s => s.id === id);
-  if (session) {
-    session.completed = !session.completed;
-    saveStudySessions();
-    renderSessions();
-    if (session.completed) {
-      trackStudyTime(session.duration);
-      recordStudyActivity();
-      showNotification('Session completed! Great job!', 'success');
-    }
-  }
-}
-
-window.deleteSession = deleteSession;
-window.toggleSessionComplete = toggleSessionComplete;
-window.openSessionModal = openSessionModal;
-window.selectCalendarDay = selectCalendarDay;
-
-function renderCalendar() {
-  const daysContainer = document.getElementById('calendarDays');
-  const monthLabel = document.getElementById('currentMonth');
-  if (!daysContainer) return;
-  
-  const year = currentCalendarDate.getFullYear();
-  const month = currentCalendarDate.getMonth();
-  
-  const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 
-                      'July', 'August', 'September', 'October', 'November', 'December'];
-  
-  if (monthLabel) {
-    monthLabel.textContent = `${monthNames[month]} ${year}`;
-  }
-  
-  const firstDay = new Date(year, month, 1).getDay();
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const today = new Date();
-  const todayStr = today.toISOString().split('T')[0];
-  
-  const monthSessions = studySessions.filter(s => {
-    const sessionDate = new Date(s.date);
-    return sessionDate.getMonth() === month && sessionDate.getFullYear() === year;
-  });
-  
-  const sessionDays = new Set(monthSessions.map(s => new Date(s.date).getDate()));
-  
-  let html = '';
-  
-  for (let i = 0; i < firstDay; i++) {
-    html += '<div class="calendar-day empty"></div>';
-  }
-  
-  for (let day = 1; day <= daysInMonth; day++) {
-    const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-    const isToday = dateStr === todayStr;
-    const hasSession = sessionDays.has(day);
-    
-    html += `<div class="calendar-day${isToday ? ' today' : ''}${hasSession ? ' has-session' : ''}" onclick="selectCalendarDay('${dateStr}')">${day}</div>`;
-  }
-  
-  daysContainer.innerHTML = html;
-}
-
-function selectCalendarDay(dateStr) {
-  openSessionModal();
-  document.getElementById('sessionDate').value = dateStr;
-}
-
-function renderSessions() {
-  const container = document.getElementById('sessionsList');
-  if (!container) return;
-  
-  const today = new Date().toISOString().split('T')[0];
-  const upcomingSessions = studySessions.filter(s => s.date >= today && !s.completed).slice(0, 5);
-  
-  if (upcomingSessions.length === 0) {
-    container.innerHTML = '<p class="empty-state" style="padding: 1rem;"><i class="fas fa-calendar"></i> No upcoming sessions. Click "Add Session" or click a date on the calendar.</p>';
-    return;
-  }
-  
-  container.innerHTML = upcomingSessions.map(session => {
-    const sessionDate = new Date(session.date);
-    const dayName = sessionDate.toLocaleDateString('en-US', { weekday: 'short' });
-    const dayNum = sessionDate.getDate();
-    
-    return `
-      <div class="session-item${session.completed ? ' completed' : ''}">
-        <div class="session-time">
-          <div class="session-time-value">${dayNum}</div>
-          <div class="session-time-label">${dayName}</div>
-        </div>
-        <div class="session-info">
-          <div class="session-subject">${escapeHtml(session.subject)}</div>
-          <div class="session-details">${session.time || 'All day'} • ${session.duration} min</div>
-        </div>
-        <div class="session-actions">
-          <button class="session-action-btn" onclick="toggleSessionComplete('${session.id}')" title="${session.completed ? 'Mark incomplete' : 'Mark complete'}">
-            <i class="fas fa-${session.completed ? 'undo' : 'check'}"></i>
-          </button>
-          <button class="session-action-btn delete" onclick="deleteSession('${session.id}')" title="Delete">
-            <i class="fas fa-trash"></i>
-          </button>
-        </div>
-      </div>
-    `;
-  }).join('');
-}
-
-function initializePlannerUI() {}
-
-function loadDocumentProgress() {
-  documentProgress = JSON.parse(localStorage.getItem('questionary-progress') || '{}');
-}
-
-function saveDocumentProgress() {
-  localStorage.setItem('questionary-progress', JSON.stringify(documentProgress));
-}
-
-function updateDocProgress(docPath, progress) {
-  const pathKey = Array.isArray(docPath) ? docPath.join('|') : docPath;
-  documentProgress[pathKey] = { 
-    progress: Math.min(100, Math.max(0, progress)), 
-    lastAccessed: Date.now(),
-    title: Array.isArray(docPath) ? docPath[docPath.length - 1] : docPath.split('|').pop()
-  };
-  saveDocumentProgress();
-  updateProgressDisplay();
-}
-
-function renderProgressList() {
-  const container = document.getElementById('progressList');
-  if (!container) return;
-  
-  const progressEntries = Object.entries(documentProgress);
-  
-  if (progressEntries.length === 0) {
-    container.innerHTML = '<p class="empty-state"><i class="fas fa-chart-line"></i> No progress tracked yet. Open documents to track your progress.</p>';
-    return;
-  }
-  
-    progressEntries.sort((a, b) => b[1].lastAccessed - a[1].lastAccessed);
-  
-  container.innerHTML = progressEntries.map(([pathKey, data]) => {
-    const pathParts = pathKey.split('|');
-    const title = data.title || pathParts[pathParts.length - 1];
-    const pathStr = pathParts.slice(0, -1).join(' > ') || 'Root';
-    const progress = data.progress || 0;
-    const status = progress >= 100 ? 'completed' : progress > 0 ? 'in-progress' : 'not-started';
-    
-    return `
-      <div class="progress-item" data-status="${status}">
-        <div class="progress-item-icon">
-          <i class="fas fa-file-pdf"></i>
-        </div>
-        <div class="progress-item-info">
-          <div class="progress-item-title">${escapeHtml(title)}</div>
-          <div class="progress-item-path">${escapeHtml(pathStr)}</div>
-        </div>
-        <div class="progress-item-bar">
-          <div class="progress-bar-container">
-            <div class="progress-bar-fill${progress >= 100 ? ' completed' : ''}" style="width: ${progress}%"></div>
-          </div>
-          <div class="progress-bar-label">${progress}%</div>
-        </div>
-      </div>
-    `;
-  }).join('');
-}
-
-function updateProgressDisplay() {
-    const progressEntries = Object.entries(documentProgress);
-  const totalProgress = progressEntries.length > 0 
-    ? progressEntries.reduce((sum, [, data]) => sum + (data.progress || 0), 0) / progressEntries.length 
-    : 0;
-  
-  const progressRing = document.getElementById('progressRingFill');
-  const overallProgress = document.getElementById('overallProgress');
-  
-  if (progressRing) {
-    const circumference = 377;     const offset = circumference - (totalProgress / 100) * circumference;
-    progressRing.style.strokeDashoffset = offset;
-  }
-  
-  if (overallProgress) {
-    overallProgress.textContent = `${Math.round(totalProgress)}%`;
-  }
-  
-    const completedDocs = document.getElementById('completedDocs');
-  if (completedDocs) {
-    const completed = progressEntries.filter(([, data]) => data.progress >= 100).length;
-    completedDocs.textContent = completed;
-  }
-  
-    const streakDisplay = document.getElementById('currentStreak');
-  if (streakDisplay) {
-    streakDisplay.textContent = `${studyStats.streak || 0} days`;
-  }
-  
-  renderProgressList();
-  updateStudyStatsDisplay();
-}
-
-function initializeProgressUI() {}
-
-function loadStudyStats() {
-  studyStats = JSON.parse(localStorage.getItem('questionary-study-stats') || '{"totalTime":0,"streak":0,"lastStudyDate":null,"hourlyActivity":{}}');
-}
-
-function saveStudyStats() {
-  localStorage.setItem('questionary-study-stats', JSON.stringify(studyStats));
-}
-
-function trackStudyTime(minutes) {
-  studyStats.totalTime = (studyStats.totalTime || 0) + minutes;
-  
-    const hour = new Date().getHours();
-  studyStats.hourlyActivity = studyStats.hourlyActivity || {};
-  studyStats.hourlyActivity[hour] = (studyStats.hourlyActivity[hour] || 0) + minutes;
-  
-  saveStudyStats();
-  updateStudyStatsDisplay();
-}
-
-function recordStudyActivity() {
-  const today = new Date().toISOString().split('T')[0];
-  
-  if (studyStats.lastStudyDate !== today) {
-        const yesterday = getYesterday();
-    if (studyStats.lastStudyDate === yesterday) {
-      studyStats.streak = (studyStats.streak || 0) + 1;
-    } else if (studyStats.lastStudyDate !== today) {
-            studyStats.streak = 1;
-    }
-    studyStats.lastStudyDate = today;
-    saveStudyStats();
-    updateDashboardStats();
-  }
-}
-
-function getYesterday() {
-  const d = new Date();
-  d.setDate(d.getDate() - 1);
-  return d.toISOString().split('T')[0];
-}
-
-function updateStudyStreak() {
-  const today = new Date().toISOString().split('T')[0];
-  if (studyStats.lastStudyDate && studyStats.lastStudyDate !== today && studyStats.lastStudyDate !== getYesterday()) {
-    studyStats.streak = 0;
-    saveStudyStats();
-  }
-}
-
-function updateStudyStatsDisplay() {
-  const totalTimeEl = document.getElementById('totalStudyTime');
-  const streakEl = document.getElementById('studyStreak');
-  const productiveHourEl = document.getElementById('productiveHour');
-  
-  if (totalTimeEl) {
-    const hours = Math.floor((studyStats.totalTime || 0) / 60);
-    const mins = (studyStats.totalTime || 0) % 60;
-    totalTimeEl.textContent = `${hours}h ${mins}m`;
-  }
-  
-  if (streakEl) {
-    streakEl.textContent = `${studyStats.streak || 0} days`;
-  }
-  
-  if (productiveHourEl) {
-    const hourlyActivity = studyStats.hourlyActivity || {};
-    const entries = Object.entries(hourlyActivity);
-    if (entries.length > 0) {
-      const mostProductive = entries.reduce((max, [hour, mins]) => 
-        mins > max[1] ? [hour, mins] : max, ['0', 0]);
-      const hour = parseInt(mostProductive[0]);
-      const period = hour >= 12 ? 'PM' : 'AM';
-      const displayHour = hour % 12 || 12;
-      productiveHourEl.textContent = `${displayHour} ${period}`;
-    } else {
-      productiveHourEl.textContent = '--';
-    }
-  }
-}
-
-function loadQuickLinks() {
-  quickLinks = JSON.parse(localStorage.getItem('questionary-quick-links') || '[]');
-}
-
-function saveQuickLinks() {
-  localStorage.setItem('questionary-quick-links', JSON.stringify(quickLinks));
-}
-
-function renderQuickLinks() {
-  const container = document.getElementById('quickLinksList');
-  if (!container) return;
-  
-  if (quickLinks.length === 0) {
-    container.innerHTML = `
-      <div class="quick-links-empty">
-        <i class="fas fa-link"></i>
-        No quick links yet. Navigate to a folder and click Add.
-      </div>
-    `;
-    return;
-  }
-  
-  container.innerHTML = quickLinks.map(ql => `
-    <div class="quick-link-item" data-id="${ql.id}">
-      <i class="fas fa-folder"></i>
-      <span class="quick-link-name">${escapeHtml(ql.name)}</span>
-      <button class="quick-link-delete" onclick="event.stopPropagation(); deleteQuickLink('${ql.id}')" title="Remove">
-        <i class="fas fa-times"></i>
-      </button>
-    </div>
-  `).join('');
-  
-    container.querySelectorAll('.quick-link-item').forEach(item => {
-    item.addEventListener('click', (e) => {
-      if (e.target.closest('.quick-link-delete')) return;
-      const id = item.dataset.id;
-      const ql = quickLinks.find(q => q.id === id);
-      if (ql) {
-        path = [...ql.pathArray];
-        renderTiles(getCurrentLevel());
-        updateBreadcrumb();
-        document.getElementById('quickLinksPanel')?.classList.remove('active');
-      }
-    });
-  });
-}
-
-function deleteQuickLink(id) {
-  quickLinks = quickLinks.filter(ql => ql.id !== id);
-  saveQuickLinks();
-  renderQuickLinks();
-  showNotification('Quick link removed', 'info');
-}
-
-window.deleteQuickLink = deleteQuickLink; 
-
-function initializeQuickLinksUI() { 
-  }
-
-function initializeCompareUI() {}
-
-function loadFavorites() {
-  }
-function updatePrintQueueBadge() {
-  const badge = document.getElementById('printQueueBadge');
-  if (badge) {
-    const printQueue = getPrintQueue();
-    badge.textContent = printQueue.length > 0 ? printQueue.length : '';
-  }
-}
-function getPrintQueue() {
-  return JSON.parse(localStorage.getItem('questionary-print-queue') || '[]');
-}
