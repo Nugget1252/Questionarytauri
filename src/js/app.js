@@ -306,19 +306,105 @@ function performSearch(e) {
     searchInDocuments(documents, [], query.toLowerCase(), results);
   }
   
+  // Search through notes
+  if (notes && notes.length > 0) {
+    notes.forEach(note => {
+      if (note.title.toLowerCase().includes(query.toLowerCase()) || 
+          note.content.toLowerCase().includes(query.toLowerCase())) {
+        results.push({
+          name: note.title,
+          path: ['Notes'],
+          isFolder: false,
+          isNote: true,
+          noteId: note.id,
+          url: null
+        });
+      }
+    });
+  }
+  
+  // Search through flashcard decks
+  if (flashcardDecks && flashcardDecks.length > 0) {
+    flashcardDecks.forEach(deck => {
+      if (deck.name.toLowerCase().includes(query.toLowerCase())) {
+        results.push({
+          name: deck.name,
+          path: ['Flashcards'],
+          isFolder: false,
+          isFlashcard: true,
+          deckId: deck.id,
+          url: null
+        });
+      }
+      // Also search within card content
+      deck.cards.forEach(card => {
+        if (card.front.toLowerCase().includes(query.toLowerCase()) || 
+            card.back.toLowerCase().includes(query.toLowerCase())) {
+          const alreadyAdded = results.some(r => r.deckId === deck.id);
+          if (!alreadyAdded) {
+            results.push({
+              name: `${deck.name} (card match)`,
+              path: ['Flashcards'],
+              isFolder: false,
+              isFlashcard: true,
+              deckId: deck.id,
+              url: null
+            });
+          }
+        }
+      });
+    });
+  }
+  
+  // Search through study sessions
+  if (studySessions && studySessions.length > 0) {
+    studySessions.forEach(session => {
+      if (session.subject.toLowerCase().includes(query.toLowerCase())) {
+        results.push({
+          name: session.subject,
+          path: ['Study Planner', session.date],
+          isFolder: false,
+          isSession: true,
+          sessionId: session.id,
+          url: null
+        });
+      }
+    });
+  }
+  
   if (searchResults) {
     if (results.length === 0) {
       searchResults.innerHTML = '<div style="padding: 1rem; text-align: center; color: var(--text-secondary);">No results found</div>';
     } else {
-      searchResults.innerHTML = results.slice(0, 10).map(r => `
-        <div class="search-result-item" onclick="navigateToSearchResult(${JSON.stringify(r.path).replace(/"/g, '&quot;')}, '${r.url || ''}')">
-          <i class="fas ${r.isFolder ? 'fa-folder' : 'fa-file-pdf'}"></i>
-          <div class="search-result-info">
-            <span class="search-result-name">${escapeHtml(r.name)}</span>
-            <span class="search-result-path">${r.path.join(' > ')}</span>
+      searchResults.innerHTML = results.slice(0, 15).map(r => {
+        // Determine icon based on result type
+        let icon = r.isFolder ? 'fa-folder' : 'fa-file-pdf';
+        if (r.isNote) icon = 'fa-sticky-note';
+        if (r.isFlashcard) icon = 'fa-layer-group';
+        if (r.isSession) icon = 'fa-calendar-alt';
+        
+        // Build onclick handler based on type
+        let onclickHandler = '';
+        if (r.isNote) {
+          onclickHandler = `navigateToNote('${r.noteId}')`;
+        } else if (r.isFlashcard) {
+          onclickHandler = `navigateToFlashcard('${r.deckId}')`;
+        } else if (r.isSession) {
+          onclickHandler = `navigateToSession('${r.sessionId}')`;
+        } else {
+          onclickHandler = `navigateToSearchResult(${JSON.stringify(r.path).replace(/"/g, '&quot;')}, '${r.url || ''}')`;
+        }
+        
+        return `
+          <div class="search-result-item" onclick="${onclickHandler}">
+            <i class="fas ${icon}"></i>
+            <div class="search-result-info">
+              <span class="search-result-name">${escapeHtml(r.name)}</span>
+              <span class="search-result-path">${r.path.join(' > ')}</span>
+            </div>
           </div>
-        </div>
-      `).join('');
+        `;
+      }).join('');
     }
     searchResults.style.display = 'block';
   }
@@ -350,20 +436,29 @@ function navigateToSearchResult(pathArray, url) {
   
   document.getElementById('globalSearch').value = '';
   
-  if (url && url !== '#' && url !== '') {
-    path = pathArray.slice(0, -1);
-    showPDF(url);
-  } else {
-    path = pathArray;
-    if (typeof renderTiles === 'function' && typeof getCurrentLevel === 'function') {
-      renderTiles(getCurrentLevel());
-    }
-  }
-  if (typeof updateBreadcrumb === 'function') {
-    updateBreadcrumb();
-  }
+  // Show home view first
   showView('home');
   setActiveNav('homeNav');
+  
+  if (url && url !== '#' && url !== '') {
+    // It's a PDF document - navigate to parent folder then show PDF
+    path = pathArray.slice(0, -1);
+    updateBreadcrumb();
+    
+    // Add to recent
+    const title = pathArray[pathArray.length - 1];
+    addToRecent(title, pathArray, url);
+    
+    // Show the PDF
+    setTimeout(() => {
+      showPDF(url);
+    }, 100);
+  } else {
+    // It's a folder - navigate to it
+    path = [...pathArray];
+    renderTiles(getCurrentLevel());
+    updateBreadcrumb();
+  }
 }
 
 // Escape HTML for safe rendering
@@ -371,6 +466,63 @@ function escapeHtml(text) {
   const div = document.createElement('div');
   div.textContent = text;
   return div.innerHTML;
+}
+
+// Custom confirm modal to replace browser confirm()
+function showConfirmModal(title, message, onConfirm, onCancel) {
+  // Remove any existing modal
+  const existing = document.querySelector('.confirm-modal-overlay');
+  if (existing) existing.remove();
+  
+  const overlay = document.createElement('div');
+  overlay.className = 'confirm-modal-overlay';
+  overlay.innerHTML = `
+    <div class="confirm-modal">
+      <div class="confirm-modal-icon">
+        <i class="fas fa-trash-alt"></i>
+      </div>
+      <h3 class="confirm-modal-title">${escapeHtml(title)}</h3>
+      <p class="confirm-modal-message">${escapeHtml(message)}</p>
+      <div class="confirm-modal-actions">
+        <button class="btn btn-cancel" id="confirmModalCancel">Cancel</button>
+        <button class="btn btn-danger" id="confirmModalConfirm">Delete</button>
+      </div>
+    </div>
+  `;
+  
+  document.body.appendChild(overlay);
+  
+  // Handle cancel
+  const cancelBtn = document.getElementById('confirmModalCancel');
+  cancelBtn.onclick = () => {
+    overlay.remove();
+    if (onCancel) onCancel();
+  };
+  
+  // Handle confirm
+  const confirmBtn = document.getElementById('confirmModalConfirm');
+  confirmBtn.onclick = () => {
+    overlay.remove();
+    if (onConfirm) onConfirm();
+  };
+  
+  // Close on overlay click
+  overlay.onclick = (e) => {
+    if (e.target === overlay) {
+      overlay.remove();
+      if (onCancel) onCancel();
+    }
+  };
+  
+  // Close on Escape key
+  const handleEscape = (e) => {
+    if (e.key === 'Escape') {
+      overlay.remove();
+      document.removeEventListener('keydown', handleEscape);
+      if (onCancel) onCancel();
+    }
+  };
+  document.addEventListener('keydown', handleEscape);
 }
 
 // Set active navigation item
@@ -744,7 +896,9 @@ function renderSessions() {
         <strong>${escapeHtml(session.subject)}</strong>
         <span>${session.date} at ${session.time}</span>
       </div>
-      <button class="btn-icon" onclick="deleteSession('${session.id}')"><i class="fas fa-trash"></i></button>
+      <button class="btn-icon" onclick="deleteSession('${session.id}')" title="Delete session">
+        <i class="fas fa-trash"></i>
+      </button>
     </div>
   `).join('');
 }
@@ -753,15 +907,20 @@ function renderFlashcardDecks() {
   if (!container) return;
   
   if (flashcardDecks.length === 0) {
-    container.innerHTML = '<p style="text-align: center; color: var(--text-secondary); padding: 2rem;">No flashcard decks yet. Click "Create Deck" to add one.</p>';
+    container.innerHTML = '<p style="text-align: center; color: var(--text-secondary); padding: 2rem;">No flashcard decks yet. Click "New Deck" to create one.</p>';
     return;
   }
   
   container.innerHTML = flashcardDecks.map(deck => `
-    <div class="deck-card" onclick="startStudyDeck('${deck.id}')">
+    <div class="deck-card">
       <h4>${escapeHtml(deck.name)}</h4>
       <p>${deck.cards.length} cards</p>
-      <button class="btn-icon delete" onclick="event.stopPropagation(); deleteDeck('${deck.id}')"><i class="fas fa-trash"></i></button>
+      <button class="btn-icon delete" onclick="event.stopPropagation(); deleteDeck('${deck.id}')" title="Delete deck">
+        <i class="fas fa-trash"></i>
+      </button>
+      <button class="btn btn-primary btn-sm" onclick="startStudyDeck('${deck.id}')" style="margin-top: 1rem;">
+        <i class="fas fa-play"></i> Study
+      </button>
     </div>
   `).join('');
 }
@@ -770,7 +929,7 @@ function renderNotes() {
   if (!container) return;
   
   if (notes.length === 0) {
-    container.innerHTML = '<p style="text-align: center; color: var(--text-secondary); padding: 2rem;">No notes yet. Click "Create Note" to add one.</p>';
+    container.innerHTML = '<p style="text-align: center; color: var(--text-secondary); padding: 2rem;">No notes yet. Click "New Note" to create one.</p>';
     return;
   }
   
@@ -779,7 +938,9 @@ function renderNotes() {
       <h4>${escapeHtml(note.title)}</h4>
       <p>${escapeHtml(note.content.substring(0, 100))}${note.content.length > 100 ? '...' : ''}</p>
       <small>${new Date(note.updatedAt).toLocaleDateString()}</small>
-      <button class="btn-icon delete" onclick="event.stopPropagation(); deleteNote('${note.id}')"><i class="fas fa-trash"></i></button>
+      <button class="btn-icon delete" onclick="event.stopPropagation(); deleteNote('${note.id}')" title="Delete note">
+        <i class="fas fa-trash"></i>
+      </button>
     </div>
   `).join('');
 }
@@ -939,6 +1100,63 @@ function getTimeAgo(timestamp) {
 
 // Make navigateToSearchResult available globally
 window.navigateToSearchResult = navigateToSearchResult;
+
+// Navigate to a note from search results
+function navigateToNote(noteId) {
+  const searchResults = document.getElementById('searchResults');
+  if (searchResults) searchResults.style.display = 'none';
+  document.getElementById('globalSearch').value = '';
+  
+  showView('notes');
+  setActiveNav('notesNav');
+  
+  // Open the note for editing
+  setTimeout(() => {
+    if (typeof editNote === 'function') {
+      editNote(noteId);
+    }
+  }, 100);
+}
+
+// Navigate to a flashcard deck from search results
+function navigateToFlashcard(deckId) {
+  const searchResults = document.getElementById('searchResults');
+  if (searchResults) searchResults.style.display = 'none';
+  document.getElementById('globalSearch').value = '';
+  
+  showView('flashcards');
+  setActiveNav('flashcardsNav');
+  
+  // Start studying the deck
+  setTimeout(() => {
+    if (typeof startStudyDeck === 'function') {
+      startStudyDeck(deckId);
+    }
+  }, 100);
+}
+
+// Navigate to a study session from search results
+function navigateToSession(sessionId) {
+  const searchResults = document.getElementById('searchResults');
+  if (searchResults) searchResults.style.display = 'none';
+  document.getElementById('globalSearch').value = '';
+  
+  showView('planner');
+  setActiveNav('studyPlannerNav');
+  
+  // Find the session and scroll to it or highlight it
+  setTimeout(() => {
+    const session = studySessions.find(s => s.id === sessionId);
+    if (session) {
+      showNotification(`Session: ${session.subject} on ${session.date} at ${session.time}`, 'info');
+    }
+  }, 100);
+}
+
+// Make navigation functions globally available
+window.navigateToNote = navigateToNote;
+window.navigateToFlashcard = navigateToFlashcard;
+window.navigateToSession = navigateToSession;
 
 // ==================== DOCUMENTS DATA ====================
 // Store your document links here in a nested object structure
@@ -1266,12 +1484,19 @@ function editNote(noteId) {
 }
 
 function deleteNote(noteId) {
-  if (confirm('Delete this note?')) {
-    notes = notes.filter(n => n.id !== noteId);
-    saveNotes();
-    renderNotes();
-    showNotification('Note deleted', 'info');
-  }
+  const note = notes.find(n => n.id === noteId);
+  const noteTitle = note ? note.title : 'this note';
+  
+  showConfirmModal(
+    'Delete Note',
+    `Are you sure you want to delete "${noteTitle}"? This action cannot be undone.`,
+    () => {
+      notes = notes.filter(n => n.id !== noteId);
+      saveNotes();
+      renderNotes();
+      showNotification('Note deleted', 'info');
+    }
+  );
 }
 
 // ==================== FLASHCARD FUNCTIONS ====================
@@ -1376,12 +1601,19 @@ function saveDeck() {
 }
 
 function deleteDeck(deckId) {
-  if (confirm('Delete this deck?')) {
-    flashcardDecks = flashcardDecks.filter(d => d.id !== deckId);
-    saveFlashcardDecks();
-    renderFlashcardDecks();
-    showNotification('Deck deleted', 'info');
-  }
+  const deck = flashcardDecks.find(d => d.id === deckId);
+  const deckName = deck ? deck.name : 'this deck';
+  
+  showConfirmModal(
+    'Delete Flashcard Deck',
+    `Are you sure you want to delete "${deckName}"? All cards in this deck will be lost.`,
+    () => {
+      flashcardDecks = flashcardDecks.filter(d => d.id !== deckId);
+      saveFlashcardDecks();
+      renderFlashcardDecks();
+      showNotification('Deck deleted', 'info');
+    }
+  );
 }
 
 function startStudyDeck(deckId) {
@@ -1494,13 +1726,20 @@ function saveSession() {
 }
 
 function deleteSession(sessionId) {
-  if (confirm('Delete this session?')) {
-    studySessions = studySessions.filter(s => s.id !== sessionId);
-    saveStudySessions();
-    renderCalendar();
-    renderSessions();
-    showNotification('Session deleted', 'info');
-  }
+  const session = studySessions.find(s => s.id === sessionId);
+  const sessionSubject = session ? session.subject : 'this session';
+  
+  showConfirmModal(
+    'Delete Study Session',
+    `Are you sure you want to delete the "${sessionSubject}" session?`,
+    () => {
+      studySessions = studySessions.filter(s => s.id !== sessionId);
+      saveStudySessions();
+      renderCalendar();
+      renderSessions();
+      showNotification('Session deleted', 'info');
+    }
+  );
 }
 
 function showDaySessions(dateStr) {
@@ -2758,7 +2997,10 @@ function hideTimer() {
   }
   
   const pdfViewer = document.getElementById('pdfViewer');
-  if (reopenBtn && pdfViewer && pdfViewer.style.display === 'block') {
+  // Check if PDF is visible using classList.contains('active') or checking src
+  const isPdfVisible = pdfViewer && (pdfViewer.classList.contains('active') || (pdfViewer.src && pdfViewer.src !== '' && pdfViewer.src !== 'about:blank'));
+  
+  if (reopenBtn && isPdfVisible) {
     reopenBtn.style.display = 'flex';
     
     if (timerState.isRunning) {
