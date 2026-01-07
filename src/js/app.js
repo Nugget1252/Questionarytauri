@@ -159,9 +159,7 @@ const users = {
   "ADMIN": { password: "DPSNTCLASSLOGIN@@", role: "admin" }
 };
 
-// ==================== MISSING CORE FUNCTIONS ====================
 
-// Show the main app and hide login screen
 function showApp() {
   const loginScreen = document.getElementById('loginScreen');
   const app = document.getElementById('app');
@@ -174,17 +172,14 @@ function showApp() {
   console.log('App displayed');
 }
 
-// Show notification toast
 function showNotification(message, type = 'info') {
-  // Remove existing notification
-  const existing = document.querySelector('.notification-toast');
+    const existing = document.querySelector('.notification-toast');
   if (existing) existing.remove();
   
   const toast = document.createElement('div');
   toast.className = `notification-toast notification-${type}`;
   
-  // Choose icon based on type
-  let icon = 'fa-info-circle';
+    let icon = 'fa-info-circle';
   let bgColor = '#3b82f6';
   if (type === 'success') {
     icon = 'fa-check-circle';
@@ -219,8 +214,7 @@ function showNotification(message, type = 'info') {
   
   toast.innerHTML = `<i class="fas ${icon}"></i><span>${message}</span>`;
   
-  // Add animation keyframes if not exists
-  if (!document.getElementById('toast-animations')) {
+    if (!document.getElementById('toast-animations')) {
     const style = document.createElement('style');
     style.id = 'toast-animations';
     style.textContent = `
@@ -244,48 +238,39 @@ function showNotification(message, type = 'info') {
   }, 3000);
 }
 
-// Initialize app after successful login
 function initializeAppAfterLogin() {
-  // Update username display
-  const usernameDisplay = document.getElementById('username-display');
+    const usernameDisplay = document.getElementById('username-display');
   if (usernameDisplay && currentUser) {
     usernameDisplay.textContent = currentUser.username;
   }
   
-  // Show admin badge if admin
-  const adminBadge = document.getElementById('adminBadge');
+    const adminBadge = document.getElementById('adminBadge');
   if (adminBadge && currentUser && currentUser.role === 'admin') {
     adminBadge.style.display = 'inline-block';
   }
   
-  // Initialize features
-  if (typeof initializeNewFeatures === 'function') {
+    if (typeof initializeNewFeatures === 'function') {
     initializeNewFeatures();
   }
   
-  // Render initial tiles
-  if (typeof renderTiles === 'function' && typeof documents !== 'undefined') {
+    if (typeof renderTiles === 'function' && typeof documents !== 'undefined') {
     renderTiles(documents);
   }
   
-  // Update breadcrumb
-  if (typeof updateBreadcrumb === 'function') {
+    if (typeof updateBreadcrumb === 'function') {
     updateBreadcrumb();
   }
   
-  // Update stats
-  if (typeof updateDashboardStats === 'function') {
+    if (typeof updateDashboardStats === 'function') {
     updateDashboardStats();
   }
 }
 
-// Show auto-login notification
 function showAutoLoginNotification(username) {
   console.log('Auto-logging in as:', username);
   showNotification(`Welcome back, ${username}!`, 'success');
 }
 
-// Perform search
 function performSearch(e) {
   const query = typeof e === 'string' ? e : (e?.target?.value || '');
   const searchResults = document.getElementById('searchResults');
@@ -295,19 +280,16 @@ function performSearch(e) {
     return;
   }
   
-  // Add to search history
-  if (typeof addToSearchHistory === 'function') {
+    if (typeof addToSearchHistory === 'function') {
     addToSearchHistory(query);
   }
   
-  // Search through documents
-  const results = [];
+    const results = [];
   if (typeof documents !== 'undefined') {
     searchInDocuments(documents, [], query.toLowerCase(), results);
   }
   
-  // Search through notes
-  if (notes && notes.length > 0) {
+    if (notes && notes.length > 0) {
     notes.forEach(note => {
       if (note.title.toLowerCase().includes(query.toLowerCase()) || 
           note.content.toLowerCase().includes(query.toLowerCase())) {
@@ -323,8 +305,7 @@ function performSearch(e) {
     });
   }
   
-  // Search through flashcard decks
-  if (flashcardDecks && flashcardDecks.length > 0) {
+    if (flashcardDecks && flashcardDecks.length > 0) {
     flashcardDecks.forEach(deck => {
       if (deck.name.toLowerCase().includes(query.toLowerCase())) {
         results.push({
@@ -336,8 +317,7 @@ function performSearch(e) {
           url: null
         });
       }
-      // Also search within card content
-      deck.cards.forEach(card => {
+            deck.cards.forEach(card => {
         if (card.front.toLowerCase().includes(query.toLowerCase()) || 
             card.back.toLowerCase().includes(query.toLowerCase())) {
           const alreadyAdded = results.some(r => r.deckId === deck.id);
@@ -356,8 +336,7 @@ function performSearch(e) {
     });
   }
   
-  // Search through study sessions
-  if (studySessions && studySessions.length > 0) {
+    if (studySessions && studySessions.length > 0) {
     studySessions.forEach(session => {
       if (session.subject.toLowerCase().includes(query.toLowerCase())) {
         results.push({
@@ -377,14 +356,12 @@ function performSearch(e) {
       searchResults.innerHTML = '<div style="padding: 1rem; text-align: center; color: var(--text-secondary);">No results found</div>';
     } else {
       searchResults.innerHTML = results.slice(0, 15).map(r => {
-        // Determine icon based on result type
-        let icon = r.isFolder ? 'fa-folder' : 'fa-file-pdf';
+                let icon = r.isFolder ? 'fa-folder' : 'fa-file-pdf';
         if (r.isNote) icon = 'fa-sticky-note';
         if (r.isFlashcard) icon = 'fa-layer-group';
         if (r.isSession) icon = 'fa-calendar-alt';
         
-        // Build onclick handler based on type
-        let onclickHandler = '';
+                let onclickHandler = '';
         if (r.isNote) {
           onclickHandler = `navigateToNote('${r.noteId}')`;
         } else if (r.isFlashcard) {
@@ -436,42 +413,34 @@ function navigateToSearchResult(pathArray, url) {
   
   document.getElementById('globalSearch').value = '';
   
-  // Show home view first
-  showView('home');
+    showView('home');
   setActiveNav('homeNav');
   
   if (url && url !== '#' && url !== '') {
-    // It's a PDF document - navigate to parent folder then show PDF
-    path = pathArray.slice(0, -1);
+        path = pathArray.slice(0, -1);
     updateBreadcrumb();
     
-    // Add to recent
-    const title = pathArray[pathArray.length - 1];
+        const title = pathArray[pathArray.length - 1];
     addToRecent(title, pathArray, url);
     
-    // Show the PDF
-    setTimeout(() => {
+        setTimeout(() => {
       showPDF(url);
     }, 100);
   } else {
-    // It's a folder - navigate to it
-    path = [...pathArray];
+        path = [...pathArray];
     renderTiles(getCurrentLevel());
     updateBreadcrumb();
   }
 }
 
-// Escape HTML for safe rendering
 function escapeHtml(text) {
   const div = document.createElement('div');
   div.textContent = text;
   return div.innerHTML;
 }
 
-// Custom confirm modal to replace browser confirm()
 function showConfirmModal(title, message, onConfirm, onCancel) {
-  // Remove any existing modal
-  const existing = document.querySelector('.confirm-modal-overlay');
+    const existing = document.querySelector('.confirm-modal-overlay');
   if (existing) existing.remove();
   
   const overlay = document.createElement('div');
@@ -492,30 +461,26 @@ function showConfirmModal(title, message, onConfirm, onCancel) {
   
   document.body.appendChild(overlay);
   
-  // Handle cancel
-  const cancelBtn = document.getElementById('confirmModalCancel');
+    const cancelBtn = document.getElementById('confirmModalCancel');
   cancelBtn.onclick = () => {
     overlay.remove();
     if (onCancel) onCancel();
   };
   
-  // Handle confirm
-  const confirmBtn = document.getElementById('confirmModalConfirm');
+    const confirmBtn = document.getElementById('confirmModalConfirm');
   confirmBtn.onclick = () => {
     overlay.remove();
     if (onConfirm) onConfirm();
   };
   
-  // Close on overlay click
-  overlay.onclick = (e) => {
+    overlay.onclick = (e) => {
     if (e.target === overlay) {
       overlay.remove();
       if (onCancel) onCancel();
     }
   };
   
-  // Close on Escape key
-  const handleEscape = (e) => {
+    const handleEscape = (e) => {
     if (e.key === 'Escape') {
       overlay.remove();
       document.removeEventListener('keydown', handleEscape);
@@ -525,14 +490,12 @@ function showConfirmModal(title, message, onConfirm, onCancel) {
   document.addEventListener('keydown', handleEscape);
 }
 
-// Set active navigation item
 function setActiveNav(navId) {
   document.querySelectorAll('.nav-link').forEach(link => link.classList.remove('active'));
   const activeNav = document.getElementById(navId);
   if (activeNav) activeNav.classList.add('active');
 }
 
-// Placeholder functions for features that might be in another file
 function loadDocuments() { console.log('loadDocuments called'); }
 function trackDailyAccess() { 
   console.log('trackDailyAccess called');
@@ -541,9 +504,8 @@ function trackDailyAccess() {
   accessData[today] = (accessData[today] || 0) + 1;
   localStorage.setItem('questionary-daily-access', JSON.stringify(accessData));
 }
-function saveUserPreferences() { /* silent */ }
+function saveUserPreferences() {  }
 
-// Render document tiles
 function renderTiles(docs) {
   const container = document.getElementById('tilesContainer');
   if (!container) {
@@ -558,8 +520,7 @@ function renderTiles(docs) {
     return;
   }
   
-  // Get sort order
-  const sortOrder = localStorage.getItem('questionary-sort-order') || 'asc';
+    const sortOrder = localStorage.getItem('questionary-sort-order') || 'asc';
   const keys = Object.keys(docs).sort((a, b) => {
     return sortOrder === 'asc' ? a.localeCompare(b) : b.localeCompare(a);
   });
@@ -570,22 +531,31 @@ function renderTiles(docs) {
     
     const tile = document.createElement('div');
     tile.className = 'tile';
+    
+        const isMissingPdf = !isFolder && (!value || value === '#' || value === '');
+    
     tile.innerHTML = `
       <div class="tile-icon">
         <i class="fas ${isFolder ? 'fa-folder' : 'fa-file-pdf'}"></i>
       </div>
       <div class="tile-text">${escapeHtml(key)}</div>
-      ${!isFolder ? `<button class="tile-favorite" onclick="event.stopPropagation(); toggleFavorite('${escapeHtml(key)}', ${JSON.stringify([...path, key]).replace(/"/g, '&quot;')}, '${escapeHtml(value)}')" title="Toggle Favorite"><i class="fas fa-star"></i></button>` : ''}
+      ${!isFolder && !isMissingPdf ? `<button class="tile-favorite" onclick="event.stopPropagation(); toggleFavorite('${escapeHtml(key)}', ${JSON.stringify([...path, key]).replace(/"/g, '&quot;')}, '${escapeHtml(value)}')" title="Toggle Favorite"><i class="fas fa-star"></i></button>` : ''}
+      ${isMissingPdf ? `<div class="pdf-missing-badge"><i class="fas fa-exclamation-triangle"></i> Not Available</div>` : ''}
     `;
+    
+        if (isMissingPdf) {
+      tile.classList.add('pdf-missing');
+    }
     
     tile.onclick = () => {
       if (isFolder) {
         path.push(key);
         renderTiles(value);
         updateBreadcrumb();
+      } else if (isMissingPdf) {
+        showNotification('This PDF is not available yet', 'warning');
       } else {
-        // It's a PDF link
-        addToRecent(key, [...path, key], value);
+                addToRecent(key, [...path, key], value);
         showPDF(value);
       }
     };
@@ -593,22 +563,39 @@ function renderTiles(docs) {
     container.appendChild(tile);
   });
   
-  // Update stats
-  updateDashboardStats();
+    updateDashboardStats();
 }
 
-// Update breadcrumb navigation
+async function checkPdfExists(pdfPath) {
+  return new Promise((resolve) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('HEAD', pdfPath, true);
+    
+    xhr.onreadystatechange = function() {
+      if (xhr.readyState === 4) {
+        console.log('PDF check:', pdfPath, 'status:', xhr.status);
+                resolve(xhr.status === 200 || xhr.status === 206);
+      }
+    };
+    
+    xhr.onerror = function() {
+      console.log('PDF check error:', pdfPath);
+      resolve(false);
+    };
+    
+    xhr.send();
+  });
+}
+
 function updateBreadcrumb() {
   const breadcrumb = document.getElementById('breadcrumb');
   const backBtn = document.getElementById('backBtn');
   
   if (!breadcrumb) return;
   
-  // Clear existing content
-  breadcrumb.innerHTML = '';
+    breadcrumb.innerHTML = '';
   
-  // Create Home link
-  const homeSpan = document.createElement('span');
+    const homeSpan = document.createElement('span');
   homeSpan.className = 'breadcrumb-item';
   homeSpan.textContent = 'Home';
   homeSpan.onclick = function() {
@@ -616,20 +603,17 @@ function updateBreadcrumb() {
   };
   breadcrumb.appendChild(homeSpan);
   
-  // Add path segments
-  let currentPath = [];
+    let currentPath = [];
   path.forEach((segment, index) => {
     currentPath.push(segment);
     const pathCopy = [...currentPath];
     
-    // Add separator
-    const separator = document.createElement('i');
+        const separator = document.createElement('i');
     separator.className = 'fas fa-chevron-right';
     separator.style.cssText = 'font-size: 0.7rem; opacity: 0.5; margin: 0 0.5rem;';
     breadcrumb.appendChild(separator);
     
-    // Add path segment
-    const segmentSpan = document.createElement('span');
+        const segmentSpan = document.createElement('span');
     segmentSpan.className = 'breadcrumb-item';
     segmentSpan.textContent = segment;
     segmentSpan.onclick = function() {
@@ -643,20 +627,17 @@ function updateBreadcrumb() {
   }
 }
 
-// Navigate to a specific path
 function navigateToPath(newPath) {
   console.log('navigateToPath called with:', newPath);
   
-  // Close PDF if open
-  const pdfViewer = document.getElementById('pdfViewer');
+    const pdfViewer = document.getElementById('pdfViewer');
   if (pdfViewer) {
     pdfViewer.style.cssText = 'display: none !important;';
     pdfViewer.classList.remove('active');
     pdfViewer.src = '';
   }
   
-  // Show tiles again
-  const tilesContainer = document.getElementById('tilesContainer');
+    const tilesContainer = document.getElementById('tilesContainer');
   const sectionHeader = document.querySelector('#tilesSection .section-header');
   const dashboardHeader = document.querySelector('.dashboard-header');
   const tilesSection = document.getElementById('tilesSection');
@@ -666,20 +647,16 @@ function navigateToPath(newPath) {
   if (sectionHeader) sectionHeader.style.display = 'flex';
   if (dashboardHeader) dashboardHeader.style.display = newPath.length === 0 ? 'flex' : 'none';
   
-  // Hide timer
-  if (typeof hideTimerCompletely === 'function') hideTimerCompletely();
+    if (typeof hideTimerCompletely === 'function') hideTimerCompletely();
   
-  // Update path and render
-  path = newPath;
+    path = newPath;
   
-  // Get the correct level to render
-  let level = documents;
+    let level = documents;
   for (const segment of path) {
     if (level && typeof level === 'object' && level[segment]) {
       level = level[segment];
     } else {
-      // Invalid path, reset to root
-      path = [];
+            path = [];
       level = documents;
       break;
     }
@@ -689,10 +666,8 @@ function navigateToPath(newPath) {
   updateBreadcrumb();
 }
 
-// Make navigateToPath globally available
 window.navigateToPath = navigateToPath;
 
-// Get current level in document tree
 function getCurrentLevel() {
   let current = documents;
   for (const segment of path) {
@@ -705,16 +680,13 @@ function getCurrentLevel() {
   return current;
 }
 
-// Update dashboard statistics
 function updateDashboardStats() {
-  // Count total documents (only actual URLs, not # or empty strings)
-  let totalDocs = 0;
+    let totalDocs = 0;
   function countDocs(obj) {
     for (const key in obj) {
       const value = obj[key];
       if (typeof value === 'string') {
-        // Only count if it's a real URL (not # or empty)
-        if (value && value !== '#' && value.trim() !== '') {
+                if (value && value !== '#' && value.trim() !== '') {
           totalDocs++;
         }
       } else if (typeof value === 'object' && value !== null) {
@@ -753,48 +725,43 @@ function showPDF(url) {
   const breadcrumbContainer = document.querySelector('.breadcrumb-container');
   const tilesSection = document.getElementById('tilesSection');
   
-  // Show the PDF viewer
-  if (pdfViewer) {
+    const filename = url.split('/').pop().replace('.pdf', '').replace(/%20/g, ' ');
+  window.setCurrentPDF && window.setCurrentPDF(url, filename);
+  
+    if (pdfViewer) {
     pdfViewer.src = url;
     pdfViewer.classList.add('active');
-    pdfViewer.style.cssText = ''; // Clear any inline styles, let CSS handle it
-    console.log('PDF viewer should now be visible, src:', url);
+    pdfViewer.style.cssText = '';     console.log('PDF viewer should now be visible, src:', url);
   } else {
     console.error('PDF viewer element not found!');
     return;
   }
   
-  // Make sure tiles section is visible (contains the pdf viewer)
-  if (tilesSection) tilesSection.style.display = 'block';
+    if (tilesSection) tilesSection.style.display = 'block';
   
-  // Hide tiles when showing PDF
-  if (tilesContainer) tilesContainer.style.display = 'none';
+    if (tilesContainer) tilesContainer.style.display = 'none';
   if (sectionHeader) sectionHeader.style.display = 'none';
   if (dashboardHeader) dashboardHeader.style.display = 'none';
   
-  // Keep breadcrumb visible for navigation
-  if (breadcrumbContainer) breadcrumbContainer.style.display = 'flex';
+    if (breadcrumbContainer) breadcrumbContainer.style.display = 'flex';
   
-  // Update breadcrumb to show current location
-  updateBreadcrumb();
+    updateBreadcrumb();
   
-  // Show timer panel when viewing PDF
-  const timerPanel = document.getElementById('timerPanel');
+    const timerPanel = document.getElementById('timerPanel');
   if (timerPanel) timerPanel.style.display = 'flex';
   
-  // Initialize timer if not already
-  if (typeof initializeTimer === 'function') initializeTimer();
+    if (typeof initializeTimer === 'function') initializeTimer();
   
-  // Track PDF view start
-  if (typeof trackPdfViewStart === 'function') trackPdfViewStart();
+    if (typeof trackPdfViewStart === 'function') trackPdfViewStart();
 }
 
-// Close PDF and return to tiles
 function closePDF() {
   const pdfViewer = document.getElementById('pdfViewer');
   const tilesContainer = document.getElementById('tilesContainer');
   const sectionHeader = document.querySelector('#tilesSection .section-header');
   const dashboardHeader = document.querySelector('.dashboard-header');
+  
+    window.clearCurrentPDF && window.clearCurrentPDF();
   
   if (pdfViewer) {
     pdfViewer.style.cssText = 'display: none !important;';
@@ -808,26 +775,22 @@ function closePDF() {
   
   if (typeof hideTimerCompletely === 'function') hideTimerCompletely();
   
-  // Track PDF view end
-  if (typeof trackPdfViewEnd === 'function') trackPdfViewEnd(path.join('/'));
+    if (typeof trackPdfViewEnd === 'function') trackPdfViewEnd(path.join('/'));
 }
 
 function renderAnalytics() {
   console.log('renderAnalytics called');
   
-  // Get analytics data
-  const accessData = JSON.parse(localStorage.getItem('questionary-daily-access') || '{}');
+    const accessData = JSON.parse(localStorage.getItem('questionary-daily-access') || '{}');
   const recent = JSON.parse(localStorage.getItem('questionary-recent') || '[]');
   const subjectAccess = JSON.parse(localStorage.getItem('questionary-subject-access') || '{}');
   
-  // Calculate stats
-  const totalSessions = Object.values(accessData).reduce((sum, count) => sum + count, 0);
+    const totalSessions = Object.values(accessData).reduce((sum, count) => sum + count, 0);
   const totalDocsViewed = recent.length;
   const daysActive = Object.keys(accessData).length;
   const avgSessionsPerDay = daysActive > 0 ? (totalSessions / daysActive).toFixed(1) : 0;
   
-  // Update stats display
-  const totalSessionsEl = document.getElementById('totalSessions');
+    const totalSessionsEl = document.getElementById('totalSessions');
   const totalDocsViewedEl = document.getElementById('totalDocsViewed');
   const daysActiveEl = document.getElementById('daysActive');
   const avgSessionsEl = document.getElementById('avgSessions');
@@ -837,8 +800,7 @@ function renderAnalytics() {
   if (daysActiveEl) daysActiveEl.textContent = daysActive;
   if (avgSessionsEl) avgSessionsEl.textContent = avgSessionsPerDay;
   
-  // Render charts
-  renderAccessChart(accessData);
+    renderAccessChart(accessData);
   renderSubjectChart(subjectAccess);
   renderRecentActivity(recent);
 }
@@ -945,7 +907,74 @@ function renderNotes() {
   `).join('');
 }
 function updateProgressDisplay() { console.log('updateProgressDisplay called'); }
-function renderQuickLinks() { console.log('renderQuickLinks called'); }
+
+function renderQuickLinks() {
+  const container = document.getElementById('quickLinksList');
+  if (!container) return;
+  
+    quickLinks = quickLinks.filter(ql => ql && ql.pathArray && Array.isArray(ql.pathArray));
+  
+  if (quickLinks.length === 0) {
+    container.innerHTML = `
+      <div class="quick-links-empty">
+        <i class="fas fa-link"></i>
+        <p>No quick links yet</p>
+        <span>Navigate to a folder or file and click "Add Current Location"</span>
+      </div>
+    `;
+    return;
+  }
+  
+  container.innerHTML = quickLinks.map(ql => {
+    const isFile = ql.isFile || false;
+    const icon = isFile ? 'fa-file-pdf' : 'fa-folder';
+    const iconColor = isFile ? 'style="color: #ef4444;"' : '';
+    return `
+    <div class="quick-link-item" data-id="${ql.id}" data-path="${ql.pathArray.join('|')}" data-is-file="${isFile}" data-url="${ql.url || ''}">
+      <i class="fas ${icon}" ${iconColor}></i>
+      <span class="quick-link-name">${ql.name || ql.pathArray[ql.pathArray.length - 1] || 'Unknown'}</span>
+      <button class="quick-link-delete" title="Remove" onclick="event.stopPropagation(); removeQuickLink('${ql.id}')">
+        <i class="fas fa-times"></i>
+      </button>
+    </div>
+  `;
+  }).join('');
+  
+    container.querySelectorAll('.quick-link-item').forEach(item => {
+    item.addEventListener('click', (e) => {
+      if (e.target.closest('.quick-link-delete')) return;
+      const pathStr = item.dataset.path;
+      const pathArray = pathStr.split('|');
+      const isFile = item.dataset.isFile === 'true';
+      const url = item.dataset.url;
+      
+      if (isFile && url) {
+                const parentPath = pathArray.slice(0, -1);
+        navigateToPath(parentPath);
+        setTimeout(() => showPDF(url), 100);
+      } else {
+        navigateToPath(pathArray);
+      }
+      document.getElementById('quickLinksPanel')?.classList.remove('active');
+    });
+  });
+}
+
+let currentOpenPDF = null;
+window.setCurrentPDF = function(url, name) {
+  currentOpenPDF = { url, name };
+};
+window.clearCurrentPDF = function() {
+  currentOpenPDF = null;
+};
+
+function removeQuickLink(id) {
+  quickLinks = quickLinks.filter(ql => ql.id !== id);
+  saveQuickLinks();
+  renderQuickLinks();
+  if (typeof showNotification === 'function') showNotification('Quick link removed', 'info');
+}
+
 function saveQuickLinks() { localStorage.setItem('questionary-quick-links', JSON.stringify(quickLinks)); }
 function loadQuickLinks() { quickLinks = JSON.parse(localStorage.getItem('questionary-quick-links') || '[]'); }
 function trackStudyTime(minutes) { 
@@ -960,7 +989,6 @@ function updateDocProgress(docPath, progress) {
   localStorage.setItem('questionary-doc-progress', JSON.stringify(documentProgress));
 }
 
-// Track subject/folder access for analytics
 function trackSubjectAccess(subjectName) {
   if (!subjectName) return;
   const subjectAccess = JSON.parse(localStorage.getItem('questionary-subject-access') || '{}');
@@ -968,13 +996,11 @@ function trackSubjectAccess(subjectName) {
   localStorage.setItem('questionary-subject-access', JSON.stringify(subjectAccess));
 }
 
-// Render access chart (last 7 days)
 function renderAccessChart(accessData) {
   const container = document.getElementById('accessChart');
   if (!container) return;
   
-  // Get last 7 days
-  const days = [];
+    const days = [];
   const today = new Date();
   for (let i = 6; i >= 0; i--) {
     const date = new Date(today);
@@ -1010,7 +1036,6 @@ function renderAccessChart(accessData) {
   `;
 }
 
-// Render subject chart (top 5 subjects)
 function renderSubjectChart(subjectAccess) {
   const container = document.getElementById('subjectChart');
   if (!container) return;
@@ -1055,7 +1080,6 @@ function renderSubjectChart(subjectAccess) {
   `;
 }
 
-// Render recent activity timeline
 function renderRecentActivity(recent) {
   const container = document.getElementById('recentActivityList');
   if (!container) return;
@@ -1086,7 +1110,6 @@ function renderRecentActivity(recent) {
   }).join('');
 }
 
-// Helper function to get relative time
 function getTimeAgo(timestamp) {
   if (!timestamp) return 'Unknown';
   const seconds = Math.floor((Date.now() - timestamp) / 1000);
@@ -1098,10 +1121,8 @@ function getTimeAgo(timestamp) {
   return new Date(timestamp).toLocaleDateString();
 }
 
-// Make navigateToSearchResult available globally
 window.navigateToSearchResult = navigateToSearchResult;
 
-// Navigate to a note from search results
 function navigateToNote(noteId) {
   const searchResults = document.getElementById('searchResults');
   if (searchResults) searchResults.style.display = 'none';
@@ -1110,15 +1131,13 @@ function navigateToNote(noteId) {
   showView('notes');
   setActiveNav('notesNav');
   
-  // Open the note for editing
-  setTimeout(() => {
+    setTimeout(() => {
     if (typeof editNote === 'function') {
       editNote(noteId);
     }
   }, 100);
 }
 
-// Navigate to a flashcard deck from search results
 function navigateToFlashcard(deckId) {
   const searchResults = document.getElementById('searchResults');
   if (searchResults) searchResults.style.display = 'none';
@@ -1127,15 +1146,13 @@ function navigateToFlashcard(deckId) {
   showView('flashcards');
   setActiveNav('flashcardsNav');
   
-  // Start studying the deck
-  setTimeout(() => {
+    setTimeout(() => {
     if (typeof startStudyDeck === 'function') {
       startStudyDeck(deckId);
     }
   }, 100);
 }
 
-// Navigate to a study session from search results
 function navigateToSession(sessionId) {
   const searchResults = document.getElementById('searchResults');
   if (searchResults) searchResults.style.display = 'none';
@@ -1144,8 +1161,7 @@ function navigateToSession(sessionId) {
   showView('planner');
   setActiveNav('studyPlannerNav');
   
-  // Find the session and scroll to it or highlight it
-  setTimeout(() => {
+    setTimeout(() => {
     const session = studySessions.find(s => s.id === sessionId);
     if (session) {
       showNotification(`Session: ${session.subject} on ${session.date} at ${session.time}`, 'info');
@@ -1153,14 +1169,10 @@ function navigateToSession(sessionId) {
   }, 100);
 }
 
-// Make navigation functions globally available
 window.navigateToNote = navigateToNote;
 window.navigateToFlashcard = navigateToFlashcard;
 window.navigateToSession = navigateToSession;
 
-// ==================== DOCUMENTS DATA ====================
-// Store your document links here in a nested object structure
-// Year -> Class -> Term -> Subject (empty slots marked with #)
 let documents = {
     "2020-21": {
         "Class 9": {
@@ -3338,26 +3350,26 @@ let documents = {
         }
     },
     "Study Materials": {
-        "2025-26 CL 9 MT 1 Bengali": "documents/Study_Material_Class_9_2025-26_CL_9_MT_1_Bengali.pdf",
-        "2025-26 CL 9 MT 1 Economics": "documents/Study_Material_Class_9_2025-26_CL_9_MT_1_Economics.pdf",
-        "2025-26 CL 9 MT 1 Hindi": "documents/Study_Material_Class_9_2025-26_CL_9_MT_1_Hindi.pdf",
-        "2025-26 CL 9 MT 1 Math": "documents/Study_Material_Class_9_2025-26_CL_9_MT_1_Math.pdf",
-        "Biology Class 10 Book PDFS Endocrine System": "documents/Study_Material_Class_9_Biology_Class_10_Book_PDFS_Endocrine_System.pdf",
-        "Biology Class 10 Book PDFS Excretory System": "documents/Study_Material_Class_9_Biology_Class_10_Book_PDFS_Excretory_System.pdf",
-        "Biology Class 10 Book PDFS Full Book": "documents/Study_Material_Class_9_Biology_Class_10_Book_PDFS_Full_Book.pdf",
-        "Physics FT Biology Class 10 Book PDFS Excretory System": "documents/Study_Material_Class_9_Physics_FT_Biology_Class_10_Book_PDFS_Excretory_System.pdf",
-        "Physics FT Current Electricity": "documents/Study_Material_Class_9_Physics_FT_Current_Electricity.pdf",
-        "Physics FT Heat and Energy": "documents/Study_Material_Class_9_Physics_FT_Heat_and_Energy.pdf",
-        "Physics FT Magnetism": "documents/Study_Material_Class_9_Physics_FT_Magnetism.pdf",
-        "Physics FT Propagation of Sound Waves": "documents/Study_Material_Class_9_Physics_FT_Propagation_of_Sound_Waves.pdf",
-        "Physics FT Reflection of Light": "documents/Study_Material_Class_9_Physics_FT_Reflection_of_Light.pdf",
-        "Physics FT  Principle and Floatation": "documents/Study_Material_Class_9_Physics_FT__Principle_and_Floatation.pdf"
+        "Biology Class 10 Book PDFS":{
+          "Biology Class 10 Book PDFS Endocrine System": "documents/Study_Material_Class_9_Biology_Class_10_Book_PDFS_Endocrine_System.pdf",
+          "Biology Class 10 Book PDFS Excretory System": "documents/Study_Material_Class_9_Biology_Class_10_Book_PDFS_Excretory_System.pdf",
+          "Biology Class 10 Book PDFS Reproduction": "documents/Study_Material_Class_9_Biology_Class_10_Book_PDFS_Reproduction.pdf",
+          "Biology Class 10 Book PDFS Full Book": "documents/Study_Material_Class_9_Biology_Class_10_Book_PDFS_Full_Book.pdf",
+        },
+        "Physics FT":{
+          "Physics FT Current Electricity": "documents/Study_Material_Class_9_Physics_FT_Current_Electricity.pdf",
+          "Physics FT Heat and Energy": "documents/Study_Material_Class_9_Physics_FT_Heat_and_Energy.pdf",
+          "Physics FT Magnetism": "documents/Study_Material_Class_9_Physics_FT_Magnetism.pdf",
+          "Physics FT Propagation of Sound Waves": "documents/Study_Material_Class_9_Physics_FT_Propagation_of_Sound_Waves.pdf",
+          "Physics FT Reflection of Light": "documents/Study_Material_Class_9_Physics_FT_Reflection_of_Light.pdf",
+          "Physics FT  Principle and Floatation": "documents/Study_Material_Class_9_Physics_FT__Principle_and_Floatation.pdf"
+
+        }
     }
 };
 
 
 
-// ==================== NOTES FUNCTIONS ====================
 function loadNotes() {
   notes = JSON.parse(localStorage.getItem('questionary-notes') || '[]');
 }
@@ -3446,7 +3458,6 @@ function deleteNote(noteId) {
   );
 }
 
-// ==================== FLASHCARD FUNCTIONS ====================
 function loadFlashcardDecks() {
   flashcardDecks = JSON.parse(localStorage.getItem('questionary-flashcards') || '[]');
 }
@@ -3614,7 +3625,6 @@ function prevCard() {
   showCurrentCard();
 }
 
-// ==================== STUDY SESSION FUNCTIONS ====================
 function loadStudySessions() {
   studySessions = JSON.parse(localStorage.getItem('questionary-sessions') || '[]');
 }
@@ -3707,7 +3717,6 @@ function loadDocumentProgress() {
   documentProgress = JSON.parse(localStorage.getItem('questionary-doc-progress') || '{}');
 }
 
-// Make functions globally available
 window.openNoteModal = openNoteModal;
 window.saveNote = saveNote;
 window.deleteNote = deleteNote;
@@ -3726,7 +3735,6 @@ window.deleteSession = deleteSession;
 window.showDaySessions = showDaySessions;
 
 
-// Initialize favorites, settings, and UI on DOMContentLoaded
 document.addEventListener('DOMContentLoaded', async () => {
   
   await initializeFavorites();
@@ -3867,8 +3875,7 @@ function handleLogin(e) {
     
     showNotification(`Welcome, ${username}!`, 'success');
     
-    // Small delay to show the notification before transitioning
-    setTimeout(() => {
+        setTimeout(() => {
       showApp();
       initializeAppAfterLogin();
     }, 500);
@@ -3951,13 +3958,16 @@ function initializeNavigation() {
   
   
   const closeMenuOnClick = () => {
-    if (navLinks && window.innerWidth <= 768) {
+        if (navLinks && window.innerWidth <= 768) {
       navLinks.classList.remove('active');
       const icon = mobileMenuToggle?.querySelector('i');
       if (icon) {
         icon.classList.add('fa-bars');
         icon.classList.remove('fa-times');
       }
+    }
+        if (document.body.classList.contains('vertical-navbar-mode')) {
+      closeSidebar();
     }
   };
   
@@ -4293,8 +4303,7 @@ function addToRecent(title, docPath, url) {
   
   saveRecentToStorage(updatedRecent);
   
-  // Track subject/folder access for analytics
-  if (docPath && docPath.length > 0) {
+    if (docPath && docPath.length > 0) {
     trackSubjectAccess(docPath[0]);
     if (docPath.length > 1) {
       trackSubjectAccess(docPath[1]);
@@ -4691,19 +4700,21 @@ function initializeTimerResize() {
 function toggleTimerMinimize() {
   const timerPanel = document.getElementById('timerPanel');
   const minimizeBtn = document.getElementById('timerMinimize');
+  const timerControls = document.getElementById('timerControls');
   
   if (!timerPanel) return;
   
   timerPanel.classList.toggle('minimized');
+  const isMinimized = timerPanel.classList.contains('minimized');
   
-  if (!timerPanel) return;
-  
-  timerPanel.classList.toggle('minimized');
+    if (timerControls && isMinimized) {
+    timerControls.style.display = 'flex';
+  }
   
   if (minimizeBtn) {
     const icon = minimizeBtn.querySelector('i');
     if (icon) {
-      if (timerPanel.classList.contains('minimized')) {
+      if (isMinimized) {
         icon.className = 'fas fa-expand';
         minimizeBtn.title = 'Expand Timer';
       } else {
@@ -4852,15 +4863,13 @@ function resetTimer() {
   updateTimerDisplay();
   renderLaps();
   
-  // Reset progress bar
-  const progressBar = document.getElementById('timerProgressBar');
+    const progressBar = document.getElementById('timerProgressBar');
   if (progressBar) {
     progressBar.style.width = '100%';
     progressBar.classList.remove('warning', 'danger');
   }
   
-  // Reset display colors
-  const timerDisplay = document.getElementById('timerDisplay');
+    const timerDisplay = document.getElementById('timerDisplay');
   if (timerDisplay) timerDisplay.classList.remove('warning', 'danger');
   
   updateTimerStatus('Timer reset');
@@ -4944,8 +4953,7 @@ function hideTimer() {
   }
   
   const pdfViewer = document.getElementById('pdfViewer');
-  // Check if PDF is visible using classList.contains('active') or checking src
-  const isPdfVisible = pdfViewer && (pdfViewer.classList.contains('active') || (pdfViewer.src && pdfViewer.src !== '' && pdfViewer.src !== 'about:blank'));
+    const isPdfVisible = pdfViewer && (pdfViewer.classList.contains('active') || (pdfViewer.src && pdfViewer.src !== '' && pdfViewer.src !== 'about:blank'));
   
   if (reopenBtn && isPdfVisible) {
     reopenBtn.style.display = 'flex';
@@ -5097,33 +5105,66 @@ window.addEventListener('contextmenu', e => {
   e.preventDefault();
 });
 
-// Check for updates using Tauri updater plugin
+let updateState = {
+    available: false,
+    version: null,
+    update: null,
+    downloading: false,
+    downloadProgress: 0,
+    downloadedBytes: 0,
+    totalBytes: 0
+};
+
 async function checkForUpdatesManual() {
     console.log('checkForUpdatesManual function called');
     
     const btn = document.getElementById('checkUpdatesBtn');
+    
+        if (updateState.downloading) {
+        showUpdateProgressNotification();
+        return;
+    }
+    
+        if (updateState.available && updateState.update) {
+        await downloadAndInstallUpdate();
+        return;
+    }
+    
     if (btn) {
         btn.classList.add('checking');
         btn.disabled = true;
     }
     
     try {
-        // Check if running in Tauri desktop app with proper invoke function
-        if (window.__TAURI__ && 
-            window.__TAURI__.core && 
-            typeof window.__TAURI__.core.invoke === 'function') {
-            const result = await window.__TAURI__.core.invoke('check_for_updates');
-            showNotification(result, 'success');
-        } else if (window.__TAURI__ && typeof window.__TAURI__.invoke === 'function') {
-            const result = await window.__TAURI__.invoke('check_for_updates');
-            showNotification(result, 'success');
+        if (window.__TAURI__) {
+            showNotification('Checking for updates...', 'info');
+            
+                        const updater = window.__TAURI__.updater;
+            if (!updater) {
+                throw new Error('Updater plugin not available');
+            }
+            
+            const update = await updater.check();
+            
+            if (update) {
+                console.log('Update available:', update.version);
+                updateState.available = true;
+                updateState.version = update.version;
+                updateState.update = update;
+                
+                showNotification(`Update ${update.version} available! Click update button again to download.`, 'success');
+                updateButtonToDownloadMode(update.version);
+            } else {
+                showNotification('You are on the latest version!', 'success');
+                resetUpdateButton();
+            }
         } else {
-            // Not in Tauri or invoke not available - show friendly message
             showNotification('Update checking is only available in the desktop app.', 'info');
         }
     } catch (error) {
         console.error('Update check error:', error);
         showNotification('Could not check for updates. Please try again later.', 'warning');
+        resetUpdateButton();
     } finally {
         if (btn) {
             btn.classList.remove('checking');
@@ -5132,7 +5173,125 @@ async function checkForUpdatesManual() {
     }
 }
 
-// Initialize update button
+async function downloadAndInstallUpdate() {
+    if (!updateState.update) return;
+    
+    const btn = document.getElementById('checkUpdatesBtn');
+    updateState.downloading = true;
+    updateState.downloadProgress = 0;
+    updateState.downloadedBytes = 0;
+    
+    try {
+        updateButtonToProgressMode();
+        showNotification('Downloading update...', 'info');
+        
+        await updateState.update.downloadAndInstall((event) => {
+            switch (event.event) {
+                case 'Started':
+                    updateState.totalBytes = event.data.contentLength || 0;
+                    console.log('Download started, size:', updateState.totalBytes);
+                    break;
+                case 'Progress':
+                    updateState.downloadedBytes += event.data.chunkLength || 0;
+                    if (updateState.totalBytes > 0) {
+                        updateState.downloadProgress = Math.round((updateState.downloadedBytes / updateState.totalBytes) * 100);
+                    }
+                    updateProgressButton();
+                    break;
+                case 'Finished':
+                    updateState.downloadProgress = 100;
+                    console.log('Download finished');
+                    updateProgressButton();
+                    break;
+            }
+        });
+        
+        showNotification('Update installed! Restarting app...', 'success');
+        updateButtonToRestartMode();
+        
+                setTimeout(async () => {
+            if (window.__TAURI__ && window.__TAURI__.process) {
+                await window.__TAURI__.process.relaunch();
+            }
+        }, 2000);
+        
+    } catch (error) {
+        console.error('Download error:', error);
+        showNotification('Failed to download update. Please try again.', 'error');
+        resetUpdateButton();
+        updateState.downloading = false;
+    }
+}
+
+function updateButtonToDownloadMode(version) {
+    const btn = document.getElementById('checkUpdatesBtn');
+    if (btn) {
+        btn.innerHTML = `<i class="fas fa-download"></i>`;
+        btn.title = `Download update ${version}`;
+        btn.classList.add('update-available');
+    }
+}
+
+function updateButtonToProgressMode() {
+    const btn = document.getElementById('checkUpdatesBtn');
+    if (btn) {
+        btn.innerHTML = `<span class="update-progress">0%</span>`;
+        btn.title = 'Downloading... Click to see progress';
+        btn.classList.add('downloading');
+        btn.classList.remove('update-available');
+    }
+}
+
+function updateProgressButton() {
+    const btn = document.getElementById('checkUpdatesBtn');
+    if (btn) {
+        const progressSpan = btn.querySelector('.update-progress');
+        if (progressSpan) {
+            progressSpan.textContent = `${updateState.downloadProgress}%`;
+        } else {
+            btn.innerHTML = `<span class="update-progress">${updateState.downloadProgress}%</span>`;
+        }
+        btn.title = `Downloading: ${formatBytes(updateState.downloadedBytes)} / ${formatBytes(updateState.totalBytes)}`;
+    }
+}
+
+function updateButtonToRestartMode() {
+    const btn = document.getElementById('checkUpdatesBtn');
+    if (btn) {
+        btn.innerHTML = `<i class="fas fa-redo"></i>`;
+        btn.title = 'Restarting...';
+        btn.classList.remove('downloading');
+        btn.classList.add('restarting');
+    }
+}
+
+function resetUpdateButton() {
+    const btn = document.getElementById('checkUpdatesBtn');
+    if (btn) {
+        btn.innerHTML = `<i class="fas fa-sync-alt"></i>`;
+        btn.title = 'Check for Updates';
+        btn.classList.remove('update-available', 'downloading', 'restarting');
+    }
+    updateState.available = false;
+    updateState.update = null;
+    updateState.downloading = false;
+}
+
+function showUpdateProgressNotification() {
+    const progress = updateState.downloadProgress;
+    const downloaded = formatBytes(updateState.downloadedBytes);
+    const total = formatBytes(updateState.totalBytes);
+    showNotification(`Downloading: ${progress}% (${downloaded} / ${total})`, 'info');
+}
+
+function formatBytes(bytes) {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
+
 (function initUpdateButton() {
     function setupButton() {
         const btn = document.getElementById('checkUpdatesBtn');
@@ -5153,12 +5312,49 @@ async function checkForUpdatesManual() {
     setTimeout(setupButton, 3000);
 })();
 
+async function checkForUpdatesOnStartup() {
+        await new Promise(resolve => setTimeout(resolve, 5000));
+    
+    try {
+        if (window.__TAURI__) {
+            console.log('Auto-checking for updates...');
+            
+            const updater = window.__TAURI__.updater;
+            if (!updater) {
+                console.log('Updater plugin not available');
+                return;
+            }
+            
+            const update = await updater.check();
+            
+            if (update) {
+                console.log('Update available:', update.version);
+                updateState.available = true;
+                updateState.version = update.version;
+                updateState.update = update;
+                
+                                showNotification(`Update ${update.version} is available! Click the update button to download.`, 'info');
+                updateButtonToDownloadMode(update.version);
+            } else {
+                console.log('App is up to date');
+            }
+        }
+    } catch (error) {
+        console.log('Auto-update check failed (silent):', error.message);
+    }
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', checkForUpdatesOnStartup);
+} else {
+    checkForUpdatesOnStartup();
+}
+
 
 
 
 function initializeNewFeatures() {
-  // Load data with error handling for missing functions
-  try { if (typeof loadNotes === 'function') loadNotes(); } catch(e) { console.log('loadNotes not available'); }
+    try { if (typeof loadNotes === 'function') loadNotes(); } catch(e) { console.log('loadNotes not available'); }
   try { if (typeof loadFlashcardDecks === 'function') loadFlashcardDecks(); } catch(e) { console.log('loadFlashcardDecks not available'); }
   try { if (typeof loadStudySessions === 'function') loadStudySessions(); } catch(e) { console.log('loadStudySessions not available'); }
   try { if (typeof loadDocumentProgress === 'function') loadDocumentProgress(); } catch(e) { console.log('loadDocumentProgress not available'); }
@@ -5270,11 +5466,31 @@ function initializeNewFeatures() {
   if (addQuickLinkBtn) {
     addQuickLinkBtn.onclick = (e) => {
       e.stopPropagation();
-      if (path.length === 0) {
-        if (typeof showNotification === 'function') showNotification('Navigate to a folder first', 'info');
+      
+            if (currentOpenPDF) {
+        const pathStr = [...path, currentOpenPDF.name].join('|');
+        if (quickLinks.some(ql => ql.pathArray.join('|') === pathStr)) {
+          if (typeof showNotification === 'function') showNotification('This file is already in quick links', 'info');
+          return;
+        }
+        
+        quickLinks.push({ 
+          id: Date.now().toString(), 
+          name: currentOpenPDF.name, 
+          pathArray: [...path, currentOpenPDF.name],
+          isFile: true,
+          url: currentOpenPDF.url
+        });
+        if (typeof saveQuickLinks === 'function') saveQuickLinks();
+        if (typeof renderQuickLinks === 'function') renderQuickLinks();
+        if (typeof showNotification === 'function') showNotification('PDF added to quick links!', 'success');
         return;
       }
       
+      if (path.length === 0) {
+        if (typeof showNotification === 'function') showNotification('Navigate to a folder or open a file first', 'info');
+        return;
+      }
       
       const pathStr = path.join('|');
       if (quickLinks.some(ql => ql.pathArray.join('|') === pathStr)) {
@@ -5285,7 +5501,8 @@ function initializeNewFeatures() {
       quickLinks.push({ 
         id: Date.now().toString(), 
         name: path[path.length - 1], 
-        pathArray: [...path] 
+        pathArray: [...path],
+        isFile: false
       });
       if (typeof saveQuickLinks === 'function') saveQuickLinks();
       if (typeof renderQuickLinks === 'function') renderQuickLinks();
@@ -5664,7 +5881,7 @@ function goToPage(pageNumber) {
   }
 }
 
-window.addPageBookmark = addPageBookmark;
+window.addPageBookmark = addToPrintQueue;
 window.removePageBookmark = removePageBookmark;
 window.goToPage = goToPage;
 
@@ -5873,3 +6090,341 @@ document.addEventListener('keydown', (e) => {
     panel?.classList.toggle('active');
   }
 });
+
+function initSettingsDropdown() {
+  const userBadge = document.getElementById('userBadge');
+  const userDropdown = document.getElementById('userDropdownMenu');
+  
+  if (!userBadge || !userDropdown) {
+    console.log('Settings dropdown elements not found');
+    return;
+  }
+  
+    userBadge.addEventListener('click', (e) => {
+        if (e.target.closest('#userDropdownMenu')) return;
+    e.stopPropagation();
+    userBadge.classList.toggle('active');
+    
+        const usernameDisplay = document.getElementById('username-display');
+    const dropdownUsername = document.getElementById('dropdownUsername');
+    if (usernameDisplay && dropdownUsername) {
+      dropdownUsername.textContent = usernameDisplay.textContent;
+    }
+  });
+  
+    document.addEventListener('click', (e) => {
+    if (!e.target.closest('.user-badge')) {
+      userBadge.classList.remove('active');
+    }
+  });
+  
+    loadSettingsState();
+  
+    setupSettingsToggles();
+  
+    setupSettingsActions();
+  
+  console.log('Settings dropdown initialized');
+}
+
+function loadSettingsState() {
+  const settings = JSON.parse(localStorage.getItem('questionary-settings') || '{}');
+  
+    const verticalNavToggle = document.getElementById('verticalNavbarToggle');
+  if (verticalNavToggle) {
+    verticalNavToggle.checked = settings.verticalNavbar || false;
+    if (settings.verticalNavbar) {
+      document.body.classList.add('vertical-navbar-mode');
+    }
+  }
+  
+    const compactToggle = document.getElementById('compactModeToggle');
+  if (compactToggle) {
+    compactToggle.checked = settings.compactMode || false;
+    if (settings.compactMode) {
+      document.body.classList.add('compact-mode');
+    }
+  }
+  
+    const animationsToggle = document.getElementById('animationsToggle');
+  if (animationsToggle) {
+    animationsToggle.checked = settings.animations !== false;     if (settings.animations === false) {
+      document.body.classList.add('reduced-animations');
+    }
+  }
+  
+    const autoPlayToggle = document.getElementById('autoPlayToggle');
+  if (autoPlayToggle) {
+    autoPlayToggle.checked = settings.autoOpenPdfs || false;
+  }
+  
+    const focusModeToggle = document.getElementById('focusModeToggle');
+  if (focusModeToggle) {
+    focusModeToggle.checked = settings.focusMode || false;
+    if (settings.focusMode) {
+      document.body.classList.add('focus-mode');
+    }
+  }
+  
+    const rememberLocationToggle = document.getElementById('rememberLocationToggle');
+  if (rememberLocationToggle) {
+    rememberLocationToggle.checked = settings.rememberLocation !== false;   }
+}
+
+function saveSettingsState() {
+  const settings = {
+    verticalNavbar: document.getElementById('verticalNavbarToggle')?.checked || false,
+    compactMode: document.getElementById('compactModeToggle')?.checked || false,
+    animations: document.getElementById('animationsToggle')?.checked !== false,
+    autoOpenPdfs: document.getElementById('autoPlayToggle')?.checked || false,
+    focusMode: document.getElementById('focusModeToggle')?.checked || false,
+    rememberLocation: document.getElementById('rememberLocationToggle')?.checked !== false
+  };
+  localStorage.setItem('questionary-settings', JSON.stringify(settings));
+}
+
+function setupSettingsToggles() {
+    function setupToggleRow(toggleId, onToggle) {
+    const toggle = document.getElementById(toggleId);
+    if (!toggle) return;
+    
+        const toggleItem = toggle.closest('.toggle-item');
+    
+        toggle.addEventListener('change', (e) => {
+      e.stopPropagation();
+      onToggle(toggle.checked);
+      saveSettingsState();
+    });
+    
+        if (toggleItem) {
+      toggleItem.style.cursor = 'pointer';
+      toggleItem.addEventListener('click', (e) => {
+                if (e.target === toggle) return;
+        e.preventDefault();
+        e.stopPropagation();
+        toggle.checked = !toggle.checked;
+        onToggle(toggle.checked);
+        saveSettingsState();
+      });
+    }
+    
+    console.log(`${toggleId} handler attached`);
+  }
+  
+    setupToggleRow('verticalNavbarToggle', (checked) => {
+    console.log('Vertical navbar toggled:', checked);
+    if (checked) {
+      document.body.classList.add('vertical-navbar-mode');
+      showNotification('Vertical navbar enabled', 'success');
+    } else {
+      document.body.classList.remove('vertical-navbar-mode');
+      closeSidebar();
+      showNotification('Horizontal navbar restored', 'info');
+    }
+  });
+  
+    setupToggleRow('compactModeToggle', (checked) => {
+    console.log('Compact mode toggled:', checked);
+    document.body.classList.toggle('compact-mode', checked);
+    showNotification(checked ? 'Compact mode enabled' : 'Compact mode disabled', 'info');
+  });
+  
+    setupToggleRow('animationsToggle', (checked) => {
+    console.log('Animations toggled:', checked);
+    document.body.classList.toggle('reduced-animations', !checked);
+    showNotification(checked ? 'Animations enabled' : 'Animations reduced', 'info');
+  });
+  
+    setupToggleRow('autoPlayToggle', (checked) => {
+    console.log('Auto-play toggled:', checked);
+    showNotification(checked ? 'PDFs will auto-open on click' : 'PDF preview mode', 'info');
+  });
+  
+    setupToggleRow('focusModeToggle', (checked) => {
+    console.log('Focus mode toggled:', checked);
+    document.body.classList.toggle('focus-mode', checked);
+    showNotification(checked ? 'Focus mode enabled - distractions hidden' : 'Focus mode disabled', 'info');
+  });
+  
+    setupToggleRow('rememberLocationToggle', (checked) => {
+    console.log('Remember location toggled:', checked);
+    showNotification(checked ? 'Will remember your last location' : 'Will start at home on launch', 'info');
+  });
+}
+
+function setupSettingsActions() {
+    const clearDataBtn = document.getElementById('clearDataBtn');
+  if (clearDataBtn) {
+    clearDataBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      console.log('Clear data clicked');
+      showConfirmModal(
+        'Clear Local Data',
+        'Are you sure you want to clear all local data? This will reset favorites, notes, flashcards, quick links, and settings.',
+        () => {
+          const keysToKeep = ['questionary-login'];
+          const allKeys = Object.keys(localStorage).filter(k => k.startsWith('questionary-'));
+          allKeys.forEach(key => {
+            if (!keysToKeep.includes(key)) {
+              localStorage.removeItem(key);
+            }
+          });
+          showNotification('Local data cleared', 'success');
+          document.getElementById('userBadge')?.classList.remove('active');
+          setTimeout(() => location.reload(), 1000);
+        }
+      );
+    });
+    console.log('Clear data button handler attached');
+  }
+  
+    const exportDataBtn = document.getElementById('exportDataBtn');
+  if (exportDataBtn) {
+    exportDataBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      console.log('Export clicked');
+      const exportData = {};
+      Object.keys(localStorage).filter(k => k.startsWith('questionary-')).forEach(key => {
+        exportData[key] = localStorage.getItem(key);
+      });
+      
+      const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `questionary-backup-${new Date().toISOString().split('T')[0]}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      
+      showNotification('Data exported successfully', 'success');
+      document.getElementById('userBadge')?.classList.remove('active');
+    });
+    console.log('Export button handler attached');
+  }
+  
+    const importDataBtn = document.getElementById('importDataBtn');
+  if (importDataBtn) {
+    importDataBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      console.log('Import clicked');
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = '.json';
+      input.onchange = (event) => {
+        const file = event.target.files[0];
+        if (!file) return;
+        
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          try {
+            const data = JSON.parse(e.target.result);
+            Object.keys(data).forEach(key => {
+              if (key.startsWith('questionary-')) {
+                localStorage.setItem(key, data[key]);
+              }
+            });
+            showNotification('Data imported successfully! Reloading...', 'success');
+            setTimeout(() => location.reload(), 1000);
+          } catch (err) {
+            showNotification('Failed to import data: Invalid file', 'error');
+          }
+        };
+        reader.readAsText(file);
+      };
+      input.click();
+      document.getElementById('userBadge')?.classList.remove('active');
+    });
+    console.log('Import button handler attached');
+  }
+  
+    const logoutBtn = document.getElementById('logoutBtn');
+  if (logoutBtn) {
+    logoutBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      console.log('Logout clicked');
+      showConfirmModal(
+        'Logout',
+        'Are you sure you want to logout?',
+        () => {
+          localStorage.removeItem('questionary-login');
+          showNotification('Logged out successfully', 'info');
+          setTimeout(() => location.reload(), 500);
+        }
+      );
+    });
+    console.log('Logout button handler attached');
+  }
+  
+    const openSettingsBtn = document.getElementById('openSettingsBtn');
+  if (openSettingsBtn) {
+    openSettingsBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      console.log('More settings clicked');
+      document.getElementById('userBadge')?.classList.remove('active');
+            document.getElementById('accessibilityPanel')?.classList.add('active');
+    });
+    console.log('Open settings button handler attached');
+  }
+}
+
+function getKeyboardShortcuts() {
+  return [
+    { key: 'N', desc: 'New Note' },
+    { key: 'F', desc: 'New Flashcard' },
+    { key: 'Q', desc: 'Toggle Quick Links' },
+    { key: 'S', desc: 'Share Location' },
+    { key: '/', desc: 'Focus Search' }
+  ];
+}
+
+function initHamburgerMenu() {
+  const hamburgerBtn = document.getElementById('hamburgerMenu');
+  const navLinks = document.getElementById('navLinks');
+  const sidebarOverlay = document.getElementById('sidebarOverlay');
+  const sidebarClose = document.getElementById('sidebarClose');
+  
+  if (hamburgerBtn && navLinks) {
+    hamburgerBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      navLinks.classList.toggle('sidebar-open');
+      sidebarOverlay?.classList.toggle('active');
+    });
+  }
+  
+    if (navLinks) {
+    navLinks.addEventListener('click', (e) => {
+      e.stopPropagation();
+    });
+  }
+  
+  if (sidebarOverlay) {
+    sidebarOverlay.addEventListener('click', (e) => {
+      e.stopPropagation();
+      closeSidebar();
+    });
+  }
+  
+  if (sidebarClose) {
+    sidebarClose.addEventListener('click', (e) => {
+      e.stopPropagation();
+      closeSidebar();
+    });
+  }
+  
+    }
+
+function closeSidebar() {
+  document.getElementById('navLinks')?.classList.remove('sidebar-open');
+  document.getElementById('sidebarOverlay')?.classList.remove('active');
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  initSettingsDropdown();
+  initHamburgerMenu();
+});
+

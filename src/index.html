@@ -51,8 +51,14 @@
 </div>
 
 <div id="app" style="display:none;">
+    
+    <div class="sidebar-overlay" id="sidebarOverlay"></div>
+    
     <header class="header">
         <div class="header-left" id="headerLeft">
+            <button class="hamburger-menu" id="hamburgerMenu" title="Toggle Menu">
+                <i class="fas fa-bars"></i>
+            </button>
             <div class="logo">
                 <img src="assets/logo.png" alt="Questionary" class="logo-icon">
                 <span>Questionary</span>
@@ -61,6 +67,13 @@
                 <i class="fas fa-bars"></i>
             </button>
             <nav class="nav-links" id="navLinks">
+                <div class="sidebar-header">
+                    <i class="fas fa-graduation-cap"></i>
+                    <span>Menu</span>
+                </div>
+                <button class="sidebar-close" id="sidebarClose">
+                    <i class="fas fa-times"></i>
+                </button>
                 <a class="nav-link active" id="homeNav"><i class="fas fa-home"></i><span>Home</span></a>
                 <a class="nav-link" id="favoritesNav"><i class="fas fa-star"></i><span>Favorites</span></a>
                 <a class="nav-link" id="recentNav"><i class="fas fa-history"></i><span>Recent</span></a>
@@ -85,10 +98,116 @@
             <button class="theme-toggle" id="themeToggle" title="Toggle Theme">
                 <i class="fas fa-moon" id="themeIcon"></i>
             </button>
-            <div class="user-badge">
+            <div class="user-badge" id="userBadge">
                 <i class="fas fa-user"></i>
                 <span id="username-display">User</span>
                 <span id="adminBadge" class="admin-badge" style="display:none;">ADMIN</span>
+                <i class="fas fa-chevron-down user-dropdown-arrow"></i>
+                
+                
+                <div class="user-dropdown-menu" id="userDropdownMenu">
+                    <div class="user-dropdown-header">
+                        <i class="fas fa-user-circle"></i>
+                        <span id="dropdownUsername">User</span>
+                    </div>
+                    <div class="user-dropdown-divider"></div>
+                    
+                    <div class="user-dropdown-item" id="openSettingsBtn">
+                        <i class="fas fa-cog"></i>
+                        <span>More Settings</span>
+                    </div>
+                    
+                    <div class="user-dropdown-divider"></div>
+                    
+                    <div class="settings-section">
+                        <div class="settings-label">Layout</div>
+                        <div class="user-dropdown-item toggle-item">
+                            <i class="fas fa-bars"></i>
+                            <span>Vertical Navbar</span>
+                            <div class="toggle-switch">
+                                <input type="checkbox" id="verticalNavbarToggle">
+                                <span class="toggle-slider"></span>
+                            </div>
+                        </div>
+                        <div class="user-dropdown-item toggle-item">
+                            <i class="fas fa-compress-alt"></i>
+                            <span>Compact Mode</span>
+                            <div class="toggle-switch">
+                                <input type="checkbox" id="compactModeToggle">
+                                <span class="toggle-slider"></span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="user-dropdown-divider"></div>
+                    
+                    <div class="settings-section">
+                        <div class="settings-label">Study Features</div>
+                        <div class="user-dropdown-item toggle-item">
+                            <i class="fas fa-eye-slash"></i>
+                            <span>Focus Mode</span>
+                            <div class="toggle-switch">
+                                <input type="checkbox" id="focusModeToggle">
+                                <span class="toggle-slider"></span>
+                            </div>
+                        </div>
+                        <div class="user-dropdown-item toggle-item">
+                            <i class="fas fa-map-marker-alt"></i>
+                            <span>Remember Location</span>
+                            <div class="toggle-switch">
+                                <input type="checkbox" id="rememberLocationToggle" checked>
+                                <span class="toggle-slider"></span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="user-dropdown-divider"></div>
+                    
+                    <div class="settings-section">
+                        <div class="settings-label">Display</div>
+                        <div class="user-dropdown-item toggle-item">
+                            <i class="fas fa-magic"></i>
+                            <span>Animations</span>
+                            <div class="toggle-switch">
+                                <input type="checkbox" id="animationsToggle" checked>
+                                <span class="toggle-slider"></span>
+                            </div>
+                        </div>
+                        <div class="user-dropdown-item toggle-item">
+                            <i class="fas fa-file-pdf"></i>
+                            <span>Auto-open PDFs</span>
+                            <div class="toggle-switch">
+                                <input type="checkbox" id="autoPlayToggle">
+                                <span class="toggle-slider"></span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="user-dropdown-divider"></div>
+                    
+                    <div class="settings-section">
+                        <div class="settings-label">Data</div>
+                        <div class="user-dropdown-item" id="exportDataBtn">
+                            <i class="fas fa-download"></i>
+                            <span>Export Backup</span>
+                        </div>
+                        <div class="user-dropdown-item" id="importDataBtn">
+                            <i class="fas fa-upload"></i>
+                            <span>Import Backup</span>
+                        </div>
+                        <div class="user-dropdown-item" id="clearDataBtn">
+                            <i class="fas fa-trash-alt" style="color: #ef4444;"></i>
+                            <span style="color: #ef4444;">Clear Local Data</span>
+                        </div>
+                    </div>
+                    
+                    <div class="user-dropdown-divider"></div>
+                    
+                    <div class="user-dropdown-item" id="logoutBtn">
+                        <i class="fas fa-sign-out-alt"></i>
+                        <span>Logout</span>
+                    </div>
+                </div>
             </div>
         </div>
     </header>
@@ -170,7 +289,7 @@
         <section id="analyticsSection" class="tiles-section">
             <h2 class="section-title"><i class="fas fa-chart-bar"></i> Analytics</h2>
             
-            <!-- Analytics Stats Row -->
+            
             <div class="analytics-stats-row">
                 <div class="analytics-stat-card">
                     <div class="analytics-stat-icon"><i class="fas fa-desktop"></i></div>
