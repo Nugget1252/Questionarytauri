@@ -1,11 +1,11 @@
-// Content Update System for Questionary
-// This module handles incremental content updates without requiring full app reinstall
 
-const CONTENT_MANIFEST_URL = 'https://raw.githubusercontent.com/Nugget1252/Questionarytauri/main/content-manifest.json';
+
+
+const CONTENT_MANIFEST_URL = 'https:
 const LOCAL_MANIFEST_KEY = 'questionary-local-manifest';
 const DOWNLOADED_DOCS_KEY = 'questionary-downloaded-docs';
 
-// Content update state
+
 let contentUpdateState = {
     checking: false,
     downloading: false,
@@ -20,7 +20,7 @@ let contentUpdateState = {
     downloadedBytes: 0
 };
 
-// Get the downloaded documents directory path
+
 async function getDownloadedDocsPath() {
     if (window.__TAURI__) {
         const { appDataDir, join } = window.__TAURI__.path;
@@ -30,7 +30,7 @@ async function getDownloadedDocsPath() {
     return null;
 }
 
-// Ensure the download directory exists
+
 async function ensureDownloadDir() {
     if (!window.__TAURI__) return false;
     
@@ -49,7 +49,7 @@ async function ensureDownloadDir() {
     }
 }
 
-// Get local manifest (what content we already have downloaded)
+
 function getLocalManifest() {
     try {
         const data = localStorage.getItem(LOCAL_MANIFEST_KEY);
@@ -59,12 +59,12 @@ function getLocalManifest() {
     }
 }
 
-// Save local manifest
+
 function saveLocalManifest(manifest) {
     localStorage.setItem(LOCAL_MANIFEST_KEY, JSON.stringify(manifest));
 }
 
-// Get list of downloaded document mappings
+
 function getDownloadedDocs() {
     try {
         const data = localStorage.getItem(DOWNLOADED_DOCS_KEY);
@@ -74,12 +74,12 @@ function getDownloadedDocs() {
     }
 }
 
-// Save downloaded docs mapping
+
 function saveDownloadedDocs(docs) {
     localStorage.setItem(DOWNLOADED_DOCS_KEY, JSON.stringify(docs));
 }
 
-// Fetch remote content manifest
+
 async function fetchRemoteManifest() {
     try {
         if (window.__TAURI__ && window.__TAURI__.http) {
@@ -92,7 +92,7 @@ async function fetchRemoteManifest() {
                 return await response.json();
             }
         } else {
-            // Fallback to regular fetch for browser testing
+            
             const response = await fetch(CONTENT_MANIFEST_URL + '?t=' + Date.now());
             if (response.ok) {
                 return await response.json();
@@ -104,21 +104,21 @@ async function fetchRemoteManifest() {
     return null;
 }
 
-// Compare manifests and find what needs to be downloaded
+
 function findPendingDownloads(localManifest, remoteManifest) {
     const pending = [];
     const localDocs = getDownloadedDocs();
     
-    // Helper to traverse document structure
+    
     function traverseDocs(remoteDocs, localDocsMap, pathPrefix = '', baseUrl = '') {
         for (const [key, value] of Object.entries(remoteDocs)) {
             if (value && typeof value === 'object') {
                 if (value.file && value.hash !== undefined) {
-                    // This is a document entry
+                    
                     const docKey = pathPrefix + '/' + key;
                     const localDoc = localDocsMap[docKey];
                     
-                    // Check if we need to download (new or hash changed)
+                    
                     if (!localDoc || localDoc.hash !== value.hash) {
                         pending.push({
                             key: docKey,
@@ -129,7 +129,7 @@ function findPendingDownloads(localManifest, remoteManifest) {
                         });
                     }
                 } else {
-                    // This is a nested structure, recurse
+                    
                     traverseDocs(value, localDocsMap, pathPrefix + '/' + key, baseUrl);
                 }
             }
@@ -147,7 +147,7 @@ function findPendingDownloads(localManifest, remoteManifest) {
     return pending;
 }
 
-// Check for content updates
+
 async function checkForContentUpdates(silent = false) {
     if (contentUpdateState.checking || contentUpdateState.downloading) {
         return null;
@@ -210,7 +210,7 @@ async function checkForContentUpdates(silent = false) {
     }
 }
 
-// Download a single file
+
 async function downloadFile(url, filename) {
     if (!window.__TAURI__) {
         console.log('Downloads only work in Tauri app');
@@ -220,10 +220,10 @@ async function downloadFile(url, filename) {
     try {
         const { writeBinaryFile, BaseDirectory } = window.__TAURI__.fs;
         
-        // Fetch the file
+        
         const response = await window.__TAURI__.http.fetch(url, {
             method: 'GET',
-            responseType: 3 // Binary
+            responseType: 3 
         });
         
         if (!response.ok) {
@@ -232,7 +232,7 @@ async function downloadFile(url, filename) {
         
         const data = response.data;
         
-        // Save to app data directory
+        
         const filePath = `downloaded_documents/${filename}`;
         await writeBinaryFile(filePath, data, { baseDir: BaseDirectory.AppData });
         
@@ -243,7 +243,7 @@ async function downloadFile(url, filename) {
     }
 }
 
-// Download all pending content updates
+
 async function downloadContentUpdates() {
     if (contentUpdateState.downloading || contentUpdateState.pendingDownloads.length === 0) {
         return;
@@ -256,7 +256,7 @@ async function downloadContentUpdates() {
     updateContentUpdateUI('downloading');
     showNotification('Downloading new content...', 'info');
     
-    // Ensure download directory exists
+    
     await ensureDownloadDir();
     
     const downloadedDocs = getDownloadedDocs();
@@ -271,7 +271,7 @@ async function downloadContentUpdates() {
             const savedPath = await downloadFile(item.url, item.file);
             
             if (savedPath) {
-                // Update downloaded docs mapping
+                
                 downloadedDocs[item.key] = {
                     file: item.file,
                     hash: item.hash,
@@ -285,22 +285,22 @@ async function downloadContentUpdates() {
             }
         } catch (error) {
             console.error(`Failed to download ${item.file}:`, error);
-            // Continue with next file
+            
         }
     }
     
-    // Save updated mappings
+    
     saveDownloadedDocs(downloadedDocs);
     localManifest.version = contentUpdateState.remoteManifest?.version || localManifest.version;
     localManifest.lastUpdated = new Date().toISOString();
     saveLocalManifest(localManifest);
     
-    // Reset state
+    
     contentUpdateState.downloading = false;
     contentUpdateState.available = false;
     contentUpdateState.pendingDownloads = [];
     
-    // Merge new documents into the app
+    
     mergeDownloadedDocuments();
     
     showNotification(
@@ -309,7 +309,7 @@ async function downloadContentUpdates() {
     );
     updateContentUpdateUI('idle');
     
-    // Refresh the current view to show new content
+    
     if (typeof renderTiles === 'function' && path.length > 0) {
         let current = documents;
         for (const p of path) {
@@ -319,11 +319,11 @@ async function downloadContentUpdates() {
     }
 }
 
-// Merge downloaded documents into the main documents object
+
 async function mergeDownloadedDocuments() {
     const downloadedDocs = getDownloadedDocs();
     
-    // Get the app data directory path for Tauri
+    
     let appDataPath = '';
     if (window.__TAURI__ && window.__TAURI__.path) {
         try {
@@ -337,15 +337,15 @@ async function mergeDownloadedDocuments() {
         const parts = key.split('/').filter(p => p);
         
         if (parts[0] === 'documents' && parts.length >= 5) {
-            // Structure: documents/year/class/exam/subject
+            
             const [, year, cls, exam, subject] = parts;
             
-            // Ensure path exists in documents object
+            
             if (!documents[year]) documents[year] = {};
             if (!documents[year][cls]) documents[year][cls] = {};
             if (!documents[year][cls][exam]) documents[year][cls][exam] = {};
             
-            // Set the document path (using convertFileSrc for Tauri)
+            
             if (window.__TAURI__ && window.__TAURI__.core && appDataPath) {
                 const { convertFileSrc } = window.__TAURI__.core;
                 const fullPath = appDataPath + 'downloaded_documents/' + doc.file;
@@ -357,7 +357,7 @@ async function mergeDownloadedDocuments() {
     }
 }
 
-// UI update functions
+
 function updateContentUpdateUI(state, count = 0) {
     const btn = document.getElementById('contentUpdateBtn');
     if (!btn) return;
@@ -431,9 +431,9 @@ function formatBytesContent(bytes) {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
 }
 
-// Handle content update button click - checks BOTH content AND code updates
+
 async function handleContentUpdateClick() {
-    // Check if already downloading
+    
     if (contentUpdateState.downloading) {
         const progress = contentUpdateState.totalFiles > 0 
             ? Math.round((contentUpdateState.completedFiles / contentUpdateState.totalFiles) * 100)
@@ -445,19 +445,19 @@ async function handleContentUpdateClick() {
         return;
     }
     
-    // Check if hot code updater is downloading
+    
     if (window.codeUpdateState && window.codeUpdateState.downloading) {
         showNotification('Downloading code updates...', 'info');
         return;
     }
     
-    // If content updates are available, download them
+    
     if (contentUpdateState.available && contentUpdateState.pendingDownloads.length > 0) {
         await downloadContentUpdates();
         return;
     }
     
-    // If code updates are available, download them
+    
     if (window.codeUpdateState && window.codeUpdateState.available && 
         window.codeUpdateState.pendingUpdates && window.codeUpdateState.pendingUpdates.length > 0) {
         if (window.hotCodeUpdater && typeof window.hotCodeUpdater.download === 'function') {
@@ -466,11 +466,11 @@ async function handleContentUpdateClick() {
         return;
     }
     
-    // Otherwise, check for all updates
+    
     await checkForAllUpdates();
 }
 
-// Check for both content and code updates
+
 async function checkForAllUpdates(silent = false) {
     if (!silent) {
         showNotification('Checking for updates...', 'info');
@@ -479,13 +479,13 @@ async function checkForAllUpdates(silent = false) {
     
     let totalUpdates = 0;
     
-    // Check content updates (PDFs)
+    
     const contentUpdates = await checkForContentUpdates(true);
     if (contentUpdates && contentUpdates.length > 0) {
         totalUpdates += contentUpdates.length;
     }
     
-    // Check code updates (JS/CSS)
+    
     if (window.hotCodeUpdater && typeof window.hotCodeUpdater.check === 'function') {
         const codeUpdates = await window.hotCodeUpdater.check(true);
         if (codeUpdates && codeUpdates.length > 0) {
@@ -493,7 +493,7 @@ async function checkForAllUpdates(silent = false) {
         }
     }
     
-    // Update UI with combined count
+    
     if (totalUpdates > 0) {
         showNotification(
             `${totalUpdates} update(s) available! Click to download.`,
@@ -510,25 +510,25 @@ async function checkForAllUpdates(silent = false) {
     return totalUpdates;
 }
 
-// Initialize content update system
+
 async function initContentUpdateSystem() {
-    // Load any previously downloaded documents into memory
+    
     await mergeDownloadedDocuments();
     
-    // Setup button handler
+    
     const btn = document.getElementById('contentUpdateBtn');
     if (btn && !btn.dataset.contentInitialized) {
         btn.dataset.contentInitialized = 'true';
         btn.addEventListener('click', handleContentUpdateClick);
     }
     
-    // Auto-check for ALL updates after a delay (silent)
+    
     setTimeout(() => {
         checkForAllUpdates(true);
-    }, 10000); // Check 10 seconds after app load
+    }, 10000); 
 }
 
-// Export functions for use in app.js
+
 window.contentUpdateSystem = {
     check: checkForContentUpdates,
     checkAll: checkForAllUpdates,
