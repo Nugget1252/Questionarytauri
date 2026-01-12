@@ -534,7 +534,7 @@ function renderTiles(docs) {
     
         const isMissingPdf = !isFolder && (!value || value === '#' || value === '');
     
-    // Create the path array for this item
+    
     const itemPath = [...path, key];
     const itemPathJson = JSON.stringify(itemPath).replace(/"/g, '&quot;');
     
@@ -635,7 +635,7 @@ function updateBreadcrumb() {
 function navigateToPath(newPath) {
   console.log('navigateToPath called with:', newPath);
   
-  // Ensure newPath is a valid array and filter out empty strings
+  
   if (!Array.isArray(newPath)) {
     console.warn('navigateToPath: newPath is not an array, resetting to home');
     newPath = [];
@@ -662,7 +662,7 @@ function navigateToPath(newPath) {
   
   if (typeof hideTimerCompletely === 'function') hideTimerCompletely();
   
-  // Validate path exists in documents before navigating
+  
   let level = documents;
   let validPath = [];
   for (const segment of newPath) {
@@ -675,7 +675,7 @@ function navigateToPath(newPath) {
     }
   }
   
-  // Use the validated path
+  
   path = validPath;
   console.log('navigateToPath: Final path:', path);
   
@@ -995,11 +995,11 @@ function removeQuickLink(id) {
 function saveQuickLinks() { localStorage.setItem('questionary-quick-links', JSON.stringify(quickLinks)); }
 function loadQuickLinks() { quickLinks = JSON.parse(localStorage.getItem('questionary-quick-links') || '[]'); }
 
-// Add a folder to quick links from tile view
+
 function addFolderToQuickLinks(folderName, folderPath) {
   const pathStr = folderPath.join('|');
   
-  // Check if already exists
+  
   if (quickLinks.some(ql => ql.pathArray.join('|') === pathStr)) {
     if (typeof showNotification === 'function') showNotification('This folder is already in quick links', 'info');
     return;
@@ -1017,10 +1017,10 @@ function addFolderToQuickLinks(folderName, folderPath) {
   if (typeof showNotification === 'function') showNotification(`Folder "${folderName}" added to quick links!`, 'success');
 }
 
-// Make it available globally
+
 window.addFolderToQuickLinks = addFolderToQuickLinks;
 
-// Add current folder to quick links (from button)
+
 function addCurrentFolderToQuickLinks() {
   if (path.length === 0) {
     if (typeof showNotification === 'function') showNotification('Navigate to a folder first to add it as a quick link', 'info');
@@ -1045,7 +1045,7 @@ function addCurrentFolderToQuickLinks() {
   if (typeof showNotification === 'function') showNotification(`Folder "${folderName}" added to quick links!`, 'success');
 }
 
-// Add current open PDF to quick links
+
 function addCurrentPdfToQuickLinks() {
   if (!currentOpenPDF) return;
   
@@ -1067,9 +1067,9 @@ function addCurrentPdfToQuickLinks() {
   if (typeof showNotification === 'function') showNotification('PDF added to quick links!', 'success');
 }
 
-// Show choice dialog when PDF is open
+
 function showQuickLinkChoiceDialog() {
-  // Remove existing dialog if any
+  
   const existing = document.getElementById('quickLinkChoiceDialog');
   if (existing) existing.remove();
   
@@ -1103,7 +1103,7 @@ function showQuickLinkChoiceDialog() {
   
   document.body.appendChild(dialog);
   
-  // Event listeners
+  
   document.getElementById('addPdfQuickLink').onclick = () => {
     addCurrentPdfToQuickLinks();
     dialog.remove();
@@ -3881,11 +3881,11 @@ window.deleteSession = deleteSession;
 window.showDaySessions = showDaySessions;
 
 
-// Main initialization function
+
 async function initializeApp() {
   console.log('[App] Starting initialization...');
   
-  // Show the Tauri window once DOM is ready (handles splash screen)
+  
   if (window.__TAURI__ && window.__TAURI__.window) {
     try {
       const currentWindow = window.__TAURI__.window.getCurrentWindow();
@@ -3982,7 +3982,7 @@ async function initializeApp() {
   loadDocuments();
   trackDailyAccess();
   
-  // Initialize content update system (incremental updates)
+  
   if (window.contentUpdateSystem && typeof window.contentUpdateSystem.init === 'function') {
     window.contentUpdateSystem.init();
   }
@@ -3997,11 +3997,11 @@ async function initializeApp() {
   console.log('Questionary application initialized successfully');
 }
 
-// Ensure initialization runs whether DOM is loaded or not
+
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', initializeApp);
 } else {
-  // DOM already loaded, run immediately
+  
   initializeApp();
 }
 
@@ -4086,7 +4086,7 @@ function checkSavedLogin() {
     }
   }
   
-  // No saved login found - hide loading overlay to show login screen
+  
   if (loadingOverlay) loadingOverlay.classList.remove('active');
   return false;
 }
@@ -5676,19 +5676,19 @@ function initializeNewFeatures() {
     addQuickLinkBtn.onclick = (e) => {
       e.stopPropagation();
       
-      // If a PDF is open, show choice dialog
+      
       if (currentOpenPDF) {
         showQuickLinkChoiceDialog();
         return;
       }
       
-      // If at home (path.length === 0), show message
+      
       if (path.length === 0) {
         if (typeof showNotification === 'function') showNotification('Navigate to a folder first to add it as a quick link', 'info');
         return;
       }
       
-      // Add current folder as quick link
+      
       addCurrentFolderToQuickLinks();
     };
   }
