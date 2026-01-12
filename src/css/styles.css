@@ -333,16 +333,13 @@ body {
 }
 
 .update-check-btn.downloading {
-    background: linear-gradient(90deg, var(--primary-color) 0%, var(--surface-hover) 100%);
+    background: var(--primary-color);
     border-color: var(--primary-color);
     color: white;
-    font-size: 0.7rem;
-    font-weight: 600;
 }
 
-.update-check-btn.downloading .update-progress {
-    font-size: 0.65rem;
-    font-weight: 700;
+.update-check-btn.downloading:hover {
+    background: #ea580c;
 }
 
 .update-check-btn.restarting {
@@ -352,9 +349,287 @@ body {
     animation: spin 1s linear infinite;
 }
 
+/* Download Progress Bar */
+.download-progress-bar {
+    position: fixed;
+    bottom: 80px;
+    left: 20px;
+    width: 220px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 12px;
+    z-index: 1001;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+}
+
+.download-progress-info {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+    color: var(--text);
+    font-size: 0.8rem;
+}
+
+.download-progress-info i {
+    color: var(--primary-color);
+}
+
+.download-progress-text {
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.download-progress-track {
+    height: 6px;
+    background: var(--surface-hover);
+    border-radius: 3px;
+    overflow: hidden;
+    margin-bottom: 4px;
+}
+
+.download-progress-fill {
+    height: 100%;
+    width: 0%;
+    background: var(--primary-color);
+    border-radius: 3px;
+    transition: width 0.2s ease;
+}
+
+.download-progress-percent {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--primary-color);
+}
+
+/* Content Update Button */
+.content-update-btn {
+    background: var(--surface-hover);
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+    width: 36px;
+    height: 36px;
+    border-radius: 0.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: var(--transition);
+    font-size: 1rem;
+    flex-shrink: 0;
+    position: relative;
+}
+
+.content-update-btn:hover {
+    background: var(--primary-light);
+    border-color: var(--primary-color);
+    color: var(--primary-color);
+}
+
+.content-update-btn.checking i {
+    animation: spin 1s linear infinite;
+}
+
+.content-update-btn.available {
+    background: #22c55e;
+    border-color: #22c55e;
+    color: white;
+    animation: pulse-green 2s ease-in-out infinite;
+}
+
+.content-update-btn.available:hover {
+    background: #16a34a;
+    transform: scale(1.05);
+}
+
+.content-update-btn.downloading {
+    background: #3b82f6;
+    border-color: #3b82f6;
+    color: white;
+}
+
+.content-update-btn .content-badge {
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    background: #ef4444;
+    color: white;
+    font-size: 0.65rem;
+    font-weight: 700;
+    min-width: 16px;
+    height: 16px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 4px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+/* Content Progress Bar */
+.content-progress-bar {
+    position: fixed;
+    bottom: 80px;
+    right: 20px;
+    width: 280px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 14px;
+    z-index: 1001;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+}
+
+.content-progress-info {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+    color: var(--text);
+    font-size: 0.85rem;
+}
+
+.content-progress-info i {
+    color: #22c55e;
+    font-size: 1.1rem;
+}
+
+.content-progress-text {
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-weight: 500;
+}
+
+.content-progress-track {
+    height: 8px;
+    background: var(--surface-hover);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.content-progress-fill {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, #22c55e, #16a34a);
+    border-radius: 4px;
+    transition: width 0.3s ease;
+}
+
+@keyframes pulse-green {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4); }
+    50% { box-shadow: 0 0 0 8px rgba(34, 197, 94, 0); }
+}
+
 @keyframes pulse {
     0%, 100% { box-shadow: 0 0 0 0 rgba(249, 115, 22, 0.4); }
     50% { box-shadow: 0 0 0 8px rgba(249, 115, 22, 0); }
+}
+
+/* Reload Prompt Modal for Hot Updates */
+#reloadPromptModal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 10000;
+}
+
+.reload-prompt-overlay {
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+}
+
+.reload-prompt-content {
+    background: var(--surface);
+    border-radius: 16px;
+    padding: 32px;
+    max-width: 400px;
+    width: 100%;
+    text-align: center;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    animation: slideUp 0.3s ease;
+}
+
+@keyframes slideUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.reload-prompt-content .reload-icon {
+    font-size: 3rem;
+    color: #22c55e;
+    margin-bottom: 16px;
+    animation: spin 2s linear infinite;
+}
+
+.reload-prompt-content h3 {
+    font-size: 1.5rem;
+    margin-bottom: 12px;
+    color: var(--text-primary);
+}
+
+.reload-prompt-content p {
+    color: var(--text-secondary);
+    margin-bottom: 24px;
+    line-height: 1.5;
+}
+
+.reload-prompt-buttons {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+}
+
+.reload-prompt-buttons .btn {
+    padding: 10px 24px;
+    border-radius: 8px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.reload-prompt-buttons .btn-secondary {
+    background: var(--surface-hover);
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+}
+
+.reload-prompt-buttons .btn-secondary:hover {
+    background: var(--border);
+}
+
+.reload-prompt-buttons .btn-primary {
+    background: #22c55e;
+    border: none;
+    color: white;
+}
+
+.reload-prompt-buttons .btn-primary:hover {
+    background: #16a34a;
+    transform: translateY(-1px);
+}
+
+.reload-prompt-buttons .btn-primary i {
+    margin-right: 6px;
 }
 
 .user-badge {
@@ -861,6 +1136,30 @@ body {
     color: #f59e0b;
 }
 
+/* Quick link button for folders */
+.tile-quicklink {
+    position: absolute;
+    top: 0.75rem;
+    left: 0.75rem;
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 1rem;
+    cursor: pointer;
+    transition: var(--transition);
+    padding: 0.25rem;
+    opacity: 0;
+}
+
+.tile:hover .tile-quicklink {
+    opacity: 1;
+}
+
+.tile-quicklink:hover {
+    color: var(--primary);
+    transform: scale(1.1);
+}
+
 .tile.pdf-missing {
     opacity: 0.7;
     border-color: #ef4444;
@@ -1161,19 +1460,51 @@ body {
     align-items: center;
     justify-content: center;
     z-index: 9999;
+    flex-direction: column;
 }
 
 .loading-overlay.active {
     display: flex;
 }
 
+.loading-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1rem;
+}
+
+.loading-logo {
+    width: 80px;
+    height: 80px;
+    animation: loadingPulse 2s ease-in-out infinite;
+}
+
+.loading-title {
+    font-size: 2rem;
+    font-weight: 700;
+    color: var(--text);
+    margin: 0;
+}
+
+.loading-text {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    margin: 0;
+}
+
 .loading-spinner {
-    width: 48px;
-    height: 48px;
-    border: 4px solid var(--border);
+    width: 40px;
+    height: 40px;
+    border: 3px solid var(--border);
     border-top-color: var(--primary-color);
     border-radius: 50%;
     animation: spin 1s linear infinite;
+}
+
+@keyframes loadingPulse {
+    0%, 100% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(1.05); opacity: 0.8; }
 }
 
 @keyframes spin {
@@ -1323,6 +1654,134 @@ body {
 .quick-link-delete:hover {
   color: var(--danger-color);
   background: rgba(239, 68, 68, 0.1);
+}
+
+/* Quick Link Choice Dialog */
+.quicklink-choice-dialog-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  animation: fadeIn 0.2s ease;
+}
+
+.quicklink-choice-dialog {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1.5rem;
+  width: 90%;
+  max-width: 360px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+  animation: slideUp 0.2s ease;
+}
+
+.quicklink-choice-dialog h3 {
+  margin: 0 0 0.5rem 0;
+  font-size: 1.1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--text-primary);
+}
+
+.quicklink-choice-dialog h3 i {
+  color: var(--primary);
+}
+
+.quicklink-choice-dialog p {
+  margin: 0 0 1rem 0;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.quicklink-choice-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.quicklink-choice-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem;
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: left;
+}
+
+.quicklink-choice-btn:hover {
+  background: var(--surface-hover);
+  border-color: var(--primary);
+}
+
+.quicklink-choice-btn i {
+  font-size: 1.5rem;
+  width: 40px;
+  text-align: center;
+}
+
+.quicklink-choice-btn i.fa-file-pdf {
+  color: #ef4444;
+}
+
+.quicklink-choice-btn i.fa-folder {
+  color: var(--primary);
+}
+
+.quicklink-choice-btn span {
+  font-weight: 500;
+  color: var(--text-primary);
+  display: block;
+}
+
+.quicklink-choice-btn small {
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  display: block;
+  margin-top: 2px;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quicklink-choice-cancel {
+  width: 100%;
+  padding: 0.75rem;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.quicklink-choice-cancel:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 

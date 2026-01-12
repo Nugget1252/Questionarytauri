@@ -534,12 +534,17 @@ function renderTiles(docs) {
     
         const isMissingPdf = !isFolder && (!value || value === '#' || value === '');
     
+    // Create the path array for this item
+    const itemPath = [...path, key];
+    const itemPathJson = JSON.stringify(itemPath).replace(/"/g, '&quot;');
+    
     tile.innerHTML = `
       <div class="tile-icon">
         <i class="fas ${isFolder ? 'fa-folder' : 'fa-file-pdf'}"></i>
       </div>
       <div class="tile-text">${escapeHtml(key)}</div>
-      ${!isFolder && !isMissingPdf ? `<button class="tile-favorite" onclick="event.stopPropagation(); toggleFavorite('${escapeHtml(key)}', ${JSON.stringify([...path, key]).replace(/"/g, '&quot;')}, '${escapeHtml(value)}')" title="Toggle Favorite"><i class="fas fa-star"></i></button>` : ''}
+      ${isFolder ? `<button class="tile-quicklink" onclick="event.stopPropagation(); addFolderToQuickLinks('${escapeHtml(key)}', ${itemPathJson})" title="Add to Quick Links"><i class="fas fa-link"></i></button>` : ''}
+      ${!isFolder && !isMissingPdf ? `<button class="tile-favorite" onclick="event.stopPropagation(); toggleFavorite('${escapeHtml(key)}', ${itemPathJson}, '${escapeHtml(value)}')" title="Toggle Favorite"><i class="fas fa-star"></i></button>` : ''}
       ${isMissingPdf ? `<div class="pdf-missing-badge"><i class="fas fa-exclamation-triangle"></i> Not Available</div>` : ''}
     `;
     
@@ -630,14 +635,22 @@ function updateBreadcrumb() {
 function navigateToPath(newPath) {
   console.log('navigateToPath called with:', newPath);
   
-    const pdfViewer = document.getElementById('pdfViewer');
+  // Ensure newPath is a valid array and filter out empty strings
+  if (!Array.isArray(newPath)) {
+    console.warn('navigateToPath: newPath is not an array, resetting to home');
+    newPath = [];
+  }
+  newPath = newPath.filter(segment => segment && segment.trim() !== '');
+  console.log('navigateToPath filtered path:', newPath);
+  
+  const pdfViewer = document.getElementById('pdfViewer');
   if (pdfViewer) {
     pdfViewer.style.cssText = 'display: none !important;';
     pdfViewer.classList.remove('active');
     pdfViewer.src = '';
   }
   
-    const tilesContainer = document.getElementById('tilesContainer');
+  const tilesContainer = document.getElementById('tilesContainer');
   const sectionHeader = document.querySelector('#tilesSection .section-header');
   const dashboardHeader = document.querySelector('.dashboard-header');
   const tilesSection = document.getElementById('tilesSection');
@@ -647,20 +660,24 @@ function navigateToPath(newPath) {
   if (sectionHeader) sectionHeader.style.display = 'flex';
   if (dashboardHeader) dashboardHeader.style.display = newPath.length === 0 ? 'flex' : 'none';
   
-    if (typeof hideTimerCompletely === 'function') hideTimerCompletely();
+  if (typeof hideTimerCompletely === 'function') hideTimerCompletely();
   
-    path = newPath;
-  
-    let level = documents;
-  for (const segment of path) {
+  // Validate path exists in documents before navigating
+  let level = documents;
+  let validPath = [];
+  for (const segment of newPath) {
     if (level && typeof level === 'object' && level[segment]) {
       level = level[segment];
+      validPath.push(segment);
     } else {
-            path = [];
-      level = documents;
+      console.warn('navigateToPath: Invalid path segment:', segment, 'at path:', validPath);
       break;
     }
   }
+  
+  // Use the validated path
+  path = validPath;
+  console.log('navigateToPath: Final path:', path);
   
   renderTiles(level);
   updateBreadcrumb();
@@ -977,6 +994,135 @@ function removeQuickLink(id) {
 
 function saveQuickLinks() { localStorage.setItem('questionary-quick-links', JSON.stringify(quickLinks)); }
 function loadQuickLinks() { quickLinks = JSON.parse(localStorage.getItem('questionary-quick-links') || '[]'); }
+
+// Add a folder to quick links from tile view
+function addFolderToQuickLinks(folderName, folderPath) {
+  const pathStr = folderPath.join('|');
+  
+  // Check if already exists
+  if (quickLinks.some(ql => ql.pathArray.join('|') === pathStr)) {
+    if (typeof showNotification === 'function') showNotification('This folder is already in quick links', 'info');
+    return;
+  }
+  
+  quickLinks.push({ 
+    id: Date.now().toString(), 
+    name: folderName, 
+    pathArray: [...folderPath],
+    isFile: false
+  });
+  
+  saveQuickLinks();
+  renderQuickLinks();
+  if (typeof showNotification === 'function') showNotification(`Folder "${folderName}" added to quick links!`, 'success');
+}
+
+// Make it available globally
+window.addFolderToQuickLinks = addFolderToQuickLinks;
+
+// Add current folder to quick links (from button)
+function addCurrentFolderToQuickLinks() {
+  if (path.length === 0) {
+    if (typeof showNotification === 'function') showNotification('Navigate to a folder first to add it as a quick link', 'info');
+    return;
+  }
+  
+  const pathStr = path.join('|');
+  if (quickLinks.some(ql => ql.pathArray.join('|') === pathStr)) {
+    if (typeof showNotification === 'function') showNotification('This folder is already in quick links', 'info');
+    return;
+  }
+  
+  const folderName = path[path.length - 1];
+  quickLinks.push({ 
+    id: Date.now().toString(), 
+    name: folderName, 
+    pathArray: [...path],
+    isFile: false
+  });
+  saveQuickLinks();
+  renderQuickLinks();
+  if (typeof showNotification === 'function') showNotification(`Folder "${folderName}" added to quick links!`, 'success');
+}
+
+// Add current open PDF to quick links
+function addCurrentPdfToQuickLinks() {
+  if (!currentOpenPDF) return;
+  
+  const pathStr = [...path, currentOpenPDF.name].join('|');
+  if (quickLinks.some(ql => ql.pathArray.join('|') === pathStr)) {
+    if (typeof showNotification === 'function') showNotification('This file is already in quick links', 'info');
+    return;
+  }
+  
+  quickLinks.push({ 
+    id: Date.now().toString(), 
+    name: currentOpenPDF.name, 
+    pathArray: [...path, currentOpenPDF.name],
+    isFile: true,
+    url: currentOpenPDF.url
+  });
+  saveQuickLinks();
+  renderQuickLinks();
+  if (typeof showNotification === 'function') showNotification('PDF added to quick links!', 'success');
+}
+
+// Show choice dialog when PDF is open
+function showQuickLinkChoiceDialog() {
+  // Remove existing dialog if any
+  const existing = document.getElementById('quickLinkChoiceDialog');
+  if (existing) existing.remove();
+  
+  const folderName = path.length > 0 ? path[path.length - 1] : 'Home';
+  const pdfName = currentOpenPDF ? currentOpenPDF.name : '';
+  
+  const dialog = document.createElement('div');
+  dialog.id = 'quickLinkChoiceDialog';
+  dialog.className = 'quicklink-choice-dialog-overlay';
+  dialog.innerHTML = `
+    <div class="quicklink-choice-dialog">
+      <h3><i class="fas fa-link"></i> Add Quick Link</h3>
+      <p>What would you like to add?</p>
+      <div class="quicklink-choice-options">
+        <button class="quicklink-choice-btn" id="addPdfQuickLink">
+          <i class="fas fa-file-pdf"></i>
+          <span>Current PDF</span>
+          <small>${pdfName}</small>
+        </button>
+        ${path.length > 0 ? `
+        <button class="quicklink-choice-btn" id="addFolderQuickLink">
+          <i class="fas fa-folder"></i>
+          <span>Current Folder</span>
+          <small>${folderName}</small>
+        </button>
+        ` : ''}
+      </div>
+      <button class="quicklink-choice-cancel" id="cancelQuickLinkChoice">Cancel</button>
+    </div>
+  `;
+  
+  document.body.appendChild(dialog);
+  
+  // Event listeners
+  document.getElementById('addPdfQuickLink').onclick = () => {
+    addCurrentPdfToQuickLinks();
+    dialog.remove();
+  };
+  
+  const folderBtn = document.getElementById('addFolderQuickLink');
+  if (folderBtn) {
+    folderBtn.onclick = () => {
+      addCurrentFolderToQuickLinks();
+      dialog.remove();
+    };
+  }
+  
+  document.getElementById('cancelQuickLinkChoice').onclick = () => dialog.remove();
+  dialog.onclick = (e) => {
+    if (e.target === dialog) dialog.remove();
+  };
+}
+
 function trackStudyTime(minutes) { 
   console.log('Tracked study time:', minutes);
   studyStats.totalTime = (studyStats.totalTime || 0) + minutes;
@@ -3735,7 +3881,21 @@ window.deleteSession = deleteSession;
 window.showDaySessions = showDaySessions;
 
 
-document.addEventListener('DOMContentLoaded', async () => {
+// Main initialization function
+async function initializeApp() {
+  console.log('[App] Starting initialization...');
+  
+  // Show the Tauri window once DOM is ready (handles splash screen)
+  if (window.__TAURI__ && window.__TAURI__.window) {
+    try {
+      const currentWindow = window.__TAURI__.window.getCurrentWindow();
+      await currentWindow.show();
+      await currentWindow.setFocus();
+      console.log('[App] Window shown');
+    } catch (e) {
+      console.log('Could not show window:', e);
+    }
+  }
   
   await initializeFavorites();
   
@@ -3821,6 +3981,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   initializeKeyboardNavigation();
   loadDocuments();
   trackDailyAccess();
+  
+  // Initialize content update system (incremental updates)
+  if (window.contentUpdateSystem && typeof window.contentUpdateSystem.init === 'function') {
+    window.contentUpdateSystem.init();
+  }
+  
   window.addEventListener('beforeunload', () => {
     saveUserPreferences();
   });
@@ -3829,7 +3995,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     console.error('Application error:', e.error);
   });
   console.log('Questionary application initialized successfully');
-});
+}
+
+// Ensure initialization runs whether DOM is loaded or not
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initializeApp);
+} else {
+  // DOM already loaded, run immediately
+  initializeApp();
+}
 
 function updateThemeIcon(theme) {
   const themeIcon = document.getElementById('themeIcon');
@@ -3885,6 +4059,8 @@ function handleLogin(e) {
 }
 
 function checkSavedLogin() {
+  const loadingOverlay = document.getElementById('loadingOverlay');
+  
   const savedLogin = localStorage.getItem('revamp-dpsnt-remember');
   if (savedLogin) {
     try {
@@ -3909,6 +4085,9 @@ function checkSavedLogin() {
       sessionStorage.removeItem('revamp-dpsnt-session');
     }
   }
+  
+  // No saved login found - hide loading overlay to show login screen
+  if (loadingOverlay) loadingOverlay.classList.remove('active');
   return false;
 }
 
@@ -5235,23 +5414,51 @@ function updateButtonToDownloadMode(version) {
 function updateButtonToProgressMode() {
     const btn = document.getElementById('checkUpdatesBtn');
     if (btn) {
-        btn.innerHTML = `<span class="update-progress">0%</span>`;
+        btn.innerHTML = `<i class="fas fa-download"></i>`;
         btn.title = 'Downloading... Click to see progress';
         btn.classList.add('downloading');
         btn.classList.remove('update-available');
     }
+    showDownloadProgressBar();
 }
 
 function updateProgressButton() {
+    const progressBar = document.getElementById('downloadProgressBar');
+    const progressFill = document.getElementById('downloadProgressFill');
+    const progressPercent = document.getElementById('downloadProgressPercent');
+    const progressText = document.getElementById('downloadProgressText');
+    
+    if (progressFill) {
+        progressFill.style.width = `${updateState.downloadProgress}%`;
+    }
+    if (progressPercent) {
+        progressPercent.textContent = `${updateState.downloadProgress}%`;
+    }
+    if (progressText) {
+        progressText.textContent = `${formatBytes(updateState.downloadedBytes)} / ${formatBytes(updateState.totalBytes)}`;
+    }
+    
     const btn = document.getElementById('checkUpdatesBtn');
     if (btn) {
-        const progressSpan = btn.querySelector('.update-progress');
-        if (progressSpan) {
-            progressSpan.textContent = `${updateState.downloadProgress}%`;
-        } else {
-            btn.innerHTML = `<span class="update-progress">${updateState.downloadProgress}%</span>`;
-        }
         btn.title = `Downloading: ${formatBytes(updateState.downloadedBytes)} / ${formatBytes(updateState.totalBytes)}`;
+    }
+}
+
+function showDownloadProgressBar() {
+    const progressBar = document.getElementById('downloadProgressBar');
+    if (progressBar) {
+        progressBar.style.display = 'block';
+    }
+}
+
+function hideDownloadProgressBar() {
+    const progressBar = document.getElementById('downloadProgressBar');
+    if (progressBar) {
+        progressBar.style.display = 'none';
+    }
+    const progressFill = document.getElementById('downloadProgressFill');
+    if (progressFill) {
+        progressFill.style.width = '0%';
     }
 }
 
@@ -5263,6 +5470,7 @@ function updateButtonToRestartMode() {
         btn.classList.remove('downloading');
         btn.classList.add('restarting');
     }
+    hideDownloadProgressBar();
 }
 
 function resetUpdateButton() {
@@ -5272,6 +5480,7 @@ function resetUpdateButton() {
         btn.title = 'Check for Updates';
         btn.classList.remove('update-available', 'downloading', 'restarting');
     }
+    hideDownloadProgressBar();
     updateState.available = false;
     updateState.update = null;
     updateState.downloading = false;
@@ -5467,46 +5676,20 @@ function initializeNewFeatures() {
     addQuickLinkBtn.onclick = (e) => {
       e.stopPropagation();
       
-            if (currentOpenPDF) {
-        const pathStr = [...path, currentOpenPDF.name].join('|');
-        if (quickLinks.some(ql => ql.pathArray.join('|') === pathStr)) {
-          if (typeof showNotification === 'function') showNotification('This file is already in quick links', 'info');
-          return;
-        }
-        
-        quickLinks.push({ 
-          id: Date.now().toString(), 
-          name: currentOpenPDF.name, 
-          pathArray: [...path, currentOpenPDF.name],
-          isFile: true,
-          url: currentOpenPDF.url
-        });
-        if (typeof saveQuickLinks === 'function') saveQuickLinks();
-        if (typeof renderQuickLinks === 'function') renderQuickLinks();
-        if (typeof showNotification === 'function') showNotification('PDF added to quick links!', 'success');
+      // If a PDF is open, show choice dialog
+      if (currentOpenPDF) {
+        showQuickLinkChoiceDialog();
         return;
       }
       
+      // If at home (path.length === 0), show message
       if (path.length === 0) {
-        if (typeof showNotification === 'function') showNotification('Navigate to a folder or open a file first', 'info');
+        if (typeof showNotification === 'function') showNotification('Navigate to a folder first to add it as a quick link', 'info');
         return;
       }
       
-      const pathStr = path.join('|');
-      if (quickLinks.some(ql => ql.pathArray.join('|') === pathStr)) {
-        if (typeof showNotification === 'function') showNotification('This location is already in quick links', 'info');
-        return;
-      }
-      
-      quickLinks.push({ 
-        id: Date.now().toString(), 
-        name: path[path.length - 1], 
-        pathArray: [...path],
-        isFile: false
-      });
-      if (typeof saveQuickLinks === 'function') saveQuickLinks();
-      if (typeof renderQuickLinks === 'function') renderQuickLinks();
-      if (typeof showNotification === 'function') showNotification('Added to quick links!', 'success');
+      // Add current folder as quick link
+      addCurrentFolderToQuickLinks();
     };
   }
   

@@ -1,0 +1,39 @@
+{
+  "version": "1.0.0",
+  "lastUpdated": "2026-01-12T00:00:00Z",
+  "baseUrl": "https://raw.githubusercontent.com/Nugget1252/Questionarytauri/main/src/",
+  "files": {
+    "js/app.js": {
+      "version": "1.0.0",
+      "url": "https://raw.githubusercontent.com/Nugget1252/Questionarytauri/main/src/js/app.js",
+      "hash": "",
+      "size": 0,
+      "type": "js",
+      "critical": true
+    },
+    "css/styles.css": {
+      "version": "1.0.0",
+      "url": "https://raw.githubusercontent.com/Nugget1252/Questionarytauri/main/src/css/styles.css",
+      "hash": "",
+      "size": 0,
+      "type": "css",
+      "critical": false
+    },
+    "js/contentUpdater.js": {
+      "version": "1.0.0",
+      "url": "https://raw.githubusercontent.com/Nugget1252/Questionarytauri/main/src/js/contentUpdater.js",
+      "hash": "",
+      "size": 0,
+      "type": "js",
+      "critical": false
+    },
+    "js/hotUpdater.js": {
+      "version": "1.0.0",
+      "url": "https://raw.githubusercontent.com/Nugget1252/Questionarytauri/main/src/js/hotUpdater.js",
+      "hash": "",
+      "size": 0,
+      "type": "js",
+      "critical": true
+    }
+  }
+}
