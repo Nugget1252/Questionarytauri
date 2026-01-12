@@ -1,6 +1,4 @@
-// Hot Code Update System for Questionary
-// This module handles incremental code updates (JS, CSS, HTML) without requiring full app reinstall
-// Load this BEFORE other scripts in index.html
+
 
 (function() {
     'use strict';
@@ -9,14 +7,14 @@
     const CODE_MANIFEST_KEY = 'questionary-code-manifest';
     const CODE_FILES_KEY = 'questionary-code-files';
     
-    // Bundled file versions (update these when you build)
+    
     const BUNDLED_VERSIONS = {
         'app.js': '1.0.0',
         'styles.css': '1.0.0',
         'contentUpdater.js': '1.0.0'
     };
     
-    // Code update state
+
     window.codeUpdateState = {
         checking: false,
         downloading: false,
@@ -25,7 +23,7 @@
         remoteManifest: null
     };
     
-    // Get stored code manifest
+
     function getLocalCodeManifest() {
         try {
             const data = localStorage.getItem(CODE_MANIFEST_KEY);
@@ -35,12 +33,12 @@
         }
     }
     
-    // Save code manifest
+
     function saveLocalCodeManifest(manifest) {
         localStorage.setItem(CODE_MANIFEST_KEY, JSON.stringify(manifest));
     }
     
-    // Get stored code files (the actual code content)
+
     function getStoredCodeFiles() {
         try {
             const data = localStorage.getItem(CODE_FILES_KEY);
@@ -50,12 +48,11 @@
         }
     }
     
-    // Save code files
     function saveStoredCodeFiles(files) {
         localStorage.setItem(CODE_FILES_KEY, JSON.stringify(files));
     }
     
-    // Check if we have a newer version stored
+ 
     function hasNewerVersion(filename) {
         const stored = getStoredCodeFiles();
         const localManifest = getLocalCodeManifest();
@@ -68,7 +65,7 @@
         return false;
     }
     
-    // Compare version strings (returns 1 if a > b, -1 if a < b, 0 if equal)
+    
     function compareVersions(a, b) {
         const pa = a.split('.').map(Number);
         const pb = b.split('.').map(Number);
@@ -82,7 +79,6 @@
         return 0;
     }
     
-    // Load CSS from stored updates
     function loadStoredCSS(filename) {
         const stored = getStoredCodeFiles();
         if (stored[filename]) {
@@ -92,7 +88,6 @@
             style.textContent = stored[filename];
             document.head.appendChild(style);
             
-            // Disable the original stylesheet
             const originalLink = document.querySelector(`link[href*="${filename}"]`);
             if (originalLink) {
                 originalLink.disabled = true;
@@ -102,13 +97,11 @@
         return false;
     }
     
-    // Load JS from stored updates (for non-critical scripts)
     function loadStoredJS(filename) {
         const stored = getStoredCodeFiles();
         if (stored[filename]) {
             console.log(`[HotUpdate] Loading updated JS: ${filename}`);
             try {
-                // Create a blob URL and load as script
                 const blob = new Blob([stored[filename]], { type: 'application/javascript' });
                 const url = URL.createObjectURL(blob);
                 const script = document.createElement('script');
@@ -123,7 +116,6 @@
         return false;
     }
     
-    // Fetch remote code manifest
     async function fetchCodeManifest() {
         try {
             const response = await fetch(CODE_MANIFEST_URL + '?t=' + Date.now());
@@ -136,7 +128,6 @@
         return null;
     }
     
-    // Fetch a code file from remote
     async function fetchCodeFile(url) {
         try {
             const response = await fetch(url + '?t=' + Date.now());
@@ -149,7 +140,6 @@
         return null;
     }
     
-    // Check for code updates
     async function checkForCodeUpdates(silent = false) {
         if (window.codeUpdateState.checking || window.codeUpdateState.downloading) {
             return null;
@@ -168,7 +158,6 @@
             const localManifest = getLocalCodeManifest();
             const pendingUpdates = [];
             
-            // Check each file in the remote manifest
             for (const [filename, fileInfo] of Object.entries(remoteManifest.files)) {
                 const localVersion = localManifest.files?.[filename]?.version || BUNDLED_VERSIONS[filename] || '0.0.0';
                 const remoteVersion = fileInfo.version;
@@ -216,7 +205,6 @@
         }
     }
     
-    // Download and apply code updates
     async function downloadCodeUpdates() {
         if (window.codeUpdateState.downloading || window.codeUpdateState.pendingUpdates.length === 0) {
             return;
@@ -239,7 +227,6 @@
                 const content = await fetchCodeFile(update.url);
                 
                 if (content) {
-                    // Store the file content
                     storedFiles[update.filename] = content;
                     localManifest.files[update.filename] = {
                         version: update.version,
@@ -248,12 +235,9 @@
                     };
                     successCount++;
                     
-                    // Check if this update can be hot-applied
                     if (update.type === 'css') {
-                        // CSS can be hot-reloaded
                         applyHotCSS(update.filename, content);
                     } else {
-                        // JS requires reload for safety
                         requiresReload = true;
                     }
                 }
@@ -262,12 +246,10 @@
             }
         }
         
-        // Save everything
         saveStoredCodeFiles(storedFiles);
         localManifest.version = window.codeUpdateState.remoteManifest?.version || localManifest.version;
         saveLocalCodeManifest(localManifest);
         
-        // Reset state
         window.codeUpdateState.downloading = false;
         window.codeUpdateState.available = false;
         window.codeUpdateState.pendingUpdates = [];
@@ -282,7 +264,6 @@
                         'success'
                     );
                 }
-                // Show reload prompt
                 showReloadPrompt();
             } else {
                 if (typeof showNotification === 'function') {
@@ -292,32 +273,26 @@
         }
     }
     
-    // Hot-apply CSS without reload
     function applyHotCSS(filename, content) {
         console.log(`[HotUpdate] Hot-applying CSS: ${filename}`);
         
-        // Remove any existing hot-update style
         const existingStyle = document.getElementById(`hotupdate-${filename.replace('.', '-')}`);
         if (existingStyle) {
             existingStyle.remove();
         }
         
-        // Create new style element
         const style = document.createElement('style');
         style.id = `hotupdate-${filename.replace('.', '-')}`;
         style.textContent = content;
         document.head.appendChild(style);
         
-        // Disable the original stylesheet
         const originalLink = document.querySelector(`link[href*="${filename}"]`);
         if (originalLink) {
             originalLink.disabled = true;
         }
     }
     
-    // Show reload prompt for JS updates
     function showReloadPrompt() {
-        // Create modal if it doesn't exist
         let modal = document.getElementById('reloadPromptModal');
         if (!modal) {
             modal = document.createElement('div');
@@ -344,12 +319,10 @@
         modal.style.display = 'block';
     }
     
-    // UI update function
     function updateCodeUpdateUI(state, count = 0) {
         const btn = document.getElementById('contentUpdateBtn');
         if (!btn) return;
         
-        // Remove all state classes
         btn.classList.remove('checking', 'available', 'downloading');
         
         switch (state) {
@@ -360,7 +333,6 @@
             case 'available':
                 btn.classList.add('available');
                 btn.title = `${count} update(s) available - click to download`;
-                // Update badge
                 let badge = btn.querySelector('.content-badge');
                 if (!badge) {
                     badge = document.createElement('span');
@@ -380,13 +352,11 @@
         }
     }
     
-    // Apply stored updates on page load
     function applyStoredUpdates() {
         const storedFiles = getStoredCodeFiles();
         const localManifest = getLocalCodeManifest();
         
         for (const [filename, content] of Object.entries(storedFiles)) {
-            // Only apply if stored version is newer than bundled
             const storedVersion = localManifest.files?.[filename]?.version || '0.0.0';
             const bundledVersion = BUNDLED_VERSIONS[filename] || '0.0.0';
             
@@ -394,23 +364,18 @@
                 if (filename.endsWith('.css')) {
                     loadStoredCSS(filename);
                 }
-                // JS is loaded via the index.html loader
             }
         }
     }
     
-    // Initialize on DOM ready
     function initHotUpdater() {
-        // Apply any stored CSS updates immediately
         applyStoredUpdates();
         
-        // Check for updates after a delay
         setTimeout(() => {
             checkForCodeUpdates(true);
         }, 15000);
     }
     
-    // Export to window
     window.hotCodeUpdater = {
         check: checkForCodeUpdates,
         download: downloadCodeUpdates,
@@ -422,7 +387,6 @@
         BUNDLED_VERSIONS
     };
     
-    // Auto-init when DOM is ready
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', initHotUpdater);
     } else {
