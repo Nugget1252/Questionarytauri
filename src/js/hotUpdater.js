@@ -7,11 +7,13 @@
     const CODE_MANIFEST_KEY = 'questionary-code-manifest';
     const CODE_FILES_KEY = 'questionary-code-files';
     
-    
+    // Bundled file versions - must match paths in code-manifest.json
+    // Set to 0.4.0 so manifest version 0.4.1+ will trigger auto-download
     const BUNDLED_VERSIONS = {
-        'app.js': '1.0.0',
-        'styles.css': '1.0.0',
-        'contentUpdater.js': '1.0.0'
+        'js/app.js': '0.4.0',
+        'css/styles.css': '0.4.0',
+        'js/contentUpdater.js': '0.4.0',
+        'js/hotUpdater.js': '0.4.0'
     };
     
 
@@ -368,12 +370,19 @@
         }
     }
     
-    function initHotUpdater() {
+    // Initialize and auto-check/download updates
+    async function initHotUpdater() {
         applyStoredUpdates();
         
-        setTimeout(() => {
-            checkForCodeUpdates(true);
-        }, 15000);
+        // Auto-check and auto-download after delay
+        setTimeout(async () => {
+            const updates = await checkForCodeUpdates(true);
+            // Auto-download if updates found
+            if (updates && updates.length > 0) {
+                console.log('[HotUpdate] Auto-downloading code updates...');
+                await downloadCodeUpdates();
+            }
+        }, 10000);
     }
     
     window.hotCodeUpdater = {

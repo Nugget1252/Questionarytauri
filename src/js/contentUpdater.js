@@ -1,7 +1,8 @@
 
+// Content Update System for Questionary
+// This module handles incremental content updates without requiring full app reinstall
 
-
-const CONTENT_MANIFEST_URL = 'https:
+const CONTENT_MANIFEST_URL = 'https://raw.githubusercontent.com/Nugget1252/Questionarytauri/main/content-manifest.json';
 const LOCAL_MANIFEST_KEY = 'questionary-local-manifest';
 const DOWNLOADED_DOCS_KEY = 'questionary-downloaded-docs';
 
@@ -512,20 +513,39 @@ async function checkForAllUpdates(silent = false) {
 
 
 async function initContentUpdateSystem() {
-    
+    // Load any previously downloaded documents
     await mergeDownloadedDocuments();
     
-    
+    // Setup button handler
     const btn = document.getElementById('contentUpdateBtn');
     if (btn && !btn.dataset.contentInitialized) {
         btn.dataset.contentInitialized = 'true';
         btn.addEventListener('click', handleContentUpdateClick);
     }
     
-    
-    setTimeout(() => {
-        checkForAllUpdates(true);
-    }, 10000); 
+    // Auto-check and auto-download after delay
+    setTimeout(async () => {
+        // Check for content updates
+        const contentPending = await checkForContentUpdates(true);
+        
+        // Auto-download content if available
+        if (contentPending > 0) {
+            console.log(`[ContentUpdater] Auto-downloading ${contentPending} content files...`);
+            if (typeof showNotification === 'function') {
+                showNotification(`Downloading ${contentPending} content update(s)...`, 'info');
+            }
+            await downloadContentUpdates();
+        }
+        
+        // Also check for code updates via hotUpdater
+        if (window.hotCodeUpdater && typeof window.hotCodeUpdater.check === 'function') {
+            const codeUpdates = await window.hotCodeUpdater.check(true);
+            if (codeUpdates && codeUpdates.length > 0) {
+                console.log(`[ContentUpdater] Triggering code updates download...`);
+                await window.hotCodeUpdater.download();
+            }
+        }
+    }, 12000); 
 }
 
 
