@@ -49,6 +49,12 @@ jobs:
         with:
           targets: ${{ matrix.rust-target }}
 
+      # Speeds up subsequent Rust builds drastically
+      - name: Rust Cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
       # Linux: install WebKit2GTK and other required system libraries
       - name: Install Linux system dependencies
         if: matrix.platform == 'ubuntu-22.04'
@@ -76,6 +82,8 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # FIXES THE LINUXDEPLOY APPMAGE INFINITE LOOP HANG:
+          NO_STRIP: true
         with:
           tagName: v__VERSION__
           releaseName: 'Questionary v__VERSION__'
@@ -84,18 +92,10 @@ jobs:
           prerelease: false
           includeUpdaterJson: true
           args: ${{ matrix.tauri-args }}
+          projectPath: './'
 
 # ─────────────────────────────────────────────────────────────
 #  ANDROID  (universal APK + AAB)
-# ─────────────────────────────────────────────────────────────
-#
-#  Prerequisites — run these locally ONCE and commit the result:
-#    npx tauri android init
-#  Optional signing secrets (leave empty for unsigned debug APK):
-#    ANDROID_KEYSTORE_BASE64   – base64-encoded .jks / .keystore file
-#    ANDROID_KEYSTORE_PASSWORD
-#    ANDROID_KEY_ALIAS
-#    ANDROID_KEY_PASSWORD
 # ─────────────────────────────────────────────────────────────
   release-android:
     permissions:
@@ -137,6 +137,12 @@ jobs:
             armv7-linux-androideabi
             i686-linux-android
             x86_64-linux-android
+
+      # Speeds up subsequent Android Cargo builds
+      - name: Rust Cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
 
       - name: Install frontend dependencies
         run: npm install
