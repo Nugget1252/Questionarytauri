@@ -4,7 +4,7 @@
   "version": "0.4.0",
   "type": "module",
   "scripts": {
-    "tauri": "./node_modules/.bin/tauri",
+    "tauri": "tauri",
     "dev": "serve src -p 3000 --no-clipboard"
   },
   "devDependencies": {
