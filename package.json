@@ -4,12 +4,15 @@
   "version": "0.4.0",
   "type": "module",
   "scripts": {
-    "tauri": "tauri"
+    "tauri": "./node_modules/.bin/tauri",
+    "dev": "serve src -p 3000 --no-clipboard"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2"
+    "@tauri-apps/cli": "^2.10.0",
+    "serve": "^14"
   },
   "dependencies": {
-    "tauri": "^0.15.0"
+    "peerjs": "^1.5.5",
+    "ws": "^8.20.0"
   }
 }

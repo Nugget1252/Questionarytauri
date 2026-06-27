@@ -1,7 +1,7 @@
 [package]
 name = "Questionary"
 version = "0.3.0"
-description = "A Tauri App"
+description = "Questionary"
 authors = ["you"]
 edition = "2021"
 
@@ -15,10 +15,24 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
-tauri-plugin-prevent-default = "0.2"
 tauri-plugin-updater = "2"
 tauri-plugin-fs = "2"
 tauri-plugin-http = "2"
+tauri-plugin-process = "2.3.1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tauri-plugin-process = "2.3.1"
+tokio = { version = "1", features = ["net", "sync", "rt", "macros"] }
+tokio-tungstenite = "0.24"
+futures-util = "0.3"
+
+# Desktop-only: keyboard hook plugin does not compile for Android/iOS
+[target.'cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))'.dependencies]
+tauri-plugin-prevent-default = "0.2"
+
+[target.'cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd", target_os = "openbsd"))'.dependencies]
+webkit2gtk = { version = "2.0", features = ["v2_4"] }
+[profile.release]
+opt-level = 1          # Keeps it at 1 instead of 3
+lto = "off"            # Keeps link-time optimization completely off
+codegen-units = 3
+# Don't let it spawn dozens of threads

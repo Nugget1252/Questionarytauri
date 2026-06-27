@@ -82,20 +82,8 @@
     }
     
     function loadStoredCSS(filename) {
-        const stored = getStoredCodeFiles();
-        if (stored[filename]) {
-            console.log(`[HotUpdate] Loading updated CSS: ${filename}`);
-            const style = document.createElement('style');
-            style.id = `hotupdate-${filename.replace('.', '-')}`;
-            style.textContent = stored[filename];
-            document.head.appendChild(style);
-            
-            const originalLink = document.querySelector(`link[href*="${filename}"]`);
-            if (originalLink) {
-                originalLink.disabled = true;
-            }
-            return true;
-        }
+        // Disabled: let the actual CSS files load from disk/server instead of localStorage cache
+        console.log(`[HotUpdate] Skipping stored CSS for ${filename} — using live file`);
         return false;
     }
     
@@ -276,22 +264,8 @@
     }
     
     function applyHotCSS(filename, content) {
-        console.log(`[HotUpdate] Hot-applying CSS: ${filename}`);
-        
-        const existingStyle = document.getElementById(`hotupdate-${filename.replace('.', '-')}`);
-        if (existingStyle) {
-            existingStyle.remove();
-        }
-        
-        const style = document.createElement('style');
-        style.id = `hotupdate-${filename.replace('.', '-')}`;
-        style.textContent = content;
-        document.head.appendChild(style);
-        
-        const originalLink = document.querySelector(`link[href*="${filename}"]`);
-        if (originalLink) {
-            originalLink.disabled = true;
-        }
+        // Disabled: let the actual CSS files load from disk/server
+        console.log(`[HotUpdate] Skipping hot CSS apply for ${filename} — using live file`);
     }
     
     function showReloadPrompt() {
