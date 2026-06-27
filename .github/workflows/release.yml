@@ -93,6 +93,8 @@ jobs:
           includeUpdaterJson: true
           args: ${{ matrix.tauri-args }}
           projectPath: './'
+          # FORCES RUNNER TO FIND CROSS-COMPILED TARGET BUNDLES ON MAC AND WINDOWS:
+          includePath: 'src-tauri/target/**/release/bundle/**/*'
 
 # ─────────────────────────────────────────────────────────────
 #  ANDROID  (universal APK + AAB)
