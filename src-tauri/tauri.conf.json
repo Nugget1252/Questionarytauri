@@ -30,7 +30,7 @@
   "bundle": {
     "active": true,
     "createUpdaterArtifacts": true,
-    "targets": ["rpm", "appimage"],
+    "targets": ["nsis", "msi", "dmg", "appimage", "rpm"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -52,7 +52,8 @@
         "depends": []
       },
       "rpm": {
-        "depends": []
+        "depends": [],
+        "compression": "none"
       },
       "appimage": {
         "bundleMediaFramework": true
