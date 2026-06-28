@@ -4,6 +4,10 @@ use std::sync::Mutex;
 
 mod ws_relay;
 
+// Only compile the media_linux module when building for Linux
+#[cfg(target_os = "linux")]
+mod media_linux;
+
 #[cfg(desktop)]
 use tauri_plugin_prevent_default::{
     Builder as PreventBuilder,
@@ -45,10 +49,10 @@ async fn start_study_server(
     let ips = ws_relay::get_local_ips();
 
     state
-        .ws_server
-        .lock()
-        .map_err(|e| e.to_string())?
-        .replace(server);
+    .ws_server
+    .lock()
+    .map_err(|e| e.to_string())?
+    .replace(server);
 
     Ok(serde_json::json!({ "port": port, "ips": ips }))
 }
@@ -73,36 +77,43 @@ fn get_local_ips() -> Vec<String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default()
-        .manage(AppState {
-            ws_server: Mutex::new(None),
-        })
-        .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_process::init())
-        .plugin(tauri_plugin_fs::init())
-        .plugin(tauri_plugin_http::init());
+    .manage(AppState {
+        ws_server: Mutex::new(None),
+    })
+    .plugin(tauri_plugin_opener::init())
+    .plugin(tauri_plugin_updater::Builder::new().build())
+    .plugin(tauri_plugin_process::init())
+    .plugin(tauri_plugin_fs::init())
+    .plugin(tauri_plugin_http::init());
 
     #[cfg(desktop)]
     let builder = builder.plugin(
         PreventBuilder::new()
-            .shortcut(KeyboardShortcut::with_modifiers("W", &[CtrlKey]))
-            .build()
+        .shortcut(KeyboardShortcut::with_modifiers("W", &[CtrlKey]))
+        .build()
     );
 
     builder
-        .setup(|app| {
-            let window = app.get_webview_window("main").expect("no main window");
-            let _ = window.show();
+    .setup(|app| {
+        let window = app.get_webview_window("main").expect("no main window");
+
+        // Fixes the E0599 error by explicitly invoking the WebviewWindow standard show method
+        let _ = window.show();
+
+        // Only execute media permissions logic if we are running natively on a Linux desktop
+        #[cfg(target_os = "linux")]
+        {
             media_linux::setup_media_permissions(&window);
-            Ok(())
-        })
-        .invoke_handler(tauri::generate_handler![
-            greet,
-            start_study_server,
-            stop_study_server,
-            get_local_ips
-        ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        }
+
+        Ok(())
+    })
+    .invoke_handler(tauri::generate_handler![
+        greet,
+        start_study_server,
+        stop_study_server,
+        get_local_ips
+    ])
+    .run(tauri::generate_context!())
+    .expect("error while running tauri application");
 }
-mod media_linux;
