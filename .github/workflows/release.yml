@@ -68,7 +68,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           APPLE_IDENTITY: "-"
           NO_STRIP: true
-          # BUILDS DEB AND APPIMAGE; KEEPS RPM DISABLED
+          # Only build .deb and .AppImage packages, skipping the long RPM build
           TAURI_BUNDLE_TARGETS: "deb,appimage"
         with:
           tagName: v__VERSION__
@@ -139,7 +139,7 @@ jobs:
           fi
         env:
           ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
-          NDK_HOME: ${{ env.ANDROID_SDK_ROOT = 'ndk;27.0.12077973' }}/ndk/27.0.12077973
+          NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/27.0.12077973
 
       - name: Setup Android signing keystore
         if: ${{ env.ANDROID_KEYSTORE_BASE64 != '' }}
