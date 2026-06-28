@@ -5,8 +5,7 @@
   "identifier": "com.nugget.questionary",
   "build": {
     "beforeDevCommand": "npm run dev",
-    "beforeBuildCommand": "npm run build",
-    "frontendDist": "../dist",
+    "frontendDist": "../src",
     "devUrl": "http://localhost:3000"
   },
   "app": {
