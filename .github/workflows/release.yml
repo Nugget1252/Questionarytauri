@@ -42,13 +42,11 @@ jobs:
         with:
           targets: ${{ matrix.rust-target }}
 
-      # Speeds up subsequent Rust builds drastically
       - name: Rust Cache
         uses: swatinem/rust-cache@v2
         with:
           workspaces: './src-tauri -> target'
 
-      # Linux: install WebKit2GTK and other required system libraries
       - name: Install Linux system dependencies
         if: matrix.platform == 'ubuntu-22.04'
         run: |
@@ -68,9 +66,10 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # FORCE MACOS TO SKIP CODESIGN SEARCH ENTIRELY:
           APPLE_IDENTITY: "-"
           NO_STRIP: true
+          # Drops the slow RPM target step entirely
+          TAURI_BUNDLE_TARGETS: "deb"
         with:
           tagName: v__VERSION__
           releaseName: 'Questionary v__VERSION__'
@@ -157,7 +156,7 @@ jobs:
           EOF
 
       - name: Build Android APK
-        run: npx tauri android build --apk
+        run: npx tauri android build --apk -- --split-per-abi
         env:
           ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
           NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/27.0.12077973
