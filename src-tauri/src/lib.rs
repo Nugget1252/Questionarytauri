@@ -97,7 +97,8 @@ pub fn run() {
     .setup(|app| {
         let window = app.get_webview_window("main").expect("no main window");
 
-        // Fixes the E0599 error by explicitly invoking the WebviewWindow standard show method
+        // Only show the window explicitly if we are on a desktop platform
+        #[cfg(desktop)]
         let _ = window.show();
 
         // Only execute media permissions logic if we are running natively on a Linux desktop
