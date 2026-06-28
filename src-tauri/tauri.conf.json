@@ -57,8 +57,7 @@
       }
     },
     "android": {
-      "minSdkVersion": 24,
-      "splitPerAbi": true
+      "minSdkVersion": 24
     },
     "iOS": {
       "minimumSystemVersion": "16.0"
