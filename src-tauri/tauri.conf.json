@@ -1,11 +1,12 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Questionary",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "identifier": "com.nugget.questionary",
   "build": {
     "beforeDevCommand": "npm run dev",
-    "frontendDist": "../src",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist",
     "devUrl": "http://localhost:3000"
   },
   "app": {
@@ -30,7 +31,7 @@
   "bundle": {
     "active": true,
     "createUpdaterArtifacts": true,
-    "targets": "all",
+    "targets": ["deb", "appimage", "nsis", "dmg"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -56,7 +57,8 @@
       }
     },
     "android": {
-      "minSdkVersion": 24
+      "minSdkVersion": 24,
+      "splitPerAbi": true
     },
     "iOS": {
       "minimumSystemVersion": "16.0"
