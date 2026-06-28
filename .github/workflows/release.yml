@@ -5,9 +5,6 @@ on:
     tags:
       - 'v*'
 
-# ─────────────────────────────────────────────────────────────
-#  DESKTOP  (Windows · macOS x64 · macOS arm64 · Linux)
-# ─────────────────────────────────────────────────────────────
 jobs:
   release-desktop:
     permissions:
@@ -23,10 +20,6 @@ jobs:
           - platform: macos-latest
             rust-target: x86_64-apple-darwin
             tauri-args: '--target x86_64-apple-darwin'
-
-          - platform: macos-latest
-            rust-target: aarch64-apple-darwin
-            tauri-args: '--target aarch64-apple-darwin'
 
           - platform: ubuntu-22.04
             rust-target: ''
@@ -75,14 +68,12 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # macOS code signing (leave secrets empty to build unsigned)
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          # FIXES THE LINUXDEPLOY APPMAGE INFINITE LOOP HANG:
           NO_STRIP: true
         with:
           tagName: v__VERSION__
@@ -93,12 +84,7 @@ jobs:
           includeUpdaterJson: true
           args: ${{ matrix.tauri-args }}
           projectPath: './'
-          # FORCES RUNNER TO FIND CROSS-COMPILED TARGET BUNDLES ON MAC AND WINDOWS:
-          includePath: 'src-tauri/target/**/release/bundle/**/*'
 
-# ─────────────────────────────────────────────────────────────
-#  ANDROID  (universal APK + AAB)
-# ─────────────────────────────────────────────────────────────
   release-android:
     permissions:
       contents: write
@@ -140,7 +126,6 @@ jobs:
             i686-linux-android
             x86_64-linux-android
 
-      # Speeds up subsequent Android Cargo builds
       - name: Rust Cache
         uses: swatinem/rust-cache@v2
         with:
@@ -149,8 +134,9 @@ jobs:
       - name: Install frontend dependencies
         run: npm install
 
-      # If gen/android doesn't exist (first CI run before local init was committed),
-      # initialise it now. Better: run `npx tauri android init` locally and commit.
+      - name: Clean up old Android templates
+        run: rm -rf src-tauri/gen/android
+
       - name: Init Android project (if not already committed)
         run: |
           if [ ! -d "src-tauri/gen/android" ]; then
@@ -160,7 +146,6 @@ jobs:
           ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
           NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/27.0.12077973
 
-      # Decode and write keystore for signed release builds (optional)
       - name: Setup Android signing keystore
         if: ${{ env.ANDROID_KEYSTORE_BASE64 != '' }}
         env:
