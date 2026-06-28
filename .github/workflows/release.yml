@@ -68,7 +68,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           APPLE_IDENTITY: "-"
           NO_STRIP: true
-          # Only build .deb and .AppImage packages, skipping the long RPM build
+          # Builds deb and appimages, completely dodging that trash RPM build time
           TAURI_BUNDLE_TARGETS: "deb,appimage"
         with:
           tagName: v__VERSION__
@@ -156,7 +156,7 @@ jobs:
           EOF
 
       - name: Build Android APK
-        run: npx tauri android build --apk -- --split-per-abi
+        run: npx tauri android build --apk
         env:
           ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
           NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/27.0.12077973
