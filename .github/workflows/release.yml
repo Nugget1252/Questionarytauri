@@ -63,6 +63,8 @@ jobs:
 
       - name: Build Desktop Binaries
         run: npx tauri build ${{ matrix.tauri-args }}
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
 
       - name: Upload Desktop Assets to Release
         uses: softprops/action-gh-release@v2
@@ -75,6 +77,8 @@ jobs:
     permissions:
       contents: write
     runs-on: ubuntu-22.04
+    env:
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
 
     steps:
       - name: Checkout
@@ -134,8 +138,6 @@ jobs:
 
       - name: Setup Android signing keystore
         if: ${{ env.ANDROID_KEYSTORE_BASE64 != '' }}
-        env:
-          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: |
           echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > src-tauri/gen/android/app/questionary.jks
           cat >> src-tauri/gen/android/local.properties <<EOF
