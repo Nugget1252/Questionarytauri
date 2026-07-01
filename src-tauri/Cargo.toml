@@ -35,7 +35,7 @@ tauri-plugin-prevent-default = "2.0.0"
 
 # Linux-Specific Target Dependencies (Fixes your media errors)
 [target.'cfg(target_os = "linux")'.dependencies]
-webkit2gtk = "0.18"
+webkit2gtk = "2.0.2"
 
 # ── PROFILE OPTIMIZATIONS FOR NUKE-LEVEL SIZE REDUCTION ───────
 [profile.release]
