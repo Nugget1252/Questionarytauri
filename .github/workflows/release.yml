@@ -74,6 +74,7 @@ jobs:
           files: ${{ matrix.artifact-path }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: 'true'
 
   release-android:
     permissions:
@@ -155,13 +156,10 @@ jobs:
           ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
           NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/27.0.12077973
 
-      - name: Upload Android Split APKs to Release
+      - name: Upload Android APKs to Release
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            src-tauri/gen/android/app/build/outputs/apk/**/app-aarch64-release.apk
-            src-tauri/gen/android/app/build/outputs/apk/**/app-armv7-release.apk
-            src-tauri/gen/android/app/build/outputs/apk/**/app-x86-release.apk
-            src-tauri/gen/android/app/build/outputs/apk/**/app-x86_64-release.apk
+          files: 'src-tauri/gen/android/app/build/outputs/apk/release/*.apk'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: 'true'
