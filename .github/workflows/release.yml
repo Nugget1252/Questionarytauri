@@ -159,7 +159,7 @@ jobs:
       - name: Upload Android APKs to Release
         uses: softprops/action-gh-release@v2
         with:
-          files: 'src-tauri/gen/android/app/build/outputs/apk/release/*.apk'
+          files: 'src-tauri/gen/android/app/build/outputs/apk/**/*.apk'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: 'true'
