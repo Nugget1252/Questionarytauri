@@ -8,6 +8,8 @@ let flashcardDecks = [];
 let studySessions = [];
 let documentProgress = {};
 let quickLinks = [];
+let documents = {}; // Declared early, will be populated below
+window.documents = documents; // Expose immediately
 let studyStats = { totalTime: 0, streak: 0, lastStudyDate: null, hourlyActivity: {} };
 let currentCalendarDate = new Date();
 let currentEditingNote = null;
@@ -238,6 +240,132 @@ function showNotification(message, type = 'info') {
   }, 3000);
 }
 
+// ============================================
+// STYLED DIALOG SYSTEM (replaces confirm/prompt/alert)
+// ============================================
+
+function _createDialogOverlay() {
+  const overlay = document.createElement('div');
+  overlay.className = 'dialog-overlay';
+  document.body.appendChild(overlay);
+  // Animate in
+  requestAnimationFrame(() => overlay.classList.add('active'));
+  return overlay;
+}
+
+function _closeDialog(overlay) {
+  overlay.classList.remove('active');
+  setTimeout(() => overlay.remove(), 200);
+}
+
+/**
+ * Styled confirm dialog — returns Promise<boolean>
+ * @param {string} message - The question to ask
+ * @param {object} opts - { title, confirmText, cancelText, type }
+ */
+function showConfirm(message, opts = {}) {
+  const { title = 'Confirm', confirmText = 'OK', cancelText = 'Cancel', type = 'warning' } = opts;
+  return new Promise(resolve => {
+    const overlay = _createDialogOverlay();
+    const iconMap = { warning: 'fa-exclamation-triangle', danger: 'fa-trash-alt', info: 'fa-info-circle', question: 'fa-question-circle' };
+    const colorMap = { warning: 'var(--yellow, #f59e0b)', danger: 'var(--red, #ef4444)', info: 'var(--accent)', question: 'var(--accent)' };
+    const icon = iconMap[type] || iconMap.question;
+    const color = colorMap[type] || colorMap.question;
+
+    overlay.innerHTML = `
+      <div class="dialog-box">
+        <div class="dialog-icon" style="color: ${color}"><i class="fas ${icon}"></i></div>
+        <h3 class="dialog-title">${title}</h3>
+        <p class="dialog-message">${message}</p>
+        <div class="dialog-actions">
+          <button class="dialog-btn dialog-btn-cancel">${cancelText}</button>
+          <button class="dialog-btn dialog-btn-confirm" style="background: ${type === 'danger' ? 'var(--red, #ef4444)' : 'var(--accent)'}">${confirmText}</button>
+        </div>
+      </div>
+    `;
+
+    const close = (val) => { _closeDialog(overlay); resolve(val); };
+    overlay.querySelector('.dialog-btn-cancel').onclick = () => close(false);
+    overlay.querySelector('.dialog-btn-confirm').onclick = () => close(true);
+    overlay.addEventListener('click', e => { if (e.target === overlay) close(false); });
+    // Focus confirm button
+    overlay.querySelector('.dialog-btn-confirm').focus();
+  });
+}
+window.showConfirm = showConfirm;
+
+/**
+ * Styled prompt dialog — returns Promise<string|null>
+ * @param {string} message - The label/question
+ * @param {object} opts - { title, defaultValue, placeholder, confirmText, cancelText }
+ */
+function showPrompt(message, opts = {}) {
+  const { title = 'Input', defaultValue = '', placeholder = '', confirmText = 'Save', cancelText = 'Cancel' } = opts;
+  return new Promise(resolve => {
+    const overlay = _createDialogOverlay();
+
+    overlay.innerHTML = `
+      <div class="dialog-box">
+        <div class="dialog-icon" style="color: var(--accent)"><i class="fas fa-pen"></i></div>
+        <h3 class="dialog-title">${title}</h3>
+        <p class="dialog-message">${message}</p>
+        <input class="dialog-input" type="text" value="${defaultValue.replace(/"/g, '&quot;')}" placeholder="${placeholder}" spellcheck="false" />
+        <div class="dialog-actions">
+          <button class="dialog-btn dialog-btn-cancel">${cancelText}</button>
+          <button class="dialog-btn dialog-btn-confirm">${confirmText}</button>
+        </div>
+      </div>
+    `;
+
+    const input = overlay.querySelector('.dialog-input');
+    const close = (val) => { _closeDialog(overlay); resolve(val); };
+    overlay.querySelector('.dialog-btn-cancel').onclick = () => close(null);
+    overlay.querySelector('.dialog-btn-confirm').onclick = () => {
+      const v = input.value.trim();
+      close(v || null);
+    };
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { const v = input.value.trim(); close(v || null); }
+      if (e.key === 'Escape') close(null);
+    });
+    overlay.addEventListener('click', e => { if (e.target === overlay) close(null); });
+    // Focus & select input
+    requestAnimationFrame(() => { input.focus(); input.select(); });
+  });
+}
+window.showPrompt = showPrompt;
+
+/**
+ * Styled info dialog — replaces alert()
+ * @param {string} message - Content (supports HTML)
+ * @param {object} opts - { title, buttonText, type }
+ */
+function showInfoDialog(message, opts = {}) {
+  const { title = 'Info', buttonText = 'OK', type = 'info' } = opts;
+  return new Promise(resolve => {
+    const overlay = _createDialogOverlay();
+    const iconMap = { info: 'fa-info-circle', success: 'fa-check-circle', warning: 'fa-exclamation-triangle', error: 'fa-exclamation-circle' };
+    const colorMap = { info: 'var(--accent)', success: 'var(--green, #22c55e)', warning: 'var(--yellow, #f59e0b)', error: 'var(--red, #ef4444)' };
+
+    overlay.innerHTML = `
+      <div class="dialog-box">
+        <div class="dialog-icon" style="color: ${colorMap[type] || colorMap.info}"><i class="fas ${iconMap[type] || iconMap.info}"></i></div>
+        <h3 class="dialog-title">${title}</h3>
+        <div class="dialog-message dialog-message-scrollable">${message}</div>
+        <div class="dialog-actions">
+          <button class="dialog-btn dialog-btn-confirm">${buttonText}</button>
+        </div>
+      </div>
+    `;
+
+    const close = () => { _closeDialog(overlay); resolve(); };
+    overlay.querySelector('.dialog-btn-confirm').onclick = close;
+    overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+    overlay.querySelector('.dialog-btn-confirm').focus();
+  });
+}
+window.showInfoDialog = showInfoDialog;
+
 function initializeAppAfterLogin() {
     const usernameDisplay = document.getElementById('username-display');
   if (usernameDisplay && currentUser) {
@@ -254,7 +382,7 @@ function initializeAppAfterLogin() {
   }
   
     if (typeof renderTiles === 'function' && typeof documents !== 'undefined') {
-    renderTiles(documents);
+    renderTiles(window.documents || documents);
   }
   
     if (typeof updateBreadcrumb === 'function') {
@@ -504,13 +632,107 @@ function trackDailyAccess() {
   accessData[today] = (accessData[today] || 0) + 1;
   localStorage.setItem('questionary-daily-access', JSON.stringify(accessData));
 }
-function saveUserPreferences() {  }
+
+function saveUserPreferences() {
+  // Save current location/view for remember location feature
+  const settings = JSON.parse(localStorage.getItem('questionary-settings') || '{}');
+  if (settings.rememberLocation !== false) {
+    localStorage.setItem('questionary-last-view', currentView);
+    localStorage.setItem('questionary-last-path', JSON.stringify(path));
+  }
+}
+
+function restoreLastLocation() {
+  const settings = JSON.parse(localStorage.getItem('questionary-settings') || '{}');
+  if (settings.rememberLocation !== false) {
+    const lastView = localStorage.getItem('questionary-last-view');
+    const lastPath = JSON.parse(localStorage.getItem('questionary-last-path') || '[]');
+    
+    if (lastView && lastView !== 'home') {
+      showView(lastView);
+      // Update active nav
+      const navMap = {
+        'home': 'homeNav',
+        'favorites': 'favoritesNav',
+        'recent': 'recentNav',
+        'analytics': 'analyticsNav',
+        'planner': 'plannerNav',
+        'flashcards': 'flashcardsNav',
+        'notes': 'notesNav',
+        'progress': 'progressNav',
+        'reminders': 'remindersNav',
+        'settings': 'settingsNav',
+        'tags': 'tagsNav'
+      };
+      if (navMap[lastView]) {
+        setActiveNav(navMap[lastView]);
+      }
+    } else {
+      // Always call showView('home') to ensure home panels are shown
+      showView('home');
+      setActiveNav('homeNav');
+      
+      if (lastPath && lastPath.length > 0) {
+        // Restore path within documents
+        path = lastPath;
+        let current = documents;
+        for (const p of path) {
+          if (current[p] && typeof current[p] === 'object') {
+            current = current[p];
+          } else {
+            path = [];
+            current = documents;
+            break;
+          }
+        }
+        renderTiles(current);
+        updateBreadcrumb();
+      }
+    }
+  } else {
+    // Default to home view
+    showView('home');
+    setActiveNav('homeNav');
+  }
+}
+
+// Get current level of documents based on path
+function getCurrentDocumentsLevel() {
+  // Access documents via window to ensure we get the latest value
+  const docs = window.documents || documents;
+  if (!docs || Object.keys(docs).length === 0) {
+    console.warn('Documents not loaded yet');
+    return {};
+  }
+  let current = docs;
+  for (const p of path) {
+    if (current[p] && typeof current[p] === 'object') {
+      current = current[p];
+    } else {
+      return docs;
+    }
+  }
+  return current;
+}
 
 function renderTiles(docs) {
+  console.log('renderTiles called with:', docs);
+  console.log('documents variable:', documents);
   const container = document.getElementById('tilesContainer');
   if (!container) {
     console.error('tilesContainer not found');
     return;
+  }
+  
+  // Show PDF Library and home tags panels only at root level
+  const importedSection = document.getElementById('importedSection');
+  if (importedSection) {
+    importedSection.style.display = path.length === 0 ? 'block' : 'none';
+  }
+  if (path.length === 0) {
+    showHomeTagsPanels();
+  } else {
+    hideHomeTagsPanels();
   }
   
   container.innerHTML = '';
@@ -533,18 +755,33 @@ function renderTiles(docs) {
     tile.className = 'tile';
     
         const isMissingPdf = !isFolder && (!value || value === '#' || value === '');
+        const isImportedPdf = !isFolder && typeof value === 'string' && value.startsWith('blob-id:');
+        // Check if this folder/item was moved from the library (user-added, not hardcoded)
+        const isCustomItem = (() => {
+          try {
+            const custom = JSON.parse(localStorage.getItem('questionary-custom-documents') || '{}');
+            let level = custom;
+            for (const seg of path) { level = level?.[seg]; }
+            return level && level[key] !== undefined;
+          } catch { return false; }
+        })();
     
     
     const itemPath = [...path, key];
     const itemPathJson = JSON.stringify(itemPath).replace(/"/g, '&quot;');
+    const itemId = isFolder ? `folder_${itemPath.join('/')}` : `doc_${itemPath.join('/')}`;
     
     tile.innerHTML = `
+      <div class="tile-top-bar">
+        <button onclick="event.stopPropagation(); openTagItemModal('${escapeHtml(itemId)}', '${escapeHtml(key)}', '${isFolder ? 'folder' : 'document'}')" title="Tags"><i class="fas fa-tag"></i></button>
+        ${isFolder ? `<button onclick="event.stopPropagation(); addFolderToQuickLinks('${escapeHtml(key)}', ${itemPathJson})" title="Quick Link"><i class="fas fa-link"></i></button>` : ''}
+        ${!isFolder && !isMissingPdf ? `<button onclick="event.stopPropagation(); toggleFavorite('${escapeHtml(key)}', ${itemPathJson}, '${escapeHtml(value)}')" title="Favorite"><i class="fas fa-star"></i></button>` : ''}
+        ${isImportedPdf || (isFolder && isCustomItem) ? `<button onclick="event.stopPropagation(); moveDocumentItemToLibrary('${escapeHtml(key)}')" title="Move to Library"><i class="fas fa-book-open"></i></button>` : ''}
+      </div>
       <div class="tile-icon">
-        <i class="fas ${isFolder ? 'fa-folder' : 'fa-file-pdf'}"></i>
+        <i class="fas ${isFolder ? 'fa-folder' : (key.endsWith('.png') ? 'fa-image' : 'fa-file-pdf')}"></i>
       </div>
       <div class="tile-text">${escapeHtml(key)}</div>
-      ${isFolder ? `<button class="tile-quicklink" onclick="event.stopPropagation(); addFolderToQuickLinks('${escapeHtml(key)}', ${itemPathJson})" title="Add to Quick Links"><i class="fas fa-link"></i></button>` : ''}
-      ${!isFolder && !isMissingPdf ? `<button class="tile-favorite" onclick="event.stopPropagation(); toggleFavorite('${escapeHtml(key)}', ${itemPathJson}, '${escapeHtml(value)}')" title="Toggle Favorite"><i class="fas fa-star"></i></button>` : ''}
       ${isMissingPdf ? `<div class="pdf-missing-badge"><i class="fas fa-exclamation-triangle"></i> Not Available</div>` : ''}
     `;
     
@@ -559,6 +796,9 @@ function renderTiles(docs) {
         updateBreadcrumb();
       } else if (isMissingPdf) {
         showNotification('This PDF is not available yet', 'warning');
+      } else if (key.endsWith('.png') || key.endsWith('.jpg') || key.endsWith('.jpeg') || key.endsWith('.webp')) {
+        addToRecent(key, [...path, key], value);
+        showImage(value, key);
       } else {
                 addToRecent(key, [...path, key], value);
         showPDF(value);
@@ -570,6 +810,9 @@ function renderTiles(docs) {
   
     updateDashboardStats();
 }
+
+// Expose renderTiles globally
+window.renderTiles = renderTiles;
 
 async function checkPdfExists(pdfPath) {
   return new Promise((resolve) => {
@@ -645,10 +888,13 @@ function navigateToPath(newPath) {
   
   const pdfViewer = document.getElementById('pdfViewer');
   if (pdfViewer) {
-    pdfViewer.style.cssText = 'display: none !important;';
     pdfViewer.classList.remove('active');
     pdfViewer.src = '';
   }
+  const pdfViewerContainer = document.getElementById('pdfViewerContainer');
+  if (pdfViewerContainer) pdfViewerContainer.style.display = 'none';
+  const bookmarksPanel = document.getElementById('pdfBookmarksPanel');
+  if (bookmarksPanel) bookmarksPanel.style.display = 'none';
   
   const tilesContainer = document.getElementById('tilesContainer');
   const sectionHeader = document.querySelector('#tilesSection .section-header');
@@ -656,14 +902,18 @@ function navigateToPath(newPath) {
   const tilesSection = document.getElementById('tilesSection');
   
   if (tilesSection) tilesSection.style.display = 'block';
-  if (tilesContainer) tilesContainer.style.display = 'grid';
+  if (tilesContainer) {
+    const isListView = tilesContainer.classList.contains('list-view');
+    tilesContainer.style.display = isListView ? 'flex' : 'grid';
+  }
   if (sectionHeader) sectionHeader.style.display = 'flex';
   if (dashboardHeader) dashboardHeader.style.display = newPath.length === 0 ? 'flex' : 'none';
   
   if (typeof hideTimerCompletely === 'function') hideTimerCompletely();
   
   
-  let level = documents;
+  let docsSrc = window.documents || documents;
+  let level = docsSrc;
   let validPath = [];
   for (const segment of newPath) {
     if (level && typeof level === 'object' && level[segment]) {
@@ -735,7 +985,29 @@ function showPDF(url) {
     return;
   }
   
+  // Handle blob-id: references (PDFs stored in IndexedDB)
+  if (typeof url === 'string' && url.startsWith('blob-id:')) {
+    const blobId = url.replace('blob-id:', '');
+    if (typeof getPdfBlob === 'function') {
+      getPdfBlob(blobId).then(blob => {
+        if (blob) {
+          const objectUrl = URL.createObjectURL(blob);
+          showPDF(objectUrl);
+        } else {
+          showNotification('PDF data not found – it may need to be re-imported', 'error');
+        }
+      }).catch(err => {
+        console.error('Failed to load PDF from IndexedDB:', err);
+        showNotification('Failed to load PDF', 'error');
+      });
+    } else {
+      showNotification('PDF storage not available', 'error');
+    }
+    return;
+  }
+  
   const pdfViewer = document.getElementById('pdfViewer');
+  const pdfViewerContainer = document.getElementById('pdfViewerContainer');
   const tilesContainer = document.getElementById('tilesContainer');
   const sectionHeader = document.querySelector('#tilesSection .section-header');
   const dashboardHeader = document.querySelector('.dashboard-header');
@@ -746,9 +1018,16 @@ function showPDF(url) {
   window.setCurrentPDF && window.setCurrentPDF(url, filename);
   
     if (pdfViewer) {
-    pdfViewer.src = url;
+    // Convert relative URL to absolute so pdfviewer.html can always fetch it
+    const absoluteUrl = new URL(url, window.location.href).href;
+    pdfViewer.src = 'pdfviewer.html?file=' + encodeURIComponent(absoluteUrl);
     pdfViewer.classList.add('active');
-    pdfViewer.style.cssText = '';     console.log('PDF viewer should now be visible, src:', url);
+    // Fallback: also send URL via postMessage once iframe loads
+    pdfViewer.onload = function() {
+      pdfViewer.contentWindow.postMessage({ type: 'loadPdf', url: absoluteUrl }, '*');
+      pdfViewer.onload = null;
+    };
+    console.log('PDF viewer loading:', absoluteUrl);
   } else {
     console.error('PDF viewer element not found!');
     return;
@@ -759,6 +1038,27 @@ function showPDF(url) {
     if (tilesContainer) tilesContainer.style.display = 'none';
   if (sectionHeader) sectionHeader.style.display = 'none';
   if (dashboardHeader) dashboardHeader.style.display = 'none';
+  const importedSection = document.getElementById('importedSection');
+  if (importedSection) importedSection.style.display = 'none';
+  if (typeof hideHomeTagsPanels === 'function') hideHomeTagsPanels();
+  
+  // Show the PDF viewer container with toolbar
+  if (pdfViewerContainer) {
+    pdfViewerContainer.style.display = 'block';
+    const pdfNameEl = document.getElementById('currentPdfName');
+    if (pdfNameEl) pdfNameEl.textContent = filename;
+    
+    // Update bookmarks for this PDF
+    if (typeof renderPdfBookmarks === 'function') {
+      renderPdfBookmarks(url);
+    }
+    // Store current PDF URL for bookmarking
+    if (typeof window.setCurrentPdfForBookmarks === 'function') {
+      window.setCurrentPdfForBookmarks(url);
+    } else {
+      window.currentPdfUrlForBookmarks = url;
+    }
+  }
   
     if (breadcrumbContainer) breadcrumbContainer.style.display = 'flex';
   
@@ -774,6 +1074,7 @@ function showPDF(url) {
 
 function closePDF() {
   const pdfViewer = document.getElementById('pdfViewer');
+  const pdfViewerContainer = document.getElementById('pdfViewerContainer');
   const tilesContainer = document.getElementById('tilesContainer');
   const sectionHeader = document.querySelector('#tilesSection .section-header');
   const dashboardHeader = document.querySelector('.dashboard-header');
@@ -781,19 +1082,130 @@ function closePDF() {
     window.clearCurrentPDF && window.clearCurrentPDF();
   
   if (pdfViewer) {
-    pdfViewer.style.cssText = 'display: none !important;';
+    // Just remove active class and clear src — don't nuke inline styles
     pdfViewer.classList.remove('active');
     pdfViewer.src = '';
   }
   
-  if (tilesContainer) tilesContainer.style.display = 'grid';
+  // Hide the entire PDF viewer container (includes toolbar, iframe, bookmarks)
+  if (pdfViewerContainer) {
+    pdfViewerContainer.style.display = 'none';
+  }
+  
+  // Hide bookmarks panel so it starts closed next time
+  const bookmarksPanel = document.getElementById('pdfBookmarksPanel');
+  if (bookmarksPanel) bookmarksPanel.style.display = 'none';
+  
+  // Clear current PDF URL for bookmarking
+  window.currentPdfUrlForBookmarks = null;
+  
+  // Restore tiles — respect list-view mode if active
+  if (tilesContainer) {
+    const isListView = tilesContainer.classList.contains('list-view');
+    tilesContainer.style.display = isListView ? 'flex' : 'grid';
+  }
   if (sectionHeader) sectionHeader.style.display = 'flex';
-  if (dashboardHeader && path.length === 0) dashboardHeader.style.display = 'flex';
+  
+  if (path.length === 0) {
+    if (dashboardHeader) dashboardHeader.style.display = 'flex';
+    const importedSection = document.getElementById('importedSection');
+    if (importedSection) importedSection.style.display = 'block';
+    if (typeof showHomeTagsPanels === 'function') showHomeTagsPanels();
+  }
   
   if (typeof hideTimerCompletely === 'function') hideTimerCompletely();
   
     if (typeof trackPdfViewEnd === 'function') trackPdfViewEnd(path.join('/'));
 }
+
+/* --- Image Viewer (for whiteboards & saved images) --- */
+let _currentImageBlobUrl = null;
+let _currentImageName = '';
+
+function showImage(url, name) {
+  if (!url) return;
+  _currentImageName = name || 'Image';
+
+  // Handle blob-id: references (images stored in IndexedDB)
+  if (typeof url === 'string' && url.startsWith('blob-id:')) {
+    const blobId = url.replace('blob-id:', '');
+    if (typeof getPdfBlob === 'function') {
+      getPdfBlob(blobId).then(blob => {
+        if (blob) {
+          _currentImageBlobUrl = URL.createObjectURL(blob);
+          _displayImageViewer(_currentImageBlobUrl, name);
+        } else {
+          showNotification('Image data not found', 'error');
+        }
+      }).catch(err => {
+        console.error('Failed to load image:', err);
+        showNotification('Failed to load image', 'error');
+      });
+    }
+    return;
+  }
+
+  // Direct URL
+  _currentImageBlobUrl = url;
+  _displayImageViewer(url, name);
+}
+
+function _displayImageViewer(imgSrc, name) {
+  const container = document.getElementById('imageViewerContainer');
+  const img = document.getElementById('imageViewerImg');
+  const nameEl = document.getElementById('currentImageName');
+  const tilesContainer = document.getElementById('tilesContainer');
+  const sectionHeader = document.querySelector('#tilesSection .section-header');
+  const dashboardHeader = document.querySelector('.dashboard-header');
+  const breadcrumbContainer = document.querySelector('.breadcrumb-container');
+
+  if (img) img.src = imgSrc;
+  if (nameEl) nameEl.textContent = name || 'Image';
+  if (container) container.style.display = 'block';
+  if (tilesContainer) tilesContainer.style.display = 'none';
+  if (sectionHeader) sectionHeader.style.display = 'none';
+  if (dashboardHeader) dashboardHeader.style.display = 'none';
+  if (breadcrumbContainer) breadcrumbContainer.style.display = 'flex';
+  updateBreadcrumb();
+}
+
+function closeImageViewer() {
+  const container = document.getElementById('imageViewerContainer');
+  const img = document.getElementById('imageViewerImg');
+  const tilesContainer = document.getElementById('tilesContainer');
+  const sectionHeader = document.querySelector('#tilesSection .section-header');
+  const dashboardHeader = document.querySelector('.dashboard-header');
+
+  if (container) container.style.display = 'none';
+  if (img) img.src = '';
+  if (_currentImageBlobUrl && _currentImageBlobUrl.startsWith('blob:')) {
+    URL.revokeObjectURL(_currentImageBlobUrl);
+  }
+  _currentImageBlobUrl = null;
+
+  if (tilesContainer) {
+    const isListView = tilesContainer.classList.contains('list-view');
+    tilesContainer.style.display = isListView ? 'flex' : 'grid';
+  }
+  if (sectionHeader) sectionHeader.style.display = 'flex';
+  if (dashboardHeader && path.length === 0) dashboardHeader.style.display = 'flex';
+}
+
+function downloadCurrentImage() {
+  if (!_currentImageBlobUrl) return;
+  const a = document.createElement('a');
+  a.href = _currentImageBlobUrl;
+  a.download = _currentImageName || 'whiteboard.png';
+  a.click();
+}
+
+window.showImage = showImage;
+window.closeImageViewer = closeImageViewer;
+window.downloadCurrentImage = downloadCurrentImage;
+window.showPDF = showPDF;
+
+// Expose closePDF globally
+window.closePDF = closePDF;
 
 function renderAnalytics() {
   console.log('renderAnalytics called');
@@ -894,12 +1306,22 @@ function renderFlashcardDecks() {
     <div class="deck-card">
       <h4>${escapeHtml(deck.name)}</h4>
       <p>${deck.cards.length} cards</p>
-      <button class="btn-icon delete" onclick="event.stopPropagation(); deleteDeck('${deck.id}')" title="Delete deck">
-        <i class="fas fa-trash"></i>
-      </button>
-      <button class="btn btn-primary btn-sm" onclick="startStudyDeck('${deck.id}')" style="margin-top: 1rem;">
-        <i class="fas fa-play"></i> Study
-      </button>
+      <div class="deck-actions">
+        <button class="btn-icon tag" onclick="event.stopPropagation(); openTagItemModal('deck_${deck.id}', '${escapeHtml(deck.name)}', 'flashcard')" title="Add Tags">
+          <i class="fas fa-tag"></i>
+        </button>
+        <button class="btn-icon delete" onclick="event.stopPropagation(); deleteDeck('${deck.id}')" title="Delete deck">
+          <i class="fas fa-trash"></i>
+        </button>
+      </div>
+      <div style="display: flex; gap: 0.5rem; margin-top: 1rem;">
+        <button class="btn btn-primary btn-sm" onclick="startStudyDeck('${deck.id}')" style="flex: 1;">
+          <i class="fas fa-play"></i> Study
+        </button>
+        <button class="btn btn-secondary btn-sm" onclick="startQuiz && startQuiz('${deck.id}')" style="flex: 1;">
+          <i class="fas fa-question-circle"></i> Quiz
+        </button>
+      </div>
     </div>
   `).join('');
 }
@@ -917,9 +1339,14 @@ function renderNotes() {
       <h4>${escapeHtml(note.title)}</h4>
       <p>${escapeHtml(note.content.substring(0, 100))}${note.content.length > 100 ? '...' : ''}</p>
       <small>${new Date(note.updatedAt).toLocaleDateString()}</small>
-      <button class="btn-icon delete" onclick="event.stopPropagation(); deleteNote('${note.id}')" title="Delete note">
-        <i class="fas fa-trash"></i>
-      </button>
+      <div class="note-actions">
+        <button class="btn-icon tag" onclick="event.stopPropagation(); openTagItemModal('note_${note.id}', '${escapeHtml(note.title)}', 'note')" title="Add Tags">
+          <i class="fas fa-tag"></i>
+        </button>
+        <button class="btn-icon delete" onclick="event.stopPropagation(); deleteNote('${note.id}')" title="Delete note">
+          <i class="fas fa-trash"></i>
+        </button>
+      </div>
     </div>
   `).join('');
 }
@@ -1160,7 +1587,7 @@ function renderAccessChart(accessData) {
     });
   }
   
-  const maxCount = Math.max(...days.map(d => d.count), 1);
+  const maxCount = Math.max(...days.map(d => d.count), 5);
   
   container.innerHTML = `
     <div style="display: flex; align-items: flex-end; justify-content: space-between; height: 140px; gap: 8px; padding: 10px 0;">
@@ -1319,7 +1746,8 @@ window.navigateToNote = navigateToNote;
 window.navigateToFlashcard = navigateToFlashcard;
 window.navigateToSession = navigateToSession;
 
-let documents = {
+// IMPORTANT: Populate documents data and expose to window
+documents = {
     "2020-21": {
         "Class 9": {
             "MT 1": {
@@ -2138,96 +2566,97 @@ let documents = {
                 "RAI": "#"
             }
         },
-        "Class 10": {
+"Class 10": {
             "MT 1": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
+                "Bengali": "documents/2022-23_CL_10_MT_1_MT 1_BENGALI.pdf",
+                "Biology": "documents/2022-23_CL_10_MT_1_MT 1_BIOLOGY.pdf",
+                "Chemistry": "documents/2022-23_CL_10_MT_1_MT 1_CHEMISTRY.pdf",
                 "Commerce": "#",
                 "Computer": "#",
                 "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
+                "English Language": "documents/2022-23_CL_10_MT_1_LANGUAGE.pdf",
+                "English Literature": "documents/2022-23_CL_10_MT_1_LITERATURE.pdf",
+                "EVA": "documents/2022-23_CL_10_MT_1_MT 1_EVA.pdf",
                 "EVS": "#",
-                "French": "#",
+                "French": "documents/2022-23_CL_10_MT_1_MT 1_FRENCH (L2).pdf",
                 "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
+                "German": "documents/2022-23_CL_10_MT_1_MT 1_GERMAN (L2).pdf",
+                "Hindi": "documents/2022-23_CL_10_MT_1_MT 1_HINDI.pdf",
                 "History": "#",
                 "Home Science": "#",
-                "Math": "#",
+                "Math": "documents/2022-23_CL_10_MT_1_MT 1_MATHS.pdf",
                 "PE": "#",
                 "Physics": "#",
                 "RAI": "#"
             },
             "MT 2": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
+                "Bengali": "documents/2022-23_CL_10_MT_2_MT 2_BENGALI.pdf",
+                "Biology": "documents/2022-23_CL_10_MT_2_MT 2_BIOLOGY.pdf",
+                "Chemistry": "documents/2022-23_CL_10_MT_2_MT 2_CHEMISTRY.pdf",
                 "Commerce": "#",
-                "Computer": "#",
+                "Computer": "documents/2022-23_CL_10_MT_2_MT 2_COMPUTER APPLICATIONS.pdf",
                 "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
+                "English Language": "documents/2022-23_CL_10_MT_2_LANGUAGE.pdf",
+                "English Literature": "documents/2022-23_CL_10_MT_2_LITERATURE.pdf",
+                "EVA": "documents/2022-23_CL_10_MT_2_MT 2_EVA.pdf",
                 "EVS": "#",
-                "French": "#",
-                "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
+                "French": "documents/2022-23_CL_10_MT_2_MT 2_FRENCH (L2).pdf",
+                "Geography": "documents/2022-23_CL_10_MT_2_MT 2_GEOGRAPHY.pdf",
+                "German": "documents/2022-23_CL_10_MT_2_MT 2_GERMAN (L2).pdf",
+                "Hindi": "documents/2022-23_CL_10_MT_2_MT 2_HINDI.pdf",
+                "History": "documents/2022-23_CL_10_MT_2_MT 2_HISTORY _ CIVICS.pdf",
+                "Home Science": "documents/2022-23_CL_10_MT_2_MT 2_HOME SCIENCE.pdf",
+                "Math": "documents/2022-23_CL_10_MT_2_MT 2_MATHS.pdf",
                 "PE": "#",
-                "Physics": "#",
+                "Physics": "documents/2022-23_CL_10_MT_2_MT 2_PHYSICS.pdf",
                 "RAI": "#"
             },
             "HY": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
+                "Bengali": "documents/2022-23_CL_10_HY_HY EXAM_BENGALI (SET-A).pdf",
+                "Biology": "documents/2022-23_CL_10_HY_HY EXAM_BIOLOGY (SET-A).pdf",
+                "Chemistry": "documents/2022-23_CL_10_HY_HY EXAM_CHEMISTRY (SET-A).pdf",
                 "Commerce": "#",
                 "Computer": "#",
                 "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
+                "English Language": "documents/2022-23_CL_10_HY_LANGUAGE.pdf",
+                "English Literature": "documents/2022-23_CL_10_HY_LITERATURE.pdf",
+                "EVA": "documents/2022-23_CL_10_HY_HY EXAM_EVA (SET-B).pdf",
+                "EVS": "documents/2022-23_CL_10_HY_HY EXAM_EVS.pdf",
+                "French": "documents/2022-23_CL_10_HY_HY EXAM_FRENCH (L2).pdf",
+                "Geography": "documents/2022-23_CL_10_HY_HY EXAM_GEOGRAPHY (SET-A).pdf",
                 "German": "#",
-                "Hindi": "#",
+                "Hindi": "documents/2022-23_CL_10_HY_HY EXAM_HINDI (SET-A).pdf",
                 "History": "#",
                 "Home Science": "#",
-                "Math": "#",
-                "PE": "#",
-                "Physics": "#",
+                "Math": "documents/2022-23_CL_10_HY_HY EXAM_MATHS (SET-B).pdf",
+                "PE": "documents/2022-23_CL_10_HY_CL.10_HY EXAM PE.pdf",
+                "Physics": "documents/2022-23_CL_10_HY_HY EXAM_PHYSICS (SET-B).pdf",
                 "RAI": "#"
             },
             "FT": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
+                "Bengali": "documents/2022-23_CL_10_PREBOARD_PRE BOARD_BENGALI (SET-A).pdf",
+                "Biology": "documents/2022-23_CL_10_PREBOARD_PRE BOARD_BIOLOGY (SET-A).pdf",
+                "Chemistry": "documents/2022-23_CL_10_PREBOARD_PRE BOARD_CHEMISTRY (SET-A).pdf",
                 "Commerce": "#",
-                "Computer": "#",
+                "Computer": "documents/2022-23_CL_10_PREBOARD_PRE BOARD_COMPUTER APPLICATIONS (SET-A).pdf",
                 "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
+                "English Language": "documents/2022-23_CL_10_PREBOARD_LANGUAGE.pdf",
+                "English Literature": "documents/2022-23_CL_10_PREBOARD_LITERATURE.pdf",
+                "EVA": "documents/2022-23_CL_10_PREBOARD_PRE BOARD_EVA (SET-A).pdf",
+                "EVS": "documents/2022-23_CL_10_PREBOARD_PRE BOARD_EVS.pdf",
+                "French": "documents/2022-23_CL_10_PREBOARD_PRE BOARD_FRENCH (L2).pdf",
+                "Geography": "documents/2022-23_CL_10_PREBOARD_PRE BOARD_GEOGRAPHY (SET-A).pdf",
                 "German": "#",
                 "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
+                "History": "documents/2022-23_CL_10_PREBOARD_PRE BOARD_HISTORY _ CIVICS (SET-A).pdf",
+                "Home Science": "documents/2022-23_CL_10_PREBOARD_PRE BOARD_HOME SCIENCE (SET-A).pdf",
+                "Math": "documents/2022-23_CL_10_PREBOARD_PRE BOARD_MATHS (SET-A).pdf",
                 "PE": "#",
-                "Physics": "#",
+                "Physics": "documents/2022-23_CL_10_PREBOARD_PRE BOARD_PHYSICS (SET-A).pdf",
                 "RAI": "#"
             }
         },
+    
         "Class 11": {
             "MT 1": {
                 "Bengali": "#",
@@ -2502,91 +2931,91 @@ let documents = {
         },
         "Class 10": {
             "MT 1": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
-                "Commerce": "#",
-                "Computer": "#",
-                "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
+                "Bengali": "documents/2023-24_CL_10_MT_1_BENGALI.pdf",
+                "Biology": "documents/2023-24_CL_10_MT_1_BIOLOGY.pdf",
+                "Chemistry": "documents/2023-24_CL_10_MT_1_CHEMISTRY.pdf",
+                "Commerce": "documents/2023-24_CL_10_MT_1_COMMERCIAL STUDIES.pdf",
+                "Computer": "documents/2023-24_CL_10_MT_1_COMPUTER APPLICATIONS.pdf",
+                "Economics": "documents/2023-24_CL_10_MT_1_ECONOMIC APPLICATIONS.pdf",
+                "English Language": "documents/2023-24_CL_10_MT_1_LANGUAGE.pdf",
+                "English Literature": "documents/2023-24_CL_10_MT_1_LITERATURE.pdf",
+                "EVA": "documents/2023-24_CL_10_MT_1_EVA.pdf",
+                "EVS": "documents/2023-24_CL_10_MT_1_EVS.pdf",
+                "French": "documents/2023-24_CL_10_MT_1_FRENCH (L2).pdf",
+                "Geography": "documents/2023-24_CL_10_MT_1_GEOGRAPHY.pdf",
+                "German": "documents/2023-24_CL_10_MT_1_GERMAN (L2).pdf",
+                "Hindi": "documents/2023-24_CL_10_MT_1_HINDI.pdf",
+                "History": "documents/2023-24_CL_10_MT_1_HISTORY AND CIVICS.pdf",
+                "Home Science": "documents/2023-24_CL_10_MT_1_HOME SCIENCE.pdf",
+                "Math": "documents/2023-24_CL_10_MT_1_MATHS.pdf",
                 "PE": "#",
-                "Physics": "#",
+                "Physics": "documents/2023-24_CL_10_MT_1_PHYSICS.pdf",
                 "RAI": "#"
             },
             "MT 2": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
+                "Bengali": "documents/2023-24_CL_10_MT_2_BENGALI.pdf",
+                "Biology": "documents/2023-24_CL_10_MT_2_BIOLOGY.pdf",
+                "Chemistry": "documents/2023-24_CL_10_MT_2_CHEMISTRY.pdf",
                 "Commerce": "#",
-                "Computer": "#",
-                "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
+                "Computer": "documents/2023-24_CL_10_MT_2_M-2_COMPUTER APPLICATIONS.pdf",
+                "Economics": "documents/2023-24_CL_10_MT_2_ECONOMIC APPLICATIONS.pdf",
+                "English Language": "documents/2023-24_CL_10_MT_2_LANGUAGE.pdf",
+                "English Literature": "documents/2023-24_CL_10_MT_2_LITERATURE.pdf",
+                "EVA": "documents/2023-24_CL_10_MT_2_EVA.pdf",
+                "EVS": "documents/2023-24_CL_10_MT_2_X_EVS_MT2_2023.pdf",
+                "French": "documents/2023-24_CL_10_MT_2_M-2_FRENCH (L2).pdf",
+                "Geography": "documents/2023-24_CL_10_MT_2_GEOGRAPHY.pdf",
+                "German": "documents/2023-24_CL_10_MT_2_GERMAN (L2).pdf",
+                "Hindi": "documents/2023-24_CL_10_MT_2_M-2_HINDI.pdf",
+                "History": "documents/2023-24_CL_10_MT_2_HISTORY AND CIVICS.pdf",
+                "Home Science": "documents/2023-24_CL_10_MT_2_HOME SCIENCE.pdf",
+                "Math": "documents/2023-24_CL_10_MT_2_X_MATHS_MT-2_2023.pdf",
                 "PE": "#",
-                "Physics": "#",
+                "Physics": "documents/2023-24_CL_10_MT_2_PHYSICS.pdf",
                 "RAI": "#"
             },
             "HY": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
+                "Bengali": "documents/2023-24_CL_10_HY_HY_BENGALI (SET-A).pdf",
+                "Biology": "documents/2023-24_CL_10_HY_HY_BIOLOGY (SET-A).pdf",
+                "Chemistry": "documents/2023-24_CL_10_HY_HY_CHEMISTRY (SET-A).pdf",
                 "Commerce": "#",
-                "Computer": "#",
+                "Computer": "documents/2023-24_CL_10_HY_HY_COMPUTER APPLICATIONS (SET-A).pdf",
                 "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
+                "English Language": "documents/2023-24_CL_10_HY_LANGUAGE.pdf",
+                "English Literature": "documents/2023-24_CL_10_HY_LITERATURE.pdf",
+                "EVA": "documents/2023-24_CL_10_HY_HY_EVA (SET-A).pdf",
+                "EVS": "documents/2023-24_CL_10_HY_HY_EVS.pdf",
+                "French": "documents/2023-24_CL_10_HY_HY_FRENCH (L2).pdf",
+                "Geography": "documents/2023-24_CL_10_HY_HY_GEOGRAPHY (SET-A).pdf",
+                "German": "documents/2023-24_CL_10_HY_HY_GERMAN (L2).pdf",
+                "Hindi": "documents/2023-24_CL_10_HY_HY_HINDI (SET-A).pdf",
+                "History": "documents/2023-24_CL_10_HY_HY_HISTORY AND CIVICS (SET-A).pdf",
+                "Home Science": "documents/2023-24_CL_10_HY_HY_HOME SCIENCE (SET-A).pdf",
+                "Math": "documents/2023-24_CL_10_HY_HY_MATHS (SET-A).pdf",
                 "PE": "#",
-                "Physics": "#",
+                "Physics": "documents/2023-24_CL_10_HY_HY_PHYSICS (SET-A).pdf",
                 "RAI": "#"
             },
             "FT": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
+                "Bengali": "documents/2023-24_CL_10_PREBOARD_PRE BOARD_BENGALI (SET-A).pdf",
+                "Biology": "documents/2023-24_CL_10_PREBOARD_PRE BOARD_BIOLOGY (SET-A).pdf",
+                "Chemistry": "documents/2023-24_CL_10_PREBOARD_PRE BOARD_CHEMISTRY (SET-A).pdf",
                 "Commerce": "#",
-                "Computer": "#",
+                "Computer": "documents/2023-24_CL_10_PREBOARD_PRE BOARD_COMPUTER APPLICATIONS (SET-A).pdf",
                 "Economics": "#",
                 "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
+                "English Literature": "documents/2023-24_CL_10_PREBOARD_LITERATURE.pdf",
+                "EVA": "documents/2023-24_CL_10_PREBOARD_PRE BOARD_EVA (SET-A).pdf",
+                "EVS": "documents/2023-24_CL_10_PREBOARD_PRE BOARD_EVS.pdf",
+                "French": "documents/2023-24_CL_10_PREBOARD_PRE BOARD_FRENCH (L2).pdf",
+                "Geography": "documents/2023-24_CL_10_PREBOARD_PRE BOARD_GEOGRAPHY (SET-A).pdf",
+                "German": "documents/2023-24_CL_10_PREBOARD_PRE BOARD_GERMAN (L2).pdf",
+                "Hindi": "documents/2023-24_CL_10_PREBOARD_PRE BOARD_HINDI (SET-A).pdf",
+                "History": "documents/2023-24_CL_10_PREBOARD_PRE BOARD_HISTORY AND CIVICS (SET-A).pdf",
+                "Home Science": "documents/2023-24_CL_10_PREBOARD_PRE BOARD_HOME SCIENCE (SET-A).pdf",
+                "Math": "documents/2023-24_CL_10_PREBOARD_PRE BOARD_MATHS (SET-A).pdf",
                 "PE": "#",
-                "Physics": "#",
+                "Physics": "documents/2023-24_CL_10_PREBOARD_PRE BOARD_PHYSICS (SET-A).pdf",
                 "RAI": "#"
             }
         },
@@ -2864,91 +3293,91 @@ let documents = {
         },
         "Class 10": {
             "MT 1": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
-                "Commerce": "#",
-                "Computer": "#",
-                "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
-                "PE": "#",
-                "Physics": "#",
-                "RAI": "#"
+                "Bengali": "documents/2024-25_CL_10_MT_1_BENGALI.pdf",
+                "Biology": "documents/2024-25_CL_10_MT_1_BIOLOGY.pdf",
+                "Chemistry": "documents/2024-25_CL_10_MT_1_CHEMISTRY.pdf",
+                "Commerce": "documents/2024-25_CL_10_MT_1_COMMERCIAL STUDIES.pdf",
+                "Computer": "documents/2024-25_CL_10_MT_1_COMPUTER APPLICATIONS.pdf",
+                "Economics": "documents/2024-25_CL_10_MT_1_ECONOMIC APPLICATIONS.pdf",
+                "English Language": "documents/2024-25_CL_10_MT_1_LANGUAGE.pdf",
+                "English Literature": "documents/2024-25_CL_10_MT_1_LITERATURE.pdf",
+                "EVA": "documents/2024-25_CL_9_MT_1_EVA.pdf",
+                "EVS": "documents/2024-25_CL_10_MT_1_EVS.pdf",
+                "French": "documents/2024-25_CL_10_MT_1_FRENCH (L2).pdf",
+                "Geography": "documents/2024-25_CL_10_MT_1_GEOGRAPHY.pdf",
+                "German": "documents/2024-25_CL_10_MT_1_GERMAN (L2).pdf",
+                "Hindi": "documents/2024-25_CL_10_MT_1_HINDI.pdf",
+                "History": "documents/2024-25_CL_10_MT_1_HISTORY AND CIVICS.pdf",
+                "Home Science": "documents/2024-25_CL_10_MT_1_HOME SCIENCE.pdf",
+                "Math": "documents/2024-25_CL_10_MT_1_MATHS.pdf",
+                "PE": "documents/2024-25_CL_9_MT_1_PE.pdf#",
+                "Physics": "documents/2024-25_CL_10_MT_1_PHYSICS.pdf",
+                "RAI": "documents/2024-25_CL_10_MT_1_ROBOTICS AND AI.pdf"
             },
             "MT 2": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
-                "Commerce": "#",
-                "Computer": "#",
-                "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
-                "PE": "#",
-                "Physics": "#",
+                "Bengali": "documents/2024-25_CL_10_MT_2_BENGALI.pdf",
+                "Biology": "documents/2024-25_CL_10_MT_2_BIOLOGY.pdf",
+                "Chemistry": "documents/2024-25_CL_10_MT_2_CHEMISTRY.pdf",
+                "Commerce": "documents/2024-25_CL_10_MT_2_COMMERCIAL STUDIES.pdf",
+                "Computer": "documents/2024-25_CL_10_MT_2_COMPUTER APPLICATIONS.pdf",
+                "Economics": "documents/2024-25_CL_10_MT_2_ECONOMIC APPLICATIONS.pdf",
+                "English Language": "documents/2024-25_CL_10_MT_2_LANGUAGE.pdf",
+                "English Literature": "documents/2024-25_CL_10_MT_2_LITERATURE.pdf",
+                "EVA": "documents/2024-25_CL_10_MT_2_EVA.pdf",
+                "EVS": "documents/2024-25_CL_10_MT_2_EVS.pdf",
+                "French": "documents/2024-25_CL_10_MT_2_FRENCH (L2).pdf",
+                "Geography": "documents/2024-25_CL_10_MT_2_GEOGRAPHY.pdf",
+                "German": "documents/2024-25_CL_10_MT_2_GERMAN (L2).pdf",
+                "Hindi": "documents/2024-25_CL_10_MT_2_HINDI.pdf",
+                "History": "documents/2024-25_CL_10_MT_2_HISTORY AND CIVICS.pdf",
+                "Home Science": "documents/2024-25_CL_10_MT_2_HOME SCIENCE.pdf",
+                "Math": "documents/2024-25_CL_10_MT_2_MATHS.pdf",
+                "PE": "documents/2024-25_CL_9_MT_2_PE.pdf",
+                "Physics": "documents/2024-25_CL_10_MT_2_PHYSICS.pdf",
                 "RAI": "#"
             },
             "HY": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
-                "Commerce": "#",
-                "Computer": "#",
-                "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
+                "Bengali": "documents/2024-25_CL_10_HY_HY EXAM_BENGALI (SET-A).pdf",
+                "Biology": "documents/2024-25_CL_10_HY_HY EXAM_BIOLOGY (SET-A).pdf",
+                "Chemistry": "documents/2024-25_CL_10_HY_HY EXAM_CHEMISTRY (SET-A).pdf",
+                "Commerce": "documents/2024-25_CL_10_HY_HY EXAM_COMMERCIAL STUDIES (SET-A).pdf",
+                "Computer": "documents/2024-25_CL_10_HY_HY EXAM_COMPUTER APPLICATIONS (SET-A).pdf",
+                "Economics": "documents/2024-25_CL_10_HY_HY EXAM_ECONOMIC APPLICATIONS (ET-A).pdf",
+                "English Language": "documents/2024-25_CL_10_HY_LANGUAGE.pdf",
+                "English Literature": "documents/2024-25_CL_10_HY_LITERATURE.pdf",
+                "EVA": "documents/2024-25_CL_10_HY_HY EXAM_EVA (SET-A).pdf",
+                "EVS": "documents/2024-25_CL_10_HY_HY EXAM_EVS (SETA-).pdf",
+                "French": "documents/2024-25_CL_10_HY_HY EXAM_FRENCH (L2) (SET-A).pdf",
+                "Geography": "documents/2024-25_CL_10_HY_HY EXAM_GEOGRAPHY (SET-A).pdf",
+                "German": "documents/2024-25_CL_10_HY_HY EXAM_GERMAN (L2) (SET-A).pdf",
+                "Hindi": "documents/2024-25_CL_10_HY_HY EXAM_HINDI (SET-A).pdf",
+                "History": "documents/2024-25_CL_10_HY_HY EXAM_HISTORY AND CIVICS (SET-A).pdf",
+                "Home Science": "documents/2024-25_CL_10_HY_HY EXAM_HOME SCIENCE (SET-A).pdf",
+                "Math": "documents/2024-25_CL_10_HY_HY EXAM_MATHS (SET-A).pdf",
                 "PE": "#",
-                "Physics": "#",
+                "Physics": "documents/2024-25_CL_10_HY_HY EXAM_PHYSICS (SET-A).pdf",
                 "RAI": "#"
             },
             "FT": {
                 "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
+                "Biology": "documents/2024-25_CL_10_PREBOARD_PRE BOARD_BIOLOGY (SET-A).pdf",
+                "Chemistry": "documents/2024-25_CL_10_PREBOARD_PRE BOARD_CHEMISTRY (SET-A).pdf",
                 "Commerce": "#",
-                "Computer": "#",
+                "Computer": "documents/2024-25_CL_10_PREBOARD_PRE BOARD_COMPUTER APPLICATIONS (SET-A).pdf",
                 "Economics": "#",
                 "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
+                "English Literature": "documents/2024-25_CL_10_PREBOARD_LITERATURE.pdf",
+                "EVA": "documents/2024-25_CL_10_PREBOARD_PRE BOARD_EVA (SET-A).pdf",
+                "EVS": "documents/2024-25_CL_10_PREBOARD_PRE BOARD_EVS (SET-A).pdf",
+                "French": "documents/2024-25_CL_10_PREBOARD_PRE BOARD_FRENCH (L2).pdf",
                 "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
+                "German": "documents/2024-25_CL_10_PREBOARD_PRE BOARD_GERMAN (L2) (SET-A).pdf",
+                "Hindi": "documents/2024-25_CL_10_PREBOARD_PRE BOARD_HINDI (SET-A).pdf",
+                "History": "documents/2024-25_CL_10_PREBOARD_PRE BOARD_HISTORY AND CIVICS (SET-A).pdf",
+                "Home Science": "documents/2024-25_CL_10_PREBOARD_PRE BOARD_HOME SCIENCE (SET-A).pdf",
+                "Math": "documents/2024-25_CL_10_PREBOARD_PRE BOARD_MATHS (SET-A).pdf",
                 "PE": "#",
-                "Physics": "#",
+                "Physics": "documents/2024-25_CL_10_PREBOARD_PRE BOARD_PHYSICS (SET-A).pdf",
                 "RAI": "#"
             }
         },
@@ -3226,26 +3655,26 @@ let documents = {
         },
         "Class 10": {
             "MT 1": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
-                "Commerce": "#",
-                "Computer": "#",
-                "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
-                "PE": "#",
-                "Physics": "#",
-                "RAI": "#"
+                "Bengali": "documents/2025-26_CL_10_MT_1_CLASS.10_MT1_BENGALI_2025.pdf",
+                "Biology": "documents/2025-26_CL_10_MT_1_CLASS.10_MT1_BIOLOGY_2025.pdf",
+                "Chemistry": "documents/2025-26_CL_10_MT_1_CLASS.10_MT1_CHEM_2025.pdf",
+                "Commerce": "documents/2025-26_CL_10_MT_1_CLASS.10_MT1_COMMERCIAL STUDIES_2025.pdf",
+                "Computer": "documents/2025-26_CL_10_MT_1_CLASS.10_MT1_CA_25.pdf",
+                "Economics": "documents/2025-26_CL_10_MT_1_CLASS.10_MT1_ECON.APPS._2025.pdf",
+                "English Language": "documents/2025-26_CL_10_MT_1_CLASS.10_MT1_ENG LANG_2025.pdf",
+                "English Literature": "documents/2025-26_CL_10_MT_1_LITERATURE.pdf",
+                "EVA": "documents/2025-26_CL_10_MT_1_CLASS.10_MT1_EVA_2025.pdf",
+                "EVS": "documents/2025-26_CL_10_MT_1_CLASS.10_MT1_EVS_2025.pdf",
+                "French": "documents/2025-26_CL_10_MT_1_CLASS.10_MT1_FRENCH 2ND LAN_2025.pdf",
+                "Geography": "documents/2025-26_CL_10_MT_1_CLASS.10_MT1_GEOGRAPHY_2025.pdf",
+                "German": "documents/2025-26_CL_10_MT_1_CLASS.10_MT1_GERMAN_2025.pdf",
+                "Hindi": "documents/2025-26_CL_10_MT_1_CLASS.10_MT1_HINDI_2025.pdf",
+                "History": "documents/2025-26_CL_10_MT_1_CLASS.10_MT1_HIST_2025.pdf",
+                "Home Science": "documents/2025-26_CL_10_MT_1_CLASS.10_MT1_HOME SC_2025.pdf",
+                "Math": "documents/2025-26_CL_10_MT_1_CLASS.10_MT1_ MATHS_2025.pdf",
+                "PE": "documents/2025-26_CL_10_MT_1_CLASS.10_MT1_ PE_2025.pdf",
+                "Physics": "documents/2025-26_CL_10_MT_1_CLASS.10_MT1_ PHYSICS_2025.pdf",
+                "RAI": "documents/2025-26_CL_10_HY_ROBOTICS AND AI_X_HY_2025.pdf"
             },
             "MT 2": {
                 "Bengali": "#",
@@ -3270,48 +3699,48 @@ let documents = {
                 "RAI": "#"
             },
             "HY": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
-                "Commerce": "#",
-                "Computer": "#",
-                "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
-                "PE": "#",
-                "Physics": "#",
-                "RAI": "#"
+                "Bengali": "documents/2025-26_CL_10_HY_BENGALI_CL-10-HY.pdf",
+                "Biology": "documents/2025-26_CL_10_HY_BIOLOGY_CLASS 10_HYE_2025.pdf",
+                "Chemistry": "documents/2025-26_CL_10_HY_CHEMISTRY_CLASS10 _HY_2025.pdf",
+                "Commerce": "documents/2025-26_CL_10_HY_COMMERCIAL STUDIES_CLASS10_HY_2025.pdf",
+                "Computer": "documents/2025-26_CL_10_HY_COMPUTER APPLICATION_CLASS 10_HY_2025.pdf",
+                "Economics": "documents/2025-26_CL_10_HY_ECO_APP_CLASS10_HY_2025.pdf",
+                "English Language": "documents/2025-26_CL_10_HY_ENG LANG_CLASS 10_HY_2025.pdf",
+                "English Literature": "documents/2025-26_CL_10_HY_LITERATURE_CL10_HY_2025.pdf",
+                "EVA": "documents/2025-26_CL_10_HY_10EVA_HY_2025.pdf",
+                "EVS": "documents/2025-26_CL_10_HY_10 EVS_HY_2025_26.pdf",
+                "French": "documents/2025-26_CL_10_HY_FRENCH_SECOND LANGUAGUE_CLASS 10_HY_2025.pdf",
+                "Geography": "documents/2025-26_CL_10_HY_GEOGRAPHY_CLASS 10_HY_2025.pdf",
+                "German": "documents/2025-26_CL_10_HY_GERMAN_CLASS 10_HY_2025.pdf",
+                "Hindi": "documents/2025-26_CL_10_HY_HINDI_CLASS 10_HY_2025.pdf",
+                "History": "documents/2025-26_CL_10_HY_HISTORY_CLASS 10_HALF YEARLY_2025.pdf",
+                "Home Science": "documents/2025-26_CL_10_HY_HOME SC_CLASS 10_HY_2025.pdf",
+                "Math": "documents/2025-26_CL_10_HY_MATHEMATICS_CLASS 10_HY_2025.pdf",
+                "PE": "documents/2025-26_CL_10_HY_PHYSICAL EDUCATION_CLASS 10_HY_2025.pdf",
+                "Physics": "documents/2025-26_CL_10_HY_PHYSICS_CLASS 10_HY.pdf",
+                "RAI": "documents/2025-26_CL_10_HY_ROBOTICS AND AI_X_HY_2025.pdf"
             },
             "FT": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
-                "Commerce": "#",
-                "Computer": "#",
-                "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
-                "PE": "#",
-                "Physics": "#",
-                "RAI": "#"
+                "Bengali": "documents/2025-26_CL_10_PREBOARD_BENGALI_CL- 10 PB_SET -A-- MOHUA.pdf",
+                "Biology": "documents/2025-26_CL_10_PREBOARD_CLASS X_ BIOLOGY PREBOARDS -2026_ SET A.pdf",
+                "Chemistry": "documents/2025-26_CL_10_PREBOARD_CLASS X_PREBOARDCHEMISTRY SET A.pdf",
+                "Commerce": "documents/2025-26_CL_10_PREBOARD_COMM STD PREBOARDS PAPER SET A.pdf",
+                "Computer": "documents/2025-26_CL_10_PREBOARD_COMPUTER APPLICATIONS_CLASS 10_PB_2025.pdf",
+                "Economics": "documents/2025-26_CL_10_PREBOARD_ECONOMIC APPLICATIONS_CLASS 10_PRE BOARD 2025_26_SET_A-(Q-PAPER)-1.pdf",
+                "English Language": "documents/2025-26_CL_10_PREBOARD_ENG LANG_CLASS 10_SET A_PB_2025.pdf",
+                "English Literature": "documents/2025-26_CL_10_PREBOARD_ENG LIT_CLASS 10_PB_SET A_2025.pdf",
+                "EVA": "documents/2025-26_CL_10_PREBOARD_10EVA_PB_SET A_2025.pdf",
+                "EVS": "documents/2025-26_CL_10_PREBOARD_EVS_10_PB_2025.pdf",
+                "French": "documents/2025-26_CL_10_PREBOARD_FRENCH_SECOND LANGUAGE_GRADE X_PRE BOARD_2025 (1).pdf",
+                "Geography": "documents/2025-26_CL_10_PREBOARD_CLASS X_GEOGRAPHY_PREBOARDS_2025_26.pdf",
+                "German": "documents/2025-26_CL_10_PREBOARD_GERMAN_CLASS 10_PREBOARD_2025.pdf",
+                "Hindi": "documents/2025-26_CL_10_PREBOARD_HINDI_CLASS X_PRE_BOARD_2025.pdf",
+                "History": "documents/2025-26_CL_10_PREBOARD_HISTORYANDCIVICS_CLASS10_PREBOARD_2025.pdf",
+                "Home Science": "documents/2025-26_CL_10_PREBOARD_HOME SC_CLASS 10_PREBOARD_2025.pdf",
+                "Math": "documents/2025-26_CL_10_PREBOARD_MATHS_CLASS X_PREBOARD.pdf",
+                "PE": "documents/2025-26_CL_10_PREBOARD_ECONOMIC APPLICATIONS_CLASS 10_PRE BOARD 2025_26_SET_A-(Q-PAPER)-1.pdf",
+                "Physics": "documents/2025-26_CL_10_PREBOARD_PHYSICS _SET A_CLASS X PREBOARD_2025-.DOCX.DOCX (3).pdf",
+                "RAI": "documents/2025-26_CL_10_PREBOARD_RAI-PRE BOARD CLASS 10.pdf"
             }
         },
         "Class 11": {
@@ -3514,6 +3943,13 @@ let documents = {
     }
 };
 
+// Expose documents globally immediately after definition
+window.documents = documents;
+
+// Load user-added document entries (moved from Library)
+if (typeof window.loadCustomDocuments === 'function') {
+  window.loadCustomDocuments();
+}
 
 
 function loadNotes() {
@@ -3814,18 +4250,50 @@ function saveSession() {
     return;
   }
   
-  studySessions.push({
+  const session = {
     id: Date.now().toString(),
     subject,
     date,
     time: time || '09:00'
-  });
+  };
+  
+  studySessions.push(session);
+  
+  // Schedule notification for this session
+  scheduleSessionNotification(session);
   
   saveStudySessions();
   renderCalendar();
   renderSessions();
   modal?.classList.remove('active');
   showNotification('Session added!', 'success');
+}
+
+function scheduleSessionNotification(session) {
+  const sessionDateTime = new Date(`${session.date}T${session.time}`);
+  const now = new Date();
+  
+  if (sessionDateTime > now) {
+    const delay = sessionDateTime - now;
+    
+    setTimeout(() => {
+      // Play alarm sound
+      if (typeof window.playAlarmSound === 'function') {
+        window.playAlarmSound();
+      }
+      
+      // Show notification
+      showNotification(`📚 Time for: ${session.subject}`, 'info');
+      
+      // Browser notification
+      if ('Notification' in window && Notification.permission === 'granted') {
+        new Notification('Questionary - Study Session', {
+          body: `Time for: ${session.subject}`,
+          icon: 'assets/logo.png'
+        });
+      }
+    }, delay);
+  }
 }
 
 function deleteSession(sessionId) {
@@ -3851,7 +4319,7 @@ function showDaySessions(dateStr) {
     showNotification(`No sessions on ${dateStr}`, 'info');
   } else {
     const list = sessionsOnDay.map(s => `• ${s.subject} at ${s.time}`).join('\n');
-    alert(`Sessions on ${dateStr}:\n\n${list}`);
+    showInfoDialog(list, { title: `Sessions on ${dateStr}`, type: 'info' });
   }
 }
 
@@ -3937,11 +4405,16 @@ async function initializeApp() {
   
   if (themeToggle) {
     themeToggle.addEventListener('click', () => {
-      const currentTheme = document.documentElement.getAttribute('data-theme');
-      const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
-      document.documentElement.setAttribute('data-theme', newTheme);
-      localStorage.setItem('theme', newTheme);
-      updateThemeIcon(newTheme);
+      const currentTheme = document.documentElement.getAttribute('data-theme') || 'light';
+      const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+      
+      if (typeof window.setTheme === 'function') {
+        window.setTheme(newTheme);
+      } else {
+        document.documentElement.setAttribute('data-theme', newTheme);
+        localStorage.setItem('theme', newTheme);
+        updateThemeIcon(newTheme);
+      }
     });
   }
   
@@ -3982,6 +4455,11 @@ async function initializeApp() {
   loadDocuments();
   trackDailyAccess();
   
+  // Restore last location after a short delay to ensure everything is loaded
+  setTimeout(() => {
+    restoreLastLocation();
+  }, 100);
+  
   
   if (window.contentUpdateSystem && typeof window.contentUpdateSystem.init === 'function') {
     window.contentUpdateSystem.init();
@@ -3994,6 +4472,20 @@ async function initializeApp() {
   window.addEventListener('error', e => {
     console.error('Application error:', e.error);
   });
+  
+  // Expose documents and renderTiles for PDF Library integration
+  window.documents = documents;
+  window.renderTiles = renderTiles;
+  window.getCurrentDocumentsLevel = getCurrentDocumentsLevel;
+  
+  // Load custom documents again in case features.js loaded after initial load
+  if (typeof window.loadCustomDocuments === 'function') {
+    window.loadCustomDocuments();
+  }
+  
+  // Render document tiles now that everything is loaded
+  renderTiles(getCurrentDocumentsLevel());
+  
   console.log('Questionary application initialized successfully');
 }
 
@@ -4101,6 +4593,8 @@ function initializeNavigation() {
   const flashcardsNav = document.getElementById('flashcardsNav');
   const notesNav = document.getElementById('notesNav');
   const progressNav = document.getElementById('progressNav');
+  const remindersNav = document.getElementById('remindersNav');
+  const settingsNav = document.getElementById('settingsNav');
   const mobileMenuToggle = document.getElementById('mobileMenuToggle');
   const navLinks = document.getElementById('navLinks');
   const backBtn = document.getElementById('backBtn');
@@ -4153,7 +4647,7 @@ function initializeNavigation() {
   homeNav && homeNav.addEventListener('click', () => {
     showView('home');
     path = [];
-    renderTiles(documents);
+    renderTiles(window.documents || documents);
     updateBreadcrumb();
     setActiveNav('homeNav');
     closeMenuOnClick();
@@ -4193,11 +4687,41 @@ function initializeNavigation() {
     showView('notes');
     setActiveNav('notesNav');
     closeMenuOnClick();
+    if (typeof renderVoiceNotesGrid === 'function') renderVoiceNotesGrid();
+  });
+  
+  // Tags navigation
+  const tagsNav = document.getElementById('tagsNav');
+  tagsNav && tagsNav.addEventListener('click', () => {
+    showView('tags');
+    setActiveNav('tagsNav');
+    closeMenuOnClick();
+    if (typeof renderTagsMain === 'function') renderTagsMain();
+    if (typeof renderTaggedItems === 'function') renderTaggedItems();
   });
   
   progressNav && progressNav.addEventListener('click', () => {
     showView('progress');
     setActiveNav('progressNav');
+    closeMenuOnClick();
+  });
+
+  remindersNav && remindersNav.addEventListener('click', () => {
+    showView('reminders');
+    setActiveNav('remindersNav');
+    closeMenuOnClick();
+  });
+
+  const studyRoomNav = document.getElementById('studyRoomNav');
+  studyRoomNav && studyRoomNav.addEventListener('click', () => {
+    showView('studyRoom');
+    setActiveNav('studyRoomNav');
+    closeMenuOnClick();
+  });
+
+  settingsNav && settingsNav.addEventListener('click', () => {
+    showView('settings');
+    setActiveNav('settingsNav');
     closeMenuOnClick();
   });
 }
@@ -4280,7 +4804,7 @@ function updateAccessibilityToggleStates() {
 function initializeKeyboardNavigation() {
   document.addEventListener('keydown', (e) => {
     
-    const isInputFocused = e.target.closest('input, textarea');
+    const isInputFocused = e.target.closest('input, textarea, [contenteditable]');
     
     if (e.key === 'Escape') {
       
@@ -4298,15 +4822,9 @@ function initializeKeyboardNavigation() {
       }
       
       
-      const pdfViewer = document.getElementById('pdfViewer');
-      if (pdfViewer && pdfViewer.style.display === 'block') {
-        pdfViewer.style.display = 'none';
-        pdfViewer.src = '';
-        const tilesSection = document.getElementById('tilesSection');
-        const dashboardHeader = document.querySelector('.dashboard-header');
-        tilesSection && (tilesSection.style.display = 'block');
-        dashboardHeader && (dashboardHeader.style.display = 'flex');
-        hideTimerCompletely();
+      const pdfViewerContainer = document.getElementById('pdfViewerContainer');
+      if (pdfViewerContainer && pdfViewerContainer.style.display !== 'none') {
+        closePDF();
         return;
       }
       
@@ -4320,57 +4838,52 @@ function initializeKeyboardNavigation() {
       if (currentView !== 'home') {
         showView('home');
         path = [];
-        renderTiles(documents);
+        renderTiles(window.documents || documents);
         updateBreadcrumb();
         setActiveNav('homeNav');
         return;
       }
     }
     
-    if (e.key === '/' && !isInputFocused) {
+    if (!isInputFocused && keybindMatches(e, 'focusSearch')) {
       e.preventDefault();
       document.getElementById('globalSearch')?.focus();
     }
     
-    if (e.key === 'Backspace' && !isInputFocused && path.length > 0) {
+    if (!isInputFocused && keybindMatches(e, 'goBack') && path.length > 0) {
       handleBackButton();
     }
     
     
-    if (e.altKey && e.key === 'ArrowLeft' && !isInputFocused) {
+    if (!isInputFocused && keybindMatches(e, 'navBack')) {
       e.preventDefault();
-      const pdfViewer = document.getElementById('pdfViewer');
-      if (pdfViewer && pdfViewer.style.display === 'block') {
-        pdfViewer.style.display = 'none';
-        pdfViewer.src = '';
-        const tilesSection = document.getElementById('tilesSection');
-        const dashboardHeader = document.querySelector('.dashboard-header');
-        tilesSection && (tilesSection.style.display = 'block');
-        dashboardHeader && (dashboardHeader.style.display = 'flex');
-        hideTimerCompletely();
+      const pdfViewerContainer = document.getElementById('pdfViewerContainer');
+      if (pdfViewerContainer && pdfViewerContainer.style.display !== 'none') {
+        closePDF();
       } else if (path.length > 0) {
         handleBackButton();
       } else if (currentView !== 'home') {
         showView('home');
         path = [];
-        renderTiles(documents);
+        renderTiles(window.documents || documents);
         updateBreadcrumb();
         setActiveNav('homeNav');
       }
     }
     
     
-    if (e.altKey && e.key === 'Home' && !isInputFocused) {
+    if (!isInputFocused && keybindMatches(e, 'goHome')) {
       e.preventDefault();
-      const pdfViewer = document.getElementById('pdfViewer');
-      if (pdfViewer) {
-        pdfViewer.style.display = 'none';
-        pdfViewer.src = '';
+      const pdfViewerContainer = document.getElementById('pdfViewerContainer');
+      if (pdfViewerContainer) {
+        pdfViewerContainer.style.display = 'none';
+        const pdfViewer = document.getElementById('pdfViewer');
+        if (pdfViewer) { pdfViewer.classList.remove('active'); pdfViewer.src = ''; }
       }
       hideTimerCompletely();
       showView('home');
       path = [];
-      renderTiles(documents);
+      renderTiles(window.documents || documents);
       updateBreadcrumb();
       setActiveNav('homeNav');
     }
@@ -4378,9 +4891,115 @@ function initializeKeyboardNavigation() {
 }
 
 
+// Helper function to show and populate home tags panels
+function showHomeTagsPanels() {
+  const homeTagsSection = document.getElementById('homeTagsSection');
+  const homeTaggedItemsSection = document.getElementById('homeTaggedItemsSection');
+  
+  if (homeTagsSection) {
+    homeTagsSection.style.display = 'block';
+    renderHomeTagsList();
+  }
+  if (homeTaggedItemsSection) {
+    homeTaggedItemsSection.style.display = 'block';
+    renderHomeTaggedItemsList();
+  }
+}
+
+// Hide home tags panels when navigating away
+function hideHomeTagsPanels() {
+  const homeTagsSection = document.getElementById('homeTagsSection');
+  const homeTaggedItemsSection = document.getElementById('homeTaggedItemsSection');
+  
+  if (homeTagsSection) homeTagsSection.style.display = 'none';
+  if (homeTaggedItemsSection) homeTaggedItemsSection.style.display = 'none';
+}
+
+// Render tags list on home page
+function renderHomeTagsList() {
+  const container = document.getElementById('homeTagsList');
+  if (!container) return;
+  
+  const tags = JSON.parse(localStorage.getItem('questionary-tags') || '[]');
+  const itemTags = JSON.parse(localStorage.getItem('questionary-item-tags') || '{}');
+  
+  if (tags.length === 0) {
+    container.innerHTML = '<span class="empty-hint">No tags created yet</span>';
+    return;
+  }
+  
+  container.innerHTML = tags.map(tag => {
+    const count = Object.values(itemTags).filter(arr => arr.includes(tag.id)).length;
+    return `<span style="display: inline-flex; align-items: center; gap: 4px; padding: 8px 14px; border-radius: 20px; font-size: 13px; font-weight: 600; cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.15); background: ${tag.color}; color: white;" onclick="filterByTagHome('${tag.id}')">${escapeHtml(tag.name)} <small style="opacity: 0.85;">(${count})</small></span>`;
+  }).join('');
+}
+
+// Render tagged items list on home page
+function renderHomeTaggedItemsList() {
+  const container = document.getElementById('homeTaggedItemsList');
+  if (!container) return;
+  
+  const tags = JSON.parse(localStorage.getItem('questionary-tags') || '[]');
+  const itemTags = JSON.parse(localStorage.getItem('questionary-item-tags') || '{}');
+  
+  // Filter to only items that have at least one valid (existing) tag
+  const items = Object.entries(itemTags)
+    .filter(([_, tagIds]) => tagIds.length > 0 && tagIds.some(tid => tags.find(t => t.id === tid)))
+    .slice(0, 8);
+  
+  if (items.length === 0) {
+    container.innerHTML = '<span class="empty-hint">No tagged items yet</span>';
+    return;
+  }
+  
+  container.innerHTML = items.map(([itemId, tagIds]) => {
+    const tagBadges = tagIds.slice(0, 2).map(tid => {
+      const tag = tags.find(t => t.id === tid);
+      return tag ? `<span class="tag-mini" style="background: ${tag.color}">${escapeHtml(tag.name)}</span>` : '';
+    }).join(' ');
+    
+    // Parse itemId to get display name and type
+    const isFolder = itemId.startsWith('folder_');
+    const isDoc = itemId.startsWith('doc_');
+    let displayName = itemId;
+    let icon = 'fa-file';
+    
+    if (isFolder) {
+      displayName = itemId.replace('folder_', '').split('/').pop();
+      icon = 'fa-folder';
+    } else if (isDoc) {
+      displayName = itemId.replace('doc_', '').split('/').pop();
+      icon = 'fa-file-pdf';
+    }
+    
+    return `<div class="home-tagged-item" onclick="navigateToTaggedItem('${escapeHtml(itemId)}')" style="cursor:pointer;"><span><i class="fas ${icon}" style="color: var(--primary-color); margin-right: 0.4rem;"></i>${escapeHtml(displayName)}</span><span>${tagBadges}</span></div>`;
+  }).join('');
+}
+
+// Filter by tag from home
+function filterByTagHome(tagId) {
+  showView('tags');
+  if (typeof window.filterByTag === 'function') {
+    window.filterByTag(tagId);
+  }
+}
+
+// Expose home tag renderers globally so features.js can call them after tag creation/deletion
+window.renderHomeTagsList = renderHomeTagsList;
+window.renderHomeTaggedItemsList = renderHomeTaggedItemsList;
+window.showView = showView;
+
+
 function showView(viewName) {
   currentView = viewName;
   
+  // Save location when view changes
+  saveUserPreferences();
+  
+  const pdfViewerContainer = document.getElementById('pdfViewerContainer');
+  if (pdfViewerContainer && pdfViewerContainer.style.display !== 'none') {
+    if (typeof closePDF === 'function') closePDF();
+  }
   
   const tilesSection = document.getElementById('tilesSection');
   const favoritesSection = document.getElementById('favoritesSection');
@@ -4390,6 +5009,11 @@ function showView(viewName) {
   const flashcardsSection = document.getElementById('flashcardsSection');
   const notesSection = document.getElementById('notesSection');
   const progressSection = document.getElementById('progressSection');
+  const remindersSection = document.getElementById('remindersSection');
+  const settingsSection = document.getElementById('settingsSection');
+  const tagsSection = document.getElementById('tagsSection');
+  const importedSection = document.getElementById('importedSection');
+  const studyRoomSection = document.getElementById('studyRoomSection');
   const searchResults = document.getElementById('searchResults');
   const dashboardHeader = document.querySelector('.dashboard-header');
   const breadcrumb = document.getElementById('breadcrumb');
@@ -4398,20 +5022,36 @@ function showView(viewName) {
   
   
   const allSections = [tilesSection, favoritesSection, recentSection, analyticsSection, 
-                       plannerSection, flashcardsSection, notesSection, progressSection];
+                       plannerSection, flashcardsSection, notesSection, progressSection,
+                       remindersSection, settingsSection, tagsSection, importedSection, studyRoomSection];
   allSections.forEach(section => {
     if (section) section.style.display = 'none';
   });
   if (searchResults) searchResults.style.display = 'none';
-  if (pdfViewer) pdfViewer.style.display = 'none';
+  if (pdfViewerContainer) pdfViewerContainer.style.display = 'none';
+  if (pdfViewer) { pdfViewer.classList.remove('active'); pdfViewer.src = ''; }
+  // Always hide home tag panels first; only home case re-shows them
+  hideHomeTagsPanels();
   
   
   switch(viewName) {
     case 'home':
       if (tilesSection) tilesSection.style.display = 'block';
+      const tc = document.getElementById('tilesContainer');
+      if (tc) {
+        const isListView = tc.classList.contains('list-view');
+        tc.style.display = isListView ? 'flex' : 'grid';
+      }
+      const sh = document.querySelector('#tilesSection .section-header');
+      if (sh) sh.style.display = 'flex';
+      
+      if (importedSection) importedSection.style.display = 'block';
       if (dashboardHeader) dashboardHeader.style.display = 'flex';
       if (breadcrumb) breadcrumb.style.display = 'flex';
       if (backBtn) backBtn.style.display = path.length > 0 ? 'flex' : 'none';
+      if (typeof window.renderLibrary === 'function') window.renderLibrary();
+      // Render document tiles
+      renderTiles(getCurrentDocumentsLevel());
       break;
     case 'favorites':
       if (favoritesSection) favoritesSection.style.display = 'block';
@@ -4463,10 +5103,41 @@ function showView(viewName) {
       if (backBtn) backBtn.style.display = 'none';
       updateProgressDisplay();
       break;
+    case 'reminders':
+      if (remindersSection) remindersSection.style.display = 'block';
+      if (dashboardHeader) dashboardHeader.style.display = 'none';
+      if (breadcrumb) breadcrumb.style.display = 'none';
+      if (backBtn) backBtn.style.display = 'none';
+      if (typeof window.renderReminders === 'function') window.renderReminders();
+      break;
+    case 'settings':
+      if (settingsSection) settingsSection.style.display = 'block';
+      if (dashboardHeader) dashboardHeader.style.display = 'none';
+      if (breadcrumb) breadcrumb.style.display = 'none';
+      if (backBtn) backBtn.style.display = 'none';
+      if (typeof window.renderSettings === 'function') window.renderSettings();
+      break;
+    case 'studyRoom':
+      if (studyRoomSection) studyRoomSection.style.display = 'block';
+      if (dashboardHeader) dashboardHeader.style.display = 'none';
+      if (breadcrumb) breadcrumb.style.display = 'none';
+      if (backBtn) backBtn.style.display = 'none';
+      if (typeof window.renderStudyRoom === 'function') window.renderStudyRoom();
+      break;
+    case 'tags':
+      if (tagsSection) tagsSection.style.display = 'block';
+      if (dashboardHeader) dashboardHeader.style.display = 'none';
+      if (breadcrumb) breadcrumb.style.display = 'none';
+      if (backBtn) backBtn.style.display = 'none';
+      if (typeof window.renderTagsMain === 'function') window.renderTagsMain();
+      if (typeof window.renderTaggedItems === 'function') window.renderTaggedItems();
+      break;
     default:
       if (tilesSection) tilesSection.style.display = 'block';
+      if (importedSection) importedSection.style.display = 'block';
       if (dashboardHeader) dashboardHeader.style.display = 'flex';
       if (breadcrumb) breadcrumb.style.display = 'flex';
+      if (typeof window.renderLibrary === 'function') window.renderLibrary();
       break;
   }
 }
@@ -4521,8 +5192,10 @@ function renderFavorites() {
     tile.innerHTML = `<div class="tile-icon"><i class="fas fa-file-pdf"></i></div><div class="tile-text">${fav.title}</div>`;
     tile.onclick = () => {
       if (fav.url && fav.url !== '#') {
-        showPDF(fav.url);
+        const parentPath = (Array.isArray(fav.path) ? fav.path : []).slice(0, -1);
         showView('home');
+        navigateToPath(parentPath);
+        setTimeout(() => showPDF(fav.url), 100);
       }
     };
     container.appendChild(tile);
@@ -4545,8 +5218,10 @@ function renderRecent() {
     tile.innerHTML = `<div class="tile-icon"><i class="fas fa-file-pdf"></i></div><div class="tile-text">${doc.title}</div>`;
     tile.onclick = () => {
       if (doc.url && doc.url !== '#') {
-        showPDF(doc.url);
+        const parentPath = (Array.isArray(doc.path) ? doc.path : []).slice(0, -1);
         showView('home');
+        navigateToPath(parentPath);
+        setTimeout(() => showPDF(doc.url), 100);
       }
     };
     container.appendChild(tile);
@@ -4591,9 +5266,18 @@ function handleBackButton() {
     path.pop();
     const pdfViewer = document.getElementById('pdfViewer');
     if (pdfViewer) {
-      pdfViewer.style.cssText = 'display: none !important;';
       pdfViewer.classList.remove('active');
       pdfViewer.src = '';
+    }
+    const pdfViewerContainer = document.getElementById('pdfViewerContainer');
+    if (pdfViewerContainer) pdfViewerContainer.style.display = 'none';
+    const bookmarksPanel = document.getElementById('pdfBookmarksPanel');
+    if (bookmarksPanel) bookmarksPanel.style.display = 'none';
+    
+    const tilesContainer = document.getElementById('tilesContainer');
+    if (tilesContainer) {
+      const isListView = tilesContainer.classList.contains('list-view');
+      tilesContainer.style.display = isListView ? 'flex' : 'grid';
     }
     renderTiles(getCurrentLevel());
     updateBreadcrumb();
@@ -5052,6 +5736,34 @@ function resetTimer() {
   if (timerDisplay) timerDisplay.classList.remove('warning', 'danger');
   
   updateTimerStatus('Timer reset');
+}
+
+function timerFinished() {
+  clearInterval(timerState.interval);
+  timerState.isRunning = false;
+  timerState.isPaused = false;
+  
+  // Play alarm sound
+  if (typeof window.playAlarmSound === 'function') {
+    window.playAlarmSound();
+  }
+  
+  // Show notification
+  showNotification('⏰ Timer Complete! Time\'s up!', 'success');
+  
+  // Update UI
+  document.getElementById('timerStart').style.display = 'flex';
+  document.getElementById('timerPause').style.display = 'none';
+  document.getElementById('timerResume').style.display = 'none';
+  document.getElementById('timerLap').style.display = 'none';
+  
+  const timerDisplay = document.getElementById('timerDisplay');
+  if (timerDisplay) {
+    timerDisplay.textContent = '00:00:00';
+    timerDisplay.classList.add('danger');
+  }
+  
+  updateTimerStatus('Timer complete!', 'complete');
 }
 
 function updateTimerDisplay() {
@@ -5594,7 +6306,7 @@ function initializeNewFeatures() {
   if (closeFlashcardModal && flashcardModal) closeFlashcardModal.onclick = () => flashcardModal.classList.remove('active');
   if (cancelFlashcardBtn && flashcardModal) cancelFlashcardBtn.onclick = () => flashcardModal.classList.remove('active');
   if (saveDeckBtn && typeof saveDeck === 'function') saveDeckBtn.onclick = saveDeck;
-  if (addCardBtn && typeof addCardEditor === 'function') addCardBtn.onclick = addCardEditor;
+  if (addCardBtn && typeof addCardEditor === 'function') addCardBtn.onclick = () => addCardEditor();
   
   
   const closeStudyModal = document.getElementById('closeStudyModal');
@@ -5845,12 +6557,11 @@ function renderTimerPresets() {
     });
     
     
-    btn.addEventListener('contextmenu', (e) => {
+    btn.addEventListener('contextmenu', async (e) => {
       e.preventDefault();
       e.stopPropagation();
-      if (confirm(`Delete "${preset.label}" preset?`)) {
-        removeCustomPreset(preset.id);
-      }
+      const ok = await showConfirm(`Delete "${preset.label}" preset?`, { title: 'Delete Preset', type: 'danger', confirmText: 'Delete' });
+      if (ok) removeCustomPreset(preset.id);
     });
     
     
@@ -6003,7 +6714,7 @@ function savePageBookmarks() {
   localStorage.setItem('questionary-page-bookmarks', JSON.stringify(pageBookmarks));
 }
 
-function addToPrintQueue(docPath, pageNumber, label = '') {
+function addPageBookmark(docPath, pageNumber, label = '') {
   if (!pageBookmarks[docPath]) {
     pageBookmarks[docPath] = [];
   }
@@ -6064,7 +6775,7 @@ function goToPage(pageNumber) {
   }
 }
 
-window.addPageBookmark = addToPrintQueue;
+window.addPageBookmark = addPageBookmark;
 window.removePageBookmark = removePageBookmark;
 window.goToPage = goToPage;
 
@@ -6097,37 +6808,26 @@ document.addEventListener('DOMContentLoaded', initDocumentPreview);
 
 
 function generateShareLink(docPath) {
-  const baseUrl = window.location.origin + window.location.pathname;
-  const params = new URLSearchParams({ path: docPath.join('/') });
-  const shareUrl = `${baseUrl}?${params.toString()}`;
+  // Build a readable path string for sharing
+  const readablePath = docPath.join(' > ');
   
+  // Copy the readable path to clipboard
   if (navigator.clipboard) {
-    navigator.clipboard.writeText(shareUrl).then(() => {
-      showNotification('Share link copied to clipboard!', 'success');
+    navigator.clipboard.writeText(readablePath).then(() => {
+      showNotification('Document path copied to clipboard!', 'success');
+    }).catch(() => {
+      showInfoDialog(readablePath, { title: 'Document Path', type: 'info' });
     });
   } else {
-    prompt('Copy this link:', shareUrl);
+    showInfoDialog(readablePath, { title: 'Document Path', type: 'info' });
   }
   
-  return shareUrl;
+  return readablePath;
 }
 
 function handleShareLink() {
-  const params = new URLSearchParams(window.location.search);
-  const pathParam = params.get('path');
-  
-  if (pathParam) {
-    const pathArr = pathParam.split('/');
-    path = pathArr;
-    const level = getCurrentLevel();
-    
-    if (typeof level === 'string' && level !== '#') {
-      showPDF(level);
-    } else {
-      renderTiles(level);
-    }
-    updateBreadcrumb();
-  }
+  // In a Tauri desktop app, URL query params aren't used for navigation.
+  // This is kept as a no-op for backward compatibility.
 }
 
 window.generateShareLink = generateShareLink;
@@ -6240,37 +6940,48 @@ window.trackPdfViewEnd = trackPdfViewEnd;
 
 document.addEventListener('keydown', (e) => {
   
-  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+  const isInputFocused = e.target.closest('input, textarea, [contenteditable]');
   
-  
-  if (e.key === 'n' || e.key === 'N') {
-    if (typeof openNoteModal === 'function') {
-      e.preventDefault();
-      openNoteModal();
+  // --- Whiteboard shortcuts (always active when WB is open, even in input) ---
+  if (typeof window.isWhiteboardActive === 'function' && window.isWhiteboardActive()) {
+    if (keybindMatches(e, 'wbUndo')) { e.preventDefault(); if (typeof window.wbUndo === 'function') window.wbUndo(); return; }
+    if (keybindMatches(e, 'wbRedo')) { e.preventDefault(); if (typeof window.wbRedo === 'function') window.wbRedo(); return; }
+    if (!isInputFocused) {
+      if (keybindMatches(e, 'wbPen')) { e.preventDefault(); if (typeof window.wbSelectTool === 'function') window.wbSelectTool('pen'); return; }
+      if (keybindMatches(e, 'wbEraser')) { e.preventDefault(); if (typeof window.wbSelectTool === 'function') window.wbSelectTool('eraser'); return; }
+      if (keybindMatches(e, 'wbHighlighter')) { e.preventDefault(); if (typeof window.wbSelectTool === 'function') window.wbSelectTool('highlighter'); return; }
     }
   }
   
+  // --- Skip single-key shortcuts when typing ---
+  if (isInputFocused) return;
   
-  if (e.key === 'f' || e.key === 'F') {
-    if (typeof openFlashcardModal === 'function') {
-      e.preventDefault();
-      openFlashcardModal();
-    }
+  if (keybindMatches(e, 'newNote')) {
+    if (typeof openNoteModal === 'function') { e.preventDefault(); openNoteModal(); }
   }
   
-  
-  if (e.key === 's' || e.key === 'S') {
-    if (path.length > 0 && typeof generateShareLink === 'function') {
-      e.preventDefault();
-      generateShareLink(path);
-    }
+  if (keybindMatches(e, 'newFlashcard')) {
+    if (typeof openFlashcardModal === 'function') { e.preventDefault(); openFlashcardModal(); }
   }
   
+  if (keybindMatches(e, 'shareLocation')) {
+    if (path.length > 0 && typeof generateShareLink === 'function') { e.preventDefault(); generateShareLink(path); }
+  }
   
-  if (e.key === 'q' || e.key === 'Q') {
+  if (keybindMatches(e, 'quickLinks')) {
     e.preventDefault();
     const panel = document.getElementById('quickLinksPanel');
     panel?.classList.toggle('active');
+  }
+
+  if (keybindMatches(e, 'toggleMic')) {
+    e.preventDefault();
+    if (typeof window.srToggleMicrophone === 'function') window.srToggleMicrophone();
+  }
+
+  if (keybindMatches(e, 'toggleCam')) {
+    e.preventDefault();
+    if (typeof window.srToggleCamera === 'function') window.srToggleCamera();
   }
 });
 
@@ -6547,23 +7258,341 @@ function setupSettingsActions() {
     openSettingsBtn.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
-      console.log('More settings clicked');
+      console.log('All settings clicked — navigating to settings view');
       document.getElementById('userBadge')?.classList.remove('active');
-            document.getElementById('accessibilityPanel')?.classList.add('active');
+      showView('settings');
+      setActiveNav('settingsNav');
     });
     console.log('Open settings button handler attached');
   }
 }
 
 function getKeyboardShortcuts() {
-  return [
-    { key: 'N', desc: 'New Note' },
-    { key: 'F', desc: 'New Flashcard' },
-    { key: 'Q', desc: 'Toggle Quick Links' },
-    { key: 'S', desc: 'Share Location' },
-    { key: '/', desc: 'Focus Search' }
-  ];
+  return getAllKeybindEntries();
 }
+
+/* ================================================================
+   KEYBINDS SYSTEM — configurable keyboard shortcuts
+   ================================================================ */
+const DEFAULT_KEYBINDS = {
+  // General
+  focusSearch:   { key: '/', ctrl: false, alt: false, shift: false, label: 'Focus Search' },
+  newNote:       { key: 'n', ctrl: false, alt: false, shift: false, label: 'New Note' },
+  newFlashcard:  { key: 'f', ctrl: false, alt: false, shift: false, label: 'New Flashcard' },
+  shareLocation: { key: 's', ctrl: false, alt: false, shift: false, label: 'Share Location' },
+  quickLinks:    { key: 'q', ctrl: false, alt: false, shift: false, label: 'Toggle Quick Links' },
+  goBack:        { key: 'Backspace', ctrl: false, alt: false, shift: false, label: 'Go Back' },
+  goHome:        { key: 'Home', ctrl: false, alt: true, shift: false, label: 'Go Home' },
+  navBack:       { key: 'ArrowLeft', ctrl: false, alt: true, shift: false, label: 'Navigate Back' },
+  // Whiteboard
+  wbUndo:        { key: 'z', ctrl: true, alt: false, shift: false, label: 'Whiteboard Undo' },
+  wbRedo:        { key: 'y', ctrl: true, alt: false, shift: false, label: 'Whiteboard Redo' },
+  wbPen:         { key: 'p', ctrl: false, alt: false, shift: false, label: 'Whiteboard Pen' },
+  wbEraser:      { key: 'e', ctrl: false, alt: false, shift: false, label: 'Whiteboard Eraser' },
+  wbHighlighter: { key: 'h', ctrl: false, alt: false, shift: false, label: 'Whiteboard Highlighter' },
+  // Study Room Media
+  toggleMic:     { key: 'm', ctrl: true, alt: false, shift: false, label: 'Toggle Microphone' },
+  toggleCam:     { key: 'v', ctrl: true, alt: false, shift: false, label: 'Toggle Camera' },
+  pushToTalk:    { key: 't', ctrl: false, alt: false, shift: false, label: 'Push to Talk (Hold)' },
+};
+
+function loadKeybinds() {
+  const saved = localStorage.getItem('questionary-keybinds');
+  const binds = saved ? JSON.parse(saved) : {};
+  // merge defaults with saved (saved overrides)
+  const merged = {};
+  for (const id in DEFAULT_KEYBINDS) {
+    merged[id] = binds[id] ? { ...DEFAULT_KEYBINDS[id], ...binds[id] } : { ...DEFAULT_KEYBINDS[id] };
+  }
+  window._keybinds = merged;
+  return merged;
+}
+
+function saveKeybinds(binds) {
+  localStorage.setItem('questionary-keybinds', JSON.stringify(binds));
+  window._keybinds = binds;
+}
+
+function resetKeybinds() {
+  localStorage.removeItem('questionary-keybinds');
+  const binds = loadKeybinds();
+  renderKeybindsSettings();
+  if (typeof showNotification === 'function') showNotification('Keyboard shortcuts reset to defaults.', 'info');
+  return binds;
+}
+
+function getAllKeybindEntries() {
+  const binds = window._keybinds || loadKeybinds();
+  return Object.entries(binds).map(([id, b]) => ({
+    id, key: formatKeybindDisplay(b), desc: b.label
+  }));
+}
+
+function formatKeybindDisplay(b) {
+  let parts = [];
+  if (b.ctrl) parts.push('Ctrl');
+  if (b.alt) parts.push('Alt');
+  if (b.shift) parts.push('Shift');
+  let keyName = b.key;
+  if (keyName === ' ') keyName = 'Space';
+  else if (keyName.length === 1) keyName = keyName.toUpperCase();
+  parts.push(keyName);
+  return parts.join(' + ');
+}
+
+function keybindMatches(e, bindId) {
+  const binds = window._keybinds || loadKeybinds();
+  const b = binds[bindId];
+  if (!b) return false;
+  const keyMatch = e.key.toLowerCase() === b.key.toLowerCase() || e.key === b.key;
+  return keyMatch && e.ctrlKey === !!b.ctrl && e.altKey === !!b.alt && e.shiftKey === !!b.shift;
+}
+
+/* --- Keybinds Settings UI --- */
+function renderKeybindsSettings() {
+  const container = document.getElementById('keybindsList');
+  if (!container) return;
+  const binds = window._keybinds || loadKeybinds();
+  const categories = {
+    'General': ['focusSearch', 'newNote', 'newFlashcard', 'shareLocation', 'quickLinks', 'goBack', 'goHome', 'navBack'],
+    'Whiteboard': ['wbUndo', 'wbRedo', 'wbPen', 'wbEraser', 'wbHighlighter'],
+    'Study Room': ['toggleMic', 'toggleCam', 'pushToTalk']
+  };
+  let html = '';
+  for (const [cat, ids] of Object.entries(categories)) {
+    html += `<div class="kb-category"><span class="kb-cat-label">${cat}</span></div>`;
+    for (const id of ids) {
+      const b = binds[id];
+      if (!b) continue;
+      html += `<div class="kb-row">
+        <span class="kb-action">${b.label}</span>
+        <button class="kb-key-btn" data-bind-id="${id}" title="Click to change">${formatKeybindDisplay(b)}</button>
+      </div>`;
+    }
+  }
+  container.innerHTML = html;
+  // attach listeners
+  container.querySelectorAll('.kb-key-btn').forEach(btn => {
+    btn.addEventListener('click', () => startKeybindCapture(btn));
+  });
+}
+
+let _capturingBind = null;
+function startKeybindCapture(btn) {
+  // mark as listening
+  if (_capturingBind) {
+    _capturingBind.classList.remove('kb-listening');
+    _capturingBind.textContent = _capturingBind._prevText;
+  }
+  _capturingBind = btn;
+  btn._prevText = btn.textContent;
+  btn.textContent = 'Press a key…';
+  btn.classList.add('kb-listening');
+
+  function onKey(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    // ignore bare modifier keys
+    if (['Control', 'Alt', 'Shift', 'Meta'].includes(e.key)) return;
+    document.removeEventListener('keydown', onKey, true);
+    btn.classList.remove('kb-listening');
+
+    const bindId = btn.dataset.bindId;
+    const binds = window._keybinds || loadKeybinds();
+    binds[bindId] = {
+      ...binds[bindId],
+      key: e.key.length === 1 ? e.key.toLowerCase() : e.key,
+      ctrl: e.ctrlKey,
+      alt: e.altKey,
+      shift: e.shiftKey
+    };
+    saveKeybinds(binds);
+    btn.textContent = formatKeybindDisplay(binds[bindId]);
+    _capturingBind = null;
+    if (typeof showNotification === 'function') showNotification(`Shortcut updated: ${binds[bindId].label}`, 'success');
+  }
+  document.addEventListener('keydown', onKey, true);
+}
+
+/* --- Study Room Settings & PTT --- */
+window.initStudyRoomMediaSettings = async function() {
+  const pttToggle = document.getElementById('pttToggle');
+  if (pttToggle) {
+    pttToggle.checked = localStorage.getItem('questionary-ptt-enabled') === 'true';
+    pttToggle.onchange = (e) => {
+      localStorage.setItem('questionary-ptt-enabled', e.target.checked);
+    };
+  }
+
+  try {
+    try {
+        const tempStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+        tempStream.getTracks().forEach(t => t.stop());
+    } catch (e) {
+        console.warn("Media permissions not granted upfront, device labels might be empty.", e);
+    }
+
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const audioSelect = document.getElementById('audioInputSelect');
+    const audioOutSelect = document.getElementById('audioOutputSelect');
+    const videoSelect = document.getElementById('videoInputSelect');
+    if (!audioSelect || !videoSelect) return;
+
+    audioSelect.innerHTML = '<option value="">Default</option>';
+    if (audioOutSelect) audioOutSelect.innerHTML = '<option value="">Default</option>';
+    videoSelect.innerHTML = '<option value="">Default</option>';
+
+    devices.forEach(device => {
+      if (device.kind === 'audioinput') {
+        const opt = document.createElement('option');
+        opt.value = device.deviceId;
+        opt.text = device.label || `Microphone ${audioSelect.length}`;
+        audioSelect.appendChild(opt);
+      } else if (device.kind === 'audiooutput' && audioOutSelect) {
+        const opt = document.createElement('option');
+        opt.value = device.deviceId;
+        opt.text = device.label || `Speaker ${audioOutSelect.length}`;
+        audioOutSelect.appendChild(opt);
+      } else if (device.kind === 'videoinput') {
+        const opt = document.createElement('option');
+        opt.value = device.deviceId;
+        opt.text = device.label || `Camera ${videoSelect.length}`;
+        videoSelect.appendChild(opt);
+      }
+    });
+
+    const savedAudio = localStorage.getItem('questionary-audio-id');
+    const savedAudioOut = localStorage.getItem('questionary-audio-out-id');
+    const savedVideo = localStorage.getItem('questionary-video-id');
+    if (savedAudio) audioSelect.value = savedAudio;
+    if (savedAudioOut && audioOutSelect) audioOutSelect.value = savedAudioOut;
+    if (savedVideo) videoSelect.value = savedVideo;
+
+    audioSelect.onchange = (e) => localStorage.setItem('questionary-audio-id', e.target.value);
+    if (audioOutSelect) audioOutSelect.onchange = (e) => {
+        localStorage.setItem('questionary-audio-out-id', e.target.value);
+        if (typeof window.srUpdateAudioOutput === 'function') window.srUpdateAudioOutput(e.target.value);
+    };
+    videoSelect.onchange = (e) => localStorage.setItem('questionary-video-id', e.target.value);
+  } catch (err) {
+    console.warn('Could not enumerate media devices:', err);
+  }
+};
+
+window.testSpeaker = function() {
+    const audioId = document.getElementById('audioOutputSelect')?.value;
+    const audio = new Audio('assets/sounds/bell.mp3'); // or any other sound
+    if (audioId && typeof audio.setSinkId === 'function') {
+        audio.setSinkId(audioId).catch(console.error);
+    }
+    audio.play().catch(console.error);
+};
+
+let _testMicStream = null;
+let _testMicAudioCtx = null;
+let _testMicInterval = null;
+window.testMicrophone = async function() {
+    const btn = document.getElementById('testMicBtn');
+    const row = document.getElementById('micTestVolumeRow');
+    const bar = document.getElementById('micTestVolumeBar');
+    if (_testMicStream) {
+        // Stop testing
+        _testMicStream.getTracks().forEach(t => t.stop());
+        _testMicStream = null;
+        if (_testMicAudioCtx) _testMicAudioCtx.close();
+        clearInterval(_testMicInterval);
+        btn.innerHTML = '<i class="fas fa-microphone"></i> Test';
+        row.style.display = 'none';
+        return;
+    }
+    
+    try {
+        const audioId = document.getElementById('audioInputSelect')?.value;
+        const constraints = { audio: audioId ? { deviceId: { exact: audioId } } : true };
+        _testMicStream = await navigator.mediaDevices.getUserMedia(constraints);
+        
+        btn.innerHTML = '<i class="fas fa-stop"></i> Stop';
+        row.style.display = 'flex';
+        
+        _testMicAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const source = _testMicAudioCtx.createMediaStreamSource(_testMicStream);
+        const analyser = _testMicAudioCtx.createAnalyser();
+        analyser.fftSize = 256;
+        source.connect(analyser);
+        const dataArray = new Uint8Array(analyser.frequencyBinCount);
+        
+        _testMicInterval = setInterval(() => {
+            analyser.getByteFrequencyData(dataArray);
+            let sum = 0;
+            for(let i=0; i<dataArray.length; i++) sum += dataArray[i];
+            let avg = sum / dataArray.length;
+            let percent = Math.min(100, Math.round((avg / 128) * 100));
+            if (bar) bar.style.width = percent + '%';
+        }, 50);
+    } catch (e) {
+        console.error(e);
+        if (typeof showNotification === 'function') showNotification('Mic access denied during test', 'error');
+    }
+};
+
+let _testCamStream = null;
+window.testCamera = async function() {
+    const btn = document.getElementById('testCamBtn');
+    const container = document.getElementById('camTestContainer');
+    const video = document.getElementById('camTestVideo');
+    if (_testCamStream) {
+        _testCamStream.getTracks().forEach(t => t.stop());
+        _testCamStream = null;
+        video.srcObject = null;
+        container.style.display = 'none';
+        btn.innerHTML = '<i class="fas fa-video"></i> Test';
+        return;
+    }
+    
+    try {
+        const videoId = document.getElementById('videoInputSelect')?.value;
+        const constraints = { video: videoId ? { deviceId: { exact: videoId } } : true };
+        _testCamStream = await navigator.mediaDevices.getUserMedia(constraints);
+        video.srcObject = _testCamStream;
+        container.style.display = 'block';
+        btn.innerHTML = '<i class="fas fa-stop"></i> Stop';
+    } catch (e) {
+        console.error(e);
+        if (typeof showNotification === 'function') showNotification('Camera access denied during test', 'error');
+    }
+};
+
+let _pttIsPressed = false;
+document.addEventListener('keydown', (e) => {
+  const pttEnabled = localStorage.getItem('questionary-ptt-enabled') === 'true';
+  if (pttEnabled && keybindMatches(e, 'pushToTalk') && !_pttIsPressed) {
+    const isInputFocused = e.target.closest('input, textarea, [contenteditable]');
+    if (isInputFocused) return;
+    e.preventDefault();
+    _pttIsPressed = true;
+    if (typeof window.srSetMicrophoneState === 'function') {
+      window.srSetMicrophoneState(true);
+    }
+  }
+});
+document.addEventListener('keyup', (e) => {
+  const pttEnabled = localStorage.getItem('questionary-ptt-enabled') === 'true';
+  if (pttEnabled && keybindMatches(e, 'pushToTalk') && _pttIsPressed) {
+    const isInputFocused = e.target.closest('input, textarea, [contenteditable]');
+    if (isInputFocused) return;
+    e.preventDefault();
+    _pttIsPressed = false;
+    if (typeof window.srSetMicrophoneState === 'function') {
+      window.srSetMicrophoneState(false);
+    }
+  }
+});
+
+/* --- Initialize keybinds on load --- */
+loadKeybinds();
+
+window.renderKeybindsSettings = renderKeybindsSettings;
+window.resetKeybinds = resetKeybinds;
 
 function initHamburgerMenu() {
   const hamburgerBtn = document.getElementById('hamburgerMenu');

@@ -1,8 +1,8 @@
 [package]
 name = "Questionary"
-version = "0.3.0"
-description = "A Tauri App"
-authors = ["you"]
+version = "0.7.0"
+description = "Questionary"
+authors = ["Nugget"]
 edition = "2021"
 
 [lib]
@@ -10,15 +10,37 @@ name = "questionary_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
-tauri-build = { version = "2", features = [] }
+tauri-build = { version = "2.0.0", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
-tauri-plugin-opener = "2"
-tauri-plugin-prevent-default = "0.2"
-tauri-plugin-updater = "2"
-tauri-plugin-fs = "2"
-tauri-plugin-http = "2"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-tauri-plugin-process = "2.3.1"
+tauri = { version = "2.0.0", features = [] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1", features = ["full"] }
+
+# Global Missing Feature Dependencies
+futures-util = "0.3"
+tokio-tungstenite = "0.24"
+
+# Global Core Plugins (Available to BOTH Desktop and Android)
+tauri-plugin-opener = "2.0.0"
+tauri-plugin-updater = "2.0.0"
+tauri-plugin-process = "2.0.0"
+tauri-plugin-fs = "2.0.0"
+tauri-plugin-http = "2.0.0"
+
+# Desktop-Specific Targets (Linux, Windows, macOS)
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-prevent-default = "2.0.0"
+
+# Linux-Specific Target Dependencies (Fixes your media errors)
+[target.'cfg(target_os = "linux")'.dependencies]
+webkit2gtk = "2.0.2"
+
+# ── PROFILE OPTIMIZATIONS FOR NUKE-LEVEL SIZE REDUCTION ───────
+[profile.release]
+opt-level = "z"      # Optimize aggressively for size instead of speed
+lto = true           # Enable Link-Time Optimization across all crates
+codegen-units = 1    # Force single thread generation to squeeze the binary smaller
+panic = "abort"      # Strip heavy stack-unwinding machinery on errors
+strip = true         # Rip out all debug paths, names, and symbols entirely
