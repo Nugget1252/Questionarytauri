@@ -8,8 +8,8 @@ let flashcardDecks = [];
 let studySessions = [];
 let documentProgress = {};
 let quickLinks = [];
-let documents = {}; // Declared early, will be populated below
-window.documents = documents; // Expose immediately
+let documents = {}; // Deprecated: Kept empty strictly to prevent legacy errors
+window.documents = documents;
 let studyStats = { totalTime: 0, streak: 0, lastStudyDate: null, hourlyActivity: {} };
 let currentCalendarDate = new Date();
 let currentEditingNote = null;
@@ -23,17 +23,305 @@ let accessibilitySettings = {
   enhancedFocus: localStorage.getItem('accessibility-enhanced-focus') === 'true'
 };
 
+// ================================================================
+// SQLITE DATABASE SERVICE (Auto-Fetch & Validation Engine)
+// ================================================================
+const DbService = {
+  db: null,
+  SQL: null,
 
+  async init() {
+    try {
+      // 1. Load SQLite WASM engine
+      if (typeof window.initSqlJs === 'undefined') {
+        await new Promise((resolve, reject) => {
+          const script = document.createElement('script');
+          script.src = 'https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.js';
+          script.onload = resolve;
+          script.onerror = reject;
+          document.head.appendChild(script);
+        });
+      }
 
+      this.SQL = await window.initSqlJs({
+        locateFile: file => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/${file}`
+      });
+
+      // 2. Check IndexedDB Cache
+      const savedDb = await this.loadFromIndexedDB();
+      if (savedDb) {
+        this.db = new this.SQL.Database(savedDb);
+        
+        // VALIDATE: If cached DB is empty or invalid, purge it!
+        if (await this.isValidDatabase()) {
+          console.log('[SQLite] Valid DB loaded from local IndexedDB cache');
+          return true;
+        } else {
+          console.warn('[SQLite] Cached DB is empty or invalid. Clearing cache...');
+          await this.clearIndexedDB();
+          this.db = null;
+        }
+      } 
+      
+      // 3. Attempt to fetch 'questionary.db' from the app directory (same folder as app.js/index.html)
+      console.log('[SQLite] Attempting to fetch questionary.db from root directory...');
+      try {
+        const response = await fetch('questionary.db?v=' + Date.now()); // Cache bust
+        if (response.ok) {
+          const arrayBuffer = await response.arrayBuffer();
+          const uInt8Array = new Uint8Array(arrayBuffer);
+          const tempDb = new this.SQL.Database(uInt8Array);
+          
+          this.db = tempDb;
+          if (await this.isValidDatabase()) {
+            await this.saveToIndexedDB();
+            console.log('[SQLite] Successfully loaded questionary.db from local folder!');
+            return true;
+          } else {
+            console.warn('[SQLite] questionary.db found in folder, but it is EMPTY or missing table "nodes".');
+            this.db = null;
+          }
+        }
+      } catch (fetchErr) {
+        console.warn('[SQLite] Could not auto-fetch questionary.db:', fetchErr);
+      }
+
+      // 4. If all automated loads failed, prompt user for manual file drop
+      this.promptForDbUpload();
+      return false;
+
+    } catch (err) {
+      console.error('[SQLite] Critical init error:', err);
+      return false;
+    }
+  },
+
+  async isValidDatabase() {
+    if (!this.db) return false;
+    try {
+      const tableCheck = await this.query("SELECT name FROM sqlite_master WHERE type='table' AND name='nodes'");
+      if (tableCheck.length === 0) return false;
+      const countCheck = await this.query("SELECT COUNT(*) as count FROM nodes");
+      return countCheck.length > 0 && countCheck[0].count > 0;
+    } catch (e) {
+      return false;
+    }
+  },
+
+  async query(sql, params = []) {
+    if (!this.db) return [];
+    const stmt = this.db.prepare(sql);
+    stmt.bind(params);
+    const results = [];
+    while (stmt.step()) {
+      results.push(stmt.getAsObject());
+    }
+    stmt.free();
+    return results;
+  },
+
+  async saveToIndexedDB() {
+    if (!this.db) return;
+    const data = this.db.export();
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open('QuestionarySQLiteDB', 1);
+      request.onupgradeneeded = e => e.target.result.createObjectStore('db_store');
+      request.onsuccess = e => {
+        const idb = e.target.result;
+        const tx = idb.transaction('db_store', 'readwrite');
+        const putReq = tx.objectStore('db_store').put(data, 'questionary.db');
+        putReq.onsuccess = () => resolve();
+        putReq.onerror = () => reject(putReq.error);
+      };
+      request.onerror = () => reject(request.error);
+    });
+  },
+
+  async loadFromIndexedDB() {
+    return new Promise(resolve => {
+      const request = indexedDB.open('QuestionarySQLiteDB', 1);
+      request.onupgradeneeded = e => e.target.result.createObjectStore('db_store');
+      request.onsuccess = e => {
+        const idb = e.target.result;
+        const tx = idb.transaction('db_store', 'readonly');
+        const getReq = tx.objectStore('db_store').get('questionary.db');
+        getReq.onsuccess = () => resolve(getReq.result);
+        getReq.onerror = () => resolve(null);
+      };
+      request.onerror = () => resolve(null);
+    });
+  },
+
+  async clearIndexedDB() {
+    return new Promise(resolve => {
+      const req = indexedDB.deleteDatabase('QuestionarySQLiteDB');
+      req.onsuccess = () => resolve();
+      req.onerror = () => resolve();
+      req.onblocked = () => resolve();
+    });
+  },
+
+  promptForDbUpload() {
+    const existing = document.getElementById('dbUploadOverlay');
+    if (existing) existing.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'dbUploadOverlay';
+    overlay.style.cssText = `
+      position: fixed; inset: 0; background: var(--bg, #111113); z-index: 100000;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      font-family: inherit; color: var(--fg, #ededef); text-align: center; padding: 2rem;
+    `;
+
+    overlay.innerHTML = `
+      <div id="dbDropZone" style="
+        border: 2px dashed var(--accent, #cf6215); border-radius: 12px; padding: 3rem;
+        background: var(--surface, #18181b); max-width: 520px; width: 100%;
+        transition: all 0.2s ease; cursor: pointer;
+      ">
+        <i class="fas fa-database" style="font-size: 3rem; color: var(--accent, #cf6215); margin-bottom: 1rem;"></i>
+        <h2 style="margin: 0 0 0.5rem; font-size: 1.2rem;">Database Needed</h2>
+        <p style="margin: 0 0 1.5rem; font-size: 0.9rem; color: var(--fg2, #a0a0ab); line-height: 1.5;">
+          No valid database found.<br>
+          Either place <strong>questionary.db</strong> in the app directory and refresh, or drag & drop your <code>.db</code> file here.
+        </p>
+        <button class="btn btn-primary" style="pointer-events: none;">Select .db File</button>
+      </div>
+      <input type="file" id="dbFileInput" accept=".db,.sqlite,.sqlite3" style="display: none;">
+    `;
+
+    document.body.appendChild(overlay);
+
+    const dropZone = document.getElementById('dbDropZone');
+    const fileInput = document.getElementById('dbFileInput');
+
+    dropZone.addEventListener('click', () => fileInput.click());
+    
+    ['dragenter', 'dragover'].forEach(evt => {
+      dropZone.addEventListener(evt, e => {
+        e.preventDefault();
+        dropZone.style.background = 'var(--accent-light, rgba(207,98,21,0.1))';
+      });
+    });
+
+    ['dragleave', 'drop'].forEach(evt => {
+      dropZone.addEventListener(evt, e => {
+        e.preventDefault();
+        dropZone.style.background = 'var(--surface, #18181b)';
+      });
+    });
+
+    dropZone.addEventListener('drop', e => {
+      if (e.dataTransfer.files.length) this.loadDatabaseFromFile(e.dataTransfer.files[0], overlay);
+    });
+
+    fileInput.addEventListener('change', e => {
+      if (e.target.files.length) this.loadDatabaseFromFile(e.target.files[0], overlay);
+    });
+  },
+
+  async loadDatabaseFromFile(file, overlay) {
+    overlay.querySelector('h2').textContent = "Verifying database...";
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const uInt8Array = new Uint8Array(arrayBuffer);
+      const tempDb = new this.SQL.Database(uInt8Array);
+      
+      this.db = tempDb;
+      if (!(await this.isValidDatabase())) {
+        this.db = null;
+        throw new Error("Database is empty or missing 'nodes' table.");
+      }
+
+      await this.saveToIndexedDB();
+      overlay.remove();
+      showNotification('Database imported successfully!', 'success');
+      
+      if (currentUser) {
+        initializeAppAfterLogin();
+      } else {
+        const nodes = await this.getChildren([]);
+        renderTilesFromDb(nodes);
+      }
+    } catch (err) {
+      console.error(err);
+      overlay.querySelector('h2').textContent = "Invalid Database";
+      overlay.querySelector('p').innerHTML = "<span style='color: var(--red,#ef4444);'>The selected file is empty or formatted incorrectly. Please choose a valid questionary.db file.</span>";
+    }
+  },
+
+  async getNodeIdByPath(pathArray) {
+    let currentId = null;
+    for (const segment of pathArray) {
+      const sql = currentId === null
+        ? "SELECT id FROM nodes WHERE parent_id IS NULL AND name = ?"
+        : "SELECT id FROM nodes WHERE parent_id = ? AND name = ?";
+      const params = currentId === null ? [segment] : [currentId, segment];
+      const res = await this.query(sql, params);
+      if (res.length === 0) return null;
+      currentId = res[0].id;
+    }
+    return currentId;
+  },
+
+  async getChildren(pathArray) {
+    if (!pathArray || pathArray.length === 0) {
+      return await this.query("SELECT * FROM nodes WHERE parent_id IS NULL ORDER BY name ASC");
+    }
+    const parentId = await this.getNodeIdByPath(pathArray);
+    if (parentId === null) return [];
+    return await this.query("SELECT * FROM nodes WHERE parent_id = ? ORDER BY name ASC", [parentId]);
+  },
+
+  async search(keyword) {
+    const res = await this.query("SELECT * FROM nodes WHERE name LIKE ?", [`%${keyword}%`]);
+    const results = [];
+    for (const item of res) {
+      const pathArray = await this.buildPath(item.parent_id);
+      pathArray.push(item.name);
+      results.push({
+        name: item.name,
+        path: pathArray,
+        isFolder: item.is_folder === 1,
+        url: item.file_path
+      });
+    }
+    return results;
+  },
+
+  async buildPath(parentId) {
+    const path = [];
+    let currentId = parentId;
+    while (currentId !== null) {
+      const res = await this.query("SELECT parent_id, name FROM nodes WHERE id = ?", [currentId]);
+      if (res.length === 0) break;
+      path.unshift(res[0].name);
+      currentId = res[0].parent_id;
+    }
+    return path;
+  },
+
+  async countDocuments() {
+    const res = await this.query("SELECT COUNT(*) as count FROM nodes WHERE is_folder = 0 AND file_path != '#' AND file_path != ''");
+    return res.length > 0 ? res[0].count : 0;
+  }
+};
+
+// Global Reset Function for easy debugging / manual reset
+window.resetDatabase = async function() {
+  if (confirm('Reset database cache? This will purge the cached DB and reload from questionary.db or let you select a new file.')) {
+    await DbService.clearIndexedDB();
+    location.reload();
+  }
+};
+// ================================================================
 
 async function initializeFavorites() {
   try {
-    
     if (window.__TAURI__) {
       const loaded = await loadFavoritesFromTauri();
       if (loaded) return;
     }
-    
     favorites = JSON.parse(localStorage.getItem('questionary-favorites') || '[]');
   } catch (e) {
     console.error('Error loading favorites:', e);
@@ -41,13 +329,9 @@ async function initializeFavorites() {
   }
 }
 
-
 async function saveFavorites() {
   try {
-    
     localStorage.setItem('questionary-favorites', JSON.stringify(favorites));
-    
-    
     if (window.__TAURI__) {
       await saveFavoritesToTauri();
     }
@@ -56,21 +340,17 @@ async function saveFavorites() {
   }
 }
 
-
 async function loadFavoritesFromTauri() {
   try {
     const { readTextFile, BaseDirectory } = window.__TAURI__.fs || {};
     const { appDataDir } = window.__TAURI__.path || {};
-    
     if (readTextFile && appDataDir) {
       const data = await readTextFile('favorites.json', { dir: BaseDirectory.AppData });
       favorites = JSON.parse(data);
-      
       localStorage.setItem('questionary-favorites', JSON.stringify(favorites));
       return true;
     }
   } catch (e) {
-    
     console.log('Loading favorites from localStorage instead');
   }
   return false;
@@ -79,15 +359,10 @@ async function loadFavoritesFromTauri() {
 async function saveFavoritesToTauri() {
   try {
     const { writeTextFile, createDir, BaseDirectory } = window.__TAURI__.fs || {};
-    
     if (writeTextFile && createDir) {
-      
       try {
         await createDir('', { dir: BaseDirectory.AppData, recursive: true });
-      } catch (e) {
-        
-      }
-      
+      } catch (e) {}
       await writeTextFile('favorites.json', JSON.stringify(favorites, null, 2), { 
         dir: BaseDirectory.AppData 
       });
@@ -97,11 +372,9 @@ async function saveFavoritesToTauri() {
   }
 }
 
-
 async function loadRecentFromTauri() {
   try {
     const { readTextFile, BaseDirectory } = window.__TAURI__.fs || {};
-    
     if (readTextFile) {
       const data = await readTextFile('recent.json', { dir: BaseDirectory.AppData });
       const recent = JSON.parse(data);
@@ -117,7 +390,6 @@ async function loadRecentFromTauri() {
 async function saveRecentToStorage(recent) {
   try {
     localStorage.setItem('questionary-recent', JSON.stringify(recent));
-    
     if (window.__TAURI__) {
       const { writeTextFile, createDir, BaseDirectory } = window.__TAURI__.fs || {};
       if (writeTextFile && createDir) {
@@ -133,7 +405,6 @@ async function saveRecentToStorage(recent) {
     console.error('Error saving recent:', e);
   }
 }
-
 
 let timerState = {
   duration: 0,
@@ -152,15 +423,12 @@ function applyAccessibilitySettings() {
   document.body.classList.toggle('enhanced-focus', accessibilitySettings.enhancedFocus);
 }
 
-function createRipple(event) {
-  
-}
+function createRipple(event) {}
 
 const users = {
   "DPSNTRVMP": { password: "DPSNTRVMP@123", role: "user" },
   "ADMIN": { password: "DPSNTCLASSLOGIN@@", role: "admin" }
 };
-
 
 function showApp() {
   const loginScreen = document.getElementById('loginScreen');
@@ -175,13 +443,13 @@ function showApp() {
 }
 
 function showNotification(message, type = 'info') {
-    const existing = document.querySelector('.notification-toast');
+  const existing = document.querySelector('.notification-toast');
   if (existing) existing.remove();
   
   const toast = document.createElement('div');
   toast.className = `notification-toast notification-${type}`;
   
-    let icon = 'fa-info-circle';
+  let icon = 'fa-info-circle';
   let bgColor = '#3b82f6';
   if (type === 'success') {
     icon = 'fa-check-circle';
@@ -216,7 +484,7 @@ function showNotification(message, type = 'info') {
   
   toast.innerHTML = `<i class="fas ${icon}"></i><span>${message}</span>`;
   
-    if (!document.getElementById('toast-animations')) {
+  if (!document.getElementById('toast-animations')) {
     const style = document.createElement('style');
     style.id = 'toast-animations';
     style.textContent = `
@@ -241,14 +509,12 @@ function showNotification(message, type = 'info') {
 }
 
 // ============================================
-// STYLED DIALOG SYSTEM (replaces confirm/prompt/alert)
+// STYLED DIALOG SYSTEM
 // ============================================
-
 function _createDialogOverlay() {
   const overlay = document.createElement('div');
   overlay.className = 'dialog-overlay';
   document.body.appendChild(overlay);
-  // Animate in
   requestAnimationFrame(() => overlay.classList.add('active'));
   return overlay;
 }
@@ -258,11 +524,6 @@ function _closeDialog(overlay) {
   setTimeout(() => overlay.remove(), 200);
 }
 
-/**
- * Styled confirm dialog — returns Promise<boolean>
- * @param {string} message - The question to ask
- * @param {object} opts - { title, confirmText, cancelText, type }
- */
 function showConfirm(message, opts = {}) {
   const { title = 'Confirm', confirmText = 'OK', cancelText = 'Cancel', type = 'warning' } = opts;
   return new Promise(resolve => {
@@ -288,17 +549,11 @@ function showConfirm(message, opts = {}) {
     overlay.querySelector('.dialog-btn-cancel').onclick = () => close(false);
     overlay.querySelector('.dialog-btn-confirm').onclick = () => close(true);
     overlay.addEventListener('click', e => { if (e.target === overlay) close(false); });
-    // Focus confirm button
     overlay.querySelector('.dialog-btn-confirm').focus();
   });
 }
 window.showConfirm = showConfirm;
 
-/**
- * Styled prompt dialog — returns Promise<string|null>
- * @param {string} message - The label/question
- * @param {object} opts - { title, defaultValue, placeholder, confirmText, cancelText }
- */
 function showPrompt(message, opts = {}) {
   const { title = 'Input', defaultValue = '', placeholder = '', confirmText = 'Save', cancelText = 'Cancel' } = opts;
   return new Promise(resolve => {
@@ -329,17 +584,11 @@ function showPrompt(message, opts = {}) {
       if (e.key === 'Escape') close(null);
     });
     overlay.addEventListener('click', e => { if (e.target === overlay) close(null); });
-    // Focus & select input
     requestAnimationFrame(() => { input.focus(); input.select(); });
   });
 }
 window.showPrompt = showPrompt;
 
-/**
- * Styled info dialog — replaces alert()
- * @param {string} message - Content (supports HTML)
- * @param {object} opts - { title, buttonText, type }
- */
 function showInfoDialog(message, opts = {}) {
   const { title = 'Info', buttonText = 'OK', type = 'info' } = opts;
   return new Promise(resolve => {
@@ -366,31 +615,26 @@ function showInfoDialog(message, opts = {}) {
 }
 window.showInfoDialog = showInfoDialog;
 
-function initializeAppAfterLogin() {
-    const usernameDisplay = document.getElementById('username-display');
+async function initializeAppAfterLogin() {
+  const usernameDisplay = document.getElementById('username-display');
   if (usernameDisplay && currentUser) {
     usernameDisplay.textContent = currentUser.username;
   }
   
-    const adminBadge = document.getElementById('adminBadge');
+  const adminBadge = document.getElementById('adminBadge');
   if (adminBadge && currentUser && currentUser.role === 'admin') {
     adminBadge.style.display = 'inline-block';
   }
   
-    if (typeof initializeNewFeatures === 'function') {
+  if (typeof initializeNewFeatures === 'function') {
     initializeNewFeatures();
   }
   
-    if (typeof renderTiles === 'function' && typeof documents !== 'undefined') {
-    renderTiles(window.documents || documents);
-  }
-  
-    if (typeof updateBreadcrumb === 'function') {
+  if (DbService.db) {
+    const nodes = await DbService.getChildren(path);
+    renderTilesFromDb(nodes);
     updateBreadcrumb();
-  }
-  
-    if (typeof updateDashboardStats === 'function') {
-    updateDashboardStats();
+    await updateDashboardStats();
   }
 }
 
@@ -399,7 +643,7 @@ function showAutoLoginNotification(username) {
   showNotification(`Welcome back, ${username}!`, 'success');
 }
 
-function performSearch(e) {
+async function performSearch(e) {
   const query = typeof e === 'string' ? e : (e?.target?.value || '');
   const searchResults = document.getElementById('searchResults');
   
@@ -408,73 +652,43 @@ function performSearch(e) {
     return;
   }
   
-    if (typeof addToSearchHistory === 'function') {
-    addToSearchHistory(query);
+  if (typeof addToSearchHistory === 'function') addToSearchHistory(query);
+  
+  const results = [];
+  if (DbService.db) {
+    const sqlResults = await DbService.search(query.toLowerCase());
+    results.push(...sqlResults);
   }
   
-    const results = [];
-  if (typeof documents !== 'undefined') {
-    searchInDocuments(documents, [], query.toLowerCase(), results);
-  }
-  
-    if (notes && notes.length > 0) {
+  if (notes && notes.length > 0) {
     notes.forEach(note => {
       if (note.title.toLowerCase().includes(query.toLowerCase()) || 
           note.content.toLowerCase().includes(query.toLowerCase())) {
-        results.push({
-          name: note.title,
-          path: ['Notes'],
-          isFolder: false,
-          isNote: true,
-          noteId: note.id,
-          url: null
-        });
+        results.push({ name: note.title, path: ['Notes'], isFolder: false, isNote: true, noteId: note.id, url: null });
       }
     });
   }
   
-    if (flashcardDecks && flashcardDecks.length > 0) {
+  if (flashcardDecks && flashcardDecks.length > 0) {
     flashcardDecks.forEach(deck => {
       if (deck.name.toLowerCase().includes(query.toLowerCase())) {
-        results.push({
-          name: deck.name,
-          path: ['Flashcards'],
-          isFolder: false,
-          isFlashcard: true,
-          deckId: deck.id,
-          url: null
-        });
+        results.push({ name: deck.name, path: ['Flashcards'], isFolder: false, isFlashcard: true, deckId: deck.id, url: null });
       }
-            deck.cards.forEach(card => {
-        if (card.front.toLowerCase().includes(query.toLowerCase()) || 
-            card.back.toLowerCase().includes(query.toLowerCase())) {
+      deck.cards.forEach(card => {
+        if (card.front.toLowerCase().includes(query.toLowerCase()) || card.back.toLowerCase().includes(query.toLowerCase())) {
           const alreadyAdded = results.some(r => r.deckId === deck.id);
           if (!alreadyAdded) {
-            results.push({
-              name: `${deck.name} (card match)`,
-              path: ['Flashcards'],
-              isFolder: false,
-              isFlashcard: true,
-              deckId: deck.id,
-              url: null
-            });
+            results.push({ name: `${deck.name} (card match)`, path: ['Flashcards'], isFolder: false, isFlashcard: true, deckId: deck.id, url: null });
           }
         }
       });
     });
   }
   
-    if (studySessions && studySessions.length > 0) {
+  if (studySessions && studySessions.length > 0) {
     studySessions.forEach(session => {
       if (session.subject.toLowerCase().includes(query.toLowerCase())) {
-        results.push({
-          name: session.subject,
-          path: ['Study Planner', session.date],
-          isFolder: false,
-          isSession: true,
-          sessionId: session.id,
-          url: null
-        });
+        results.push({ name: session.subject, path: ['Study Planner', session.date], isFolder: false, isSession: true, sessionId: session.id, url: null });
       }
     });
   }
@@ -484,21 +698,16 @@ function performSearch(e) {
       searchResults.innerHTML = '<div style="padding: 1rem; text-align: center; color: var(--text-secondary);">No results found</div>';
     } else {
       searchResults.innerHTML = results.slice(0, 15).map(r => {
-                let icon = r.isFolder ? 'fa-folder' : 'fa-file-pdf';
+        let icon = r.isFolder ? 'fa-folder' : 'fa-file-pdf';
         if (r.isNote) icon = 'fa-sticky-note';
         if (r.isFlashcard) icon = 'fa-layer-group';
         if (r.isSession) icon = 'fa-calendar-alt';
         
-                let onclickHandler = '';
-        if (r.isNote) {
-          onclickHandler = `navigateToNote('${r.noteId}')`;
-        } else if (r.isFlashcard) {
-          onclickHandler = `navigateToFlashcard('${r.deckId}')`;
-        } else if (r.isSession) {
-          onclickHandler = `navigateToSession('${r.sessionId}')`;
-        } else {
-          onclickHandler = `navigateToSearchResult(${JSON.stringify(r.path).replace(/"/g, '&quot;')}, '${r.url || ''}')`;
-        }
+        let onclickHandler = '';
+        if (r.isNote) onclickHandler = `navigateToNote('${r.noteId}')`;
+        else if (r.isFlashcard) onclickHandler = `navigateToFlashcard('${r.deckId}')`;
+        else if (r.isSession) onclickHandler = `navigateToSession('${r.sessionId}')`;
+        else onclickHandler = `navigateToSearchResult(${JSON.stringify(r.path).replace(/"/g, '&quot;')}, '${r.url || ''}')`;
         
         return `
           <div class="search-result-item" onclick="${onclickHandler}">
@@ -515,107 +724,41 @@ function performSearch(e) {
   }
 }
 
-function searchInDocuments(obj, currentPath, query, results) {
-  for (const key in obj) {
-    const newPath = [...currentPath, key];
-    const value = obj[key];
-    
-    if (key.toLowerCase().includes(query)) {
-      results.push({
-        name: key,
-        path: newPath,
-        isFolder: typeof value === 'object',
-        url: typeof value === 'string' ? value : null
-      });
-    }
-    
-    if (typeof value === 'object' && value !== null) {
-      searchInDocuments(value, newPath, query, results);
-    }
-  }
-}
-
-function navigateToSearchResult(pathArray, url) {
+async function navigateToSearchResult(pathArray, url) {
   const searchResults = document.getElementById('searchResults');
   if (searchResults) searchResults.style.display = 'none';
   
   document.getElementById('globalSearch').value = '';
   
-    showView('home');
+  showView('home');
   setActiveNav('homeNav');
   
   if (url && url !== '#' && url !== '') {
-        path = pathArray.slice(0, -1);
+    path = pathArray.slice(0, -1);
     updateBreadcrumb();
     
-        const title = pathArray[pathArray.length - 1];
+    const title = pathArray[pathArray.length - 1];
     addToRecent(title, pathArray, url);
     
-        setTimeout(() => {
-      showPDF(url);
-    }, 100);
+    setTimeout(() => { showPDF(url); }, 100);
   } else {
-        path = [...pathArray];
-    renderTiles(getCurrentLevel());
-    updateBreadcrumb();
+    path = [...pathArray];
+    await navigateToPath(path);
   }
 }
 
 function escapeHtml(text) {
+  if (!text) return "";
   const div = document.createElement('div');
   div.textContent = text;
   return div.innerHTML;
 }
 
 function showConfirmModal(title, message, onConfirm, onCancel) {
-    const existing = document.querySelector('.confirm-modal-overlay');
-  if (existing) existing.remove();
-  
-  const overlay = document.createElement('div');
-  overlay.className = 'confirm-modal-overlay';
-  overlay.innerHTML = `
-    <div class="confirm-modal">
-      <div class="confirm-modal-icon">
-        <i class="fas fa-trash-alt"></i>
-      </div>
-      <h3 class="confirm-modal-title">${escapeHtml(title)}</h3>
-      <p class="confirm-modal-message">${escapeHtml(message)}</p>
-      <div class="confirm-modal-actions">
-        <button class="btn btn-cancel" id="confirmModalCancel">Cancel</button>
-        <button class="btn btn-danger" id="confirmModalConfirm">Delete</button>
-      </div>
-    </div>
-  `;
-  
-  document.body.appendChild(overlay);
-  
-    const cancelBtn = document.getElementById('confirmModalCancel');
-  cancelBtn.onclick = () => {
-    overlay.remove();
-    if (onCancel) onCancel();
-  };
-  
-    const confirmBtn = document.getElementById('confirmModalConfirm');
-  confirmBtn.onclick = () => {
-    overlay.remove();
-    if (onConfirm) onConfirm();
-  };
-  
-    overlay.onclick = (e) => {
-    if (e.target === overlay) {
-      overlay.remove();
-      if (onCancel) onCancel();
-    }
-  };
-  
-    const handleEscape = (e) => {
-    if (e.key === 'Escape') {
-      overlay.remove();
-      document.removeEventListener('keydown', handleEscape);
-      if (onCancel) onCancel();
-    }
-  };
-  document.addEventListener('keydown', handleEscape);
+  showConfirm(message, { title, type: 'danger', confirmText: 'Delete' }).then(res => {
+    if (res && onConfirm) onConfirm();
+    else if (!res && onCancel) onCancel();
+  });
 }
 
 function setActiveNav(navId) {
@@ -634,7 +777,6 @@ function trackDailyAccess() {
 }
 
 function saveUserPreferences() {
-  // Save current location/view for remember location feature
   const settings = JSON.parse(localStorage.getItem('questionary-settings') || '{}');
   if (settings.rememberLocation !== false) {
     localStorage.setItem('questionary-last-view', currentView);
@@ -642,7 +784,7 @@ function saveUserPreferences() {
   }
 }
 
-function restoreLastLocation() {
+async function restoreLastLocation() {
   const settings = JSON.parse(localStorage.getItem('questionary-settings') || '{}');
   if (settings.rememberLocation !== false) {
     const lastView = localStorage.getItem('questionary-last-view');
@@ -650,122 +792,60 @@ function restoreLastLocation() {
     
     if (lastView && lastView !== 'home') {
       showView(lastView);
-      // Update active nav
       const navMap = {
-        'home': 'homeNav',
-        'favorites': 'favoritesNav',
-        'recent': 'recentNav',
-        'analytics': 'analyticsNav',
-        'planner': 'plannerNav',
-        'flashcards': 'flashcardsNav',
-        'notes': 'notesNav',
-        'progress': 'progressNav',
-        'reminders': 'remindersNav',
-        'settings': 'settingsNav',
-        'tags': 'tagsNav'
+        'home': 'homeNav', 'favorites': 'favoritesNav', 'recent': 'recentNav',
+        'analytics': 'analyticsNav', 'planner': 'plannerNav', 'flashcards': 'flashcardsNav',
+        'notes': 'notesNav', 'progress': 'progressNav', 'reminders': 'remindersNav',
+        'settings': 'settingsNav', 'tags': 'tagsNav'
       };
-      if (navMap[lastView]) {
-        setActiveNav(navMap[lastView]);
-      }
+      if (navMap[lastView]) setActiveNav(navMap[lastView]);
     } else {
-      // Always call showView('home') to ensure home panels are shown
       showView('home');
       setActiveNav('homeNav');
-      
-      if (lastPath && lastPath.length > 0) {
-        // Restore path within documents
-        path = lastPath;
-        let current = documents;
-        for (const p of path) {
-          if (current[p] && typeof current[p] === 'object') {
-            current = current[p];
-          } else {
-            path = [];
-            current = documents;
-            break;
-          }
-        }
-        renderTiles(current);
-        updateBreadcrumb();
-      }
+      if (lastPath && lastPath.length > 0) await navigateToPath(lastPath);
     }
   } else {
-    // Default to home view
     showView('home');
     setActiveNav('homeNav');
   }
 }
 
-// Get current level of documents based on path
-function getCurrentDocumentsLevel() {
-  // Access documents via window to ensure we get the latest value
-  const docs = window.documents || documents;
-  if (!docs || Object.keys(docs).length === 0) {
-    console.warn('Documents not loaded yet');
-    return {};
-  }
-  let current = docs;
-  for (const p of path) {
-    if (current[p] && typeof current[p] === 'object') {
-      current = current[p];
-    } else {
-      return docs;
-    }
-  }
-  return current;
+async function getCurrentDocumentsLevel() {
+  return await DbService.getChildren(path);
 }
 
-function renderTiles(docs) {
-  console.log('renderTiles called with:', docs);
-  console.log('documents variable:', documents);
+function renderTilesFromDb(items) {
   const container = document.getElementById('tilesContainer');
-  if (!container) {
-    console.error('tilesContainer not found');
-    return;
-  }
+  if (!container) return;
   
-  // Show PDF Library and home tags panels only at root level
   const importedSection = document.getElementById('importedSection');
   if (importedSection) {
     importedSection.style.display = path.length === 0 ? 'block' : 'none';
   }
-  if (path.length === 0) {
-    showHomeTagsPanels();
-  } else {
-    hideHomeTagsPanels();
-  }
+  if (path.length === 0) showHomeTagsPanels();
+  else hideHomeTagsPanels();
   
   container.innerHTML = '';
   
-  if (!docs || Object.keys(docs).length === 0) {
+  if (!items || items.length === 0) {
     container.innerHTML = '<p style="text-align: center; color: var(--text-secondary); padding: 2rem;">No documents available.</p>';
     return;
   }
   
-    const sortOrder = localStorage.getItem('questionary-sort-order') || 'asc';
-  const keys = Object.keys(docs).sort((a, b) => {
-    return sortOrder === 'asc' ? a.localeCompare(b) : b.localeCompare(a);
-  });
+  const sortOrder = localStorage.getItem('questionary-sort-order') || 'asc';
+  items.sort((a, b) => sortOrder === 'asc' ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name));
   
-  keys.forEach(key => {
-    const value = docs[key];
-    const isFolder = typeof value === 'object';
+  items.forEach(item => {
+    const key = item.name;
+    const isFolder = item.is_folder === 1;
+    const value = item.file_path;
     
     const tile = document.createElement('div');
     tile.className = 'tile';
     
-        const isMissingPdf = !isFolder && (!value || value === '#' || value === '');
-        const isImportedPdf = !isFolder && typeof value === 'string' && value.startsWith('blob-id:');
-        // Check if this folder/item was moved from the library (user-added, not hardcoded)
-        const isCustomItem = (() => {
-          try {
-            const custom = JSON.parse(localStorage.getItem('questionary-custom-documents') || '{}');
-            let level = custom;
-            for (const seg of path) { level = level?.[seg]; }
-            return level && level[key] !== undefined;
-          } catch { return false; }
-        })();
-    
+    const isMissingPdf = !isFolder && (!value || value === '#' || value === '');
+    const isImportedPdf = !isFolder && typeof value === 'string' && value.startsWith('blob-id:');
+    const isCustomItem = false;
     
     const itemPath = [...path, key];
     const itemPathJson = JSON.stringify(itemPath).replace(/"/g, '&quot;');
@@ -785,22 +865,19 @@ function renderTiles(docs) {
       ${isMissingPdf ? `<div class="pdf-missing-badge"><i class="fas fa-exclamation-triangle"></i> Not Available</div>` : ''}
     `;
     
-        if (isMissingPdf) {
-      tile.classList.add('pdf-missing');
-    }
+    if (isMissingPdf) tile.classList.add('pdf-missing');
     
-    tile.onclick = () => {
+    tile.onclick = async () => {
       if (isFolder) {
         path.push(key);
-        renderTiles(value);
-        updateBreadcrumb();
+        await navigateToPath(path);
       } else if (isMissingPdf) {
         showNotification('This PDF is not available yet', 'warning');
       } else if (key.endsWith('.png') || key.endsWith('.jpg') || key.endsWith('.jpeg') || key.endsWith('.webp')) {
         addToRecent(key, [...path, key], value);
         showImage(value, key);
       } else {
-                addToRecent(key, [...path, key], value);
+        addToRecent(key, [...path, key], value);
         showPDF(value);
       }
     };
@@ -808,29 +885,25 @@ function renderTiles(docs) {
     container.appendChild(tile);
   });
   
-    updateDashboardStats();
+  updateDashboardStats();
 }
 
-// Expose renderTiles globally
-window.renderTiles = renderTiles;
+window.renderTiles = async function(ignoredDocs) {
+   if (!DbService.db) return;
+   const nodes = await DbService.getChildren(path);
+   renderTilesFromDb(nodes);
+};
 
 async function checkPdfExists(pdfPath) {
   return new Promise((resolve) => {
     const xhr = new XMLHttpRequest();
     xhr.open('HEAD', pdfPath, true);
-    
     xhr.onreadystatechange = function() {
       if (xhr.readyState === 4) {
-        console.log('PDF check:', pdfPath, 'status:', xhr.status);
-                resolve(xhr.status === 200 || xhr.status === 206);
+        resolve(xhr.status === 200 || xhr.status === 206);
       }
     };
-    
-    xhr.onerror = function() {
-      console.log('PDF check error:', pdfPath);
-      resolve(false);
-    };
-    
+    xhr.onerror = function() { resolve(false); };
     xhr.send();
   });
 }
@@ -840,57 +913,40 @@ function updateBreadcrumb() {
   const backBtn = document.getElementById('backBtn');
   
   if (!breadcrumb) return;
+  breadcrumb.innerHTML = '';
   
-    breadcrumb.innerHTML = '';
-  
-    const homeSpan = document.createElement('span');
+  const homeSpan = document.createElement('span');
   homeSpan.className = 'breadcrumb-item';
   homeSpan.textContent = 'Home';
-  homeSpan.onclick = function() {
-    navigateToPath([]);
-  };
+  homeSpan.onclick = function() { navigateToPath([]); };
   breadcrumb.appendChild(homeSpan);
   
-    let currentPath = [];
-  path.forEach((segment, index) => {
+  let currentPath = [];
+  path.forEach((segment) => {
     currentPath.push(segment);
     const pathCopy = [...currentPath];
     
-        const separator = document.createElement('i');
+    const separator = document.createElement('i');
     separator.className = 'fas fa-chevron-right';
     separator.style.cssText = 'font-size: 0.7rem; opacity: 0.5; margin: 0 0.5rem;';
     breadcrumb.appendChild(separator);
     
-        const segmentSpan = document.createElement('span');
+    const segmentSpan = document.createElement('span');
     segmentSpan.className = 'breadcrumb-item';
     segmentSpan.textContent = segment;
-    segmentSpan.onclick = function() {
-      navigateToPath(pathCopy);
-    };
+    segmentSpan.onclick = function() { navigateToPath(pathCopy); };
     breadcrumb.appendChild(segmentSpan);
   });
   
-  if (backBtn) {
-    backBtn.style.display = path.length > 0 ? 'flex' : 'none';
-  }
+  if (backBtn) backBtn.style.display = path.length > 0 ? 'flex' : 'none';
 }
 
-function navigateToPath(newPath) {
-  console.log('navigateToPath called with:', newPath);
-  
-  
-  if (!Array.isArray(newPath)) {
-    console.warn('navigateToPath: newPath is not an array, resetting to home');
-    newPath = [];
-  }
+async function navigateToPath(newPath) {
+  if (!Array.isArray(newPath)) newPath = [];
   newPath = newPath.filter(segment => segment && segment.trim() !== '');
-  console.log('navigateToPath filtered path:', newPath);
   
   const pdfViewer = document.getElementById('pdfViewer');
-  if (pdfViewer) {
-    pdfViewer.classList.remove('active');
-    pdfViewer.src = '';
-  }
+  if (pdfViewer) { pdfViewer.classList.remove('active'); pdfViewer.src = ''; }
   const pdfViewerContainer = document.getElementById('pdfViewerContainer');
   if (pdfViewerContainer) pdfViewerContainer.style.display = 'none';
   const bookmarksPanel = document.getElementById('pdfBookmarksPanel');
@@ -911,58 +967,20 @@ function navigateToPath(newPath) {
   
   if (typeof hideTimerCompletely === 'function') hideTimerCompletely();
   
-  
-  let docsSrc = window.documents || documents;
-  let level = docsSrc;
-  let validPath = [];
-  for (const segment of newPath) {
-    if (level && typeof level === 'object' && level[segment]) {
-      level = level[segment];
-      validPath.push(segment);
-    } else {
-      console.warn('navigateToPath: Invalid path segment:', segment, 'at path:', validPath);
-      break;
-    }
-  }
-  
-  
-  path = validPath;
-  console.log('navigateToPath: Final path:', path);
-  
-  renderTiles(level);
+  path = newPath;
+  const nodes = await DbService.getChildren(path);
+  renderTilesFromDb(nodes);
   updateBreadcrumb();
 }
-
 window.navigateToPath = navigateToPath;
 
-function getCurrentLevel() {
-  let current = documents;
-  for (const segment of path) {
-    if (current && typeof current === 'object' && current[segment]) {
-      current = current[segment];
-    } else {
-      return documents;
-    }
-  }
-  return current;
+async function getCurrentLevel() {
+  return await DbService.getChildren(path);
 }
 
-function updateDashboardStats() {
-    let totalDocs = 0;
-  function countDocs(obj) {
-    for (const key in obj) {
-      const value = obj[key];
-      if (typeof value === 'string') {
-                if (value && value !== '#' && value.trim() !== '') {
-          totalDocs++;
-        }
-      } else if (typeof value === 'object' && value !== null) {
-        countDocs(value);
-      }
-    }
-  }
-  countDocs(documents);
-  
+async function updateDashboardStats() {
+  if (!DbService.db) return;
+  const totalDocs = await DbService.countDocuments();
   const totalDocsEl = document.getElementById('totalDocuments');
   if (totalDocsEl) totalDocsEl.textContent = totalDocs;
   
@@ -978,30 +996,16 @@ function updateDashboardStats() {
 }
 
 function showPDF(url) { 
-  console.log('showPDF called with:', url);
-  
-  if (!url || url === '' || url === '#') {
-    console.error('Invalid PDF URL');
-    return;
-  }
-  
-  // Handle blob-id: references (PDFs stored in IndexedDB)
+  if (!url || url === '' || url === '#') return;
   if (typeof url === 'string' && url.startsWith('blob-id:')) {
     const blobId = url.replace('blob-id:', '');
     if (typeof getPdfBlob === 'function') {
       getPdfBlob(blobId).then(blob => {
-        if (blob) {
-          const objectUrl = URL.createObjectURL(blob);
-          showPDF(objectUrl);
-        } else {
-          showNotification('PDF data not found – it may need to be re-imported', 'error');
-        }
+        if (blob) showPDF(URL.createObjectURL(blob));
+        else showNotification('PDF data not found', 'error');
       }).catch(err => {
-        console.error('Failed to load PDF from IndexedDB:', err);
         showNotification('Failed to load PDF', 'error');
       });
-    } else {
-      showNotification('PDF storage not available', 'error');
     }
     return;
   }
@@ -1014,62 +1018,44 @@ function showPDF(url) {
   const breadcrumbContainer = document.querySelector('.breadcrumb-container');
   const tilesSection = document.getElementById('tilesSection');
   
-    const filename = url.split('/').pop().replace('.pdf', '').replace(/%20/g, ' ');
+  const filename = url.split('/').pop().replace('.pdf', '').replace(/%20/g, ' ');
   window.setCurrentPDF && window.setCurrentPDF(url, filename);
   
-    if (pdfViewer) {
-    // Convert relative URL to absolute so pdfviewer.html can always fetch it
+  if (pdfViewer) {
     const absoluteUrl = new URL(url, window.location.href).href;
     pdfViewer.src = 'pdfviewer.html?file=' + encodeURIComponent(absoluteUrl);
     pdfViewer.classList.add('active');
-    // Fallback: also send URL via postMessage once iframe loads
     pdfViewer.onload = function() {
       pdfViewer.contentWindow.postMessage({ type: 'loadPdf', url: absoluteUrl }, '*');
       pdfViewer.onload = null;
     };
-    console.log('PDF viewer loading:', absoluteUrl);
-  } else {
-    console.error('PDF viewer element not found!');
-    return;
   }
   
-    if (tilesSection) tilesSection.style.display = 'block';
-  
-    if (tilesContainer) tilesContainer.style.display = 'none';
+  if (tilesSection) tilesSection.style.display = 'block';
+  if (tilesContainer) tilesContainer.style.display = 'none';
   if (sectionHeader) sectionHeader.style.display = 'none';
   if (dashboardHeader) dashboardHeader.style.display = 'none';
   const importedSection = document.getElementById('importedSection');
   if (importedSection) importedSection.style.display = 'none';
   if (typeof hideHomeTagsPanels === 'function') hideHomeTagsPanels();
   
-  // Show the PDF viewer container with toolbar
   if (pdfViewerContainer) {
     pdfViewerContainer.style.display = 'block';
     const pdfNameEl = document.getElementById('currentPdfName');
     if (pdfNameEl) pdfNameEl.textContent = filename;
     
-    // Update bookmarks for this PDF
-    if (typeof renderPdfBookmarks === 'function') {
-      renderPdfBookmarks(url);
-    }
-    // Store current PDF URL for bookmarking
-    if (typeof window.setCurrentPdfForBookmarks === 'function') {
-      window.setCurrentPdfForBookmarks(url);
-    } else {
-      window.currentPdfUrlForBookmarks = url;
-    }
+    if (typeof renderPdfBookmarks === 'function') renderPdfBookmarks(url);
+    if (typeof window.setCurrentPdfForBookmarks === 'function') window.setCurrentPdfForBookmarks(url);
+    else window.currentPdfUrlForBookmarks = url;
   }
   
-    if (breadcrumbContainer) breadcrumbContainer.style.display = 'flex';
+  if (breadcrumbContainer) breadcrumbContainer.style.display = 'flex';
+  updateBreadcrumb();
   
-    updateBreadcrumb();
-  
-    const timerPanel = document.getElementById('timerPanel');
+  const timerPanel = document.getElementById('timerPanel');
   if (timerPanel) timerPanel.style.display = 'flex';
-  
-    if (typeof initializeTimer === 'function') initializeTimer();
-  
-    if (typeof trackPdfViewStart === 'function') trackPdfViewStart();
+  if (typeof initializeTimer === 'function') initializeTimer();
+  if (typeof trackPdfViewStart === 'function') trackPdfViewStart();
 }
 
 function closePDF() {
@@ -1079,27 +1065,18 @@ function closePDF() {
   const sectionHeader = document.querySelector('#tilesSection .section-header');
   const dashboardHeader = document.querySelector('.dashboard-header');
   
-    window.clearCurrentPDF && window.clearCurrentPDF();
+  window.clearCurrentPDF && window.clearCurrentPDF();
   
   if (pdfViewer) {
-    // Just remove active class and clear src — don't nuke inline styles
     pdfViewer.classList.remove('active');
     pdfViewer.src = '';
   }
   
-  // Hide the entire PDF viewer container (includes toolbar, iframe, bookmarks)
-  if (pdfViewerContainer) {
-    pdfViewerContainer.style.display = 'none';
-  }
-  
-  // Hide bookmarks panel so it starts closed next time
+  if (pdfViewerContainer) pdfViewerContainer.style.display = 'none';
   const bookmarksPanel = document.getElementById('pdfBookmarksPanel');
   if (bookmarksPanel) bookmarksPanel.style.display = 'none';
-  
-  // Clear current PDF URL for bookmarking
   window.currentPdfUrlForBookmarks = null;
   
-  // Restore tiles — respect list-view mode if active
   if (tilesContainer) {
     const isListView = tilesContainer.classList.contains('list-view');
     tilesContainer.style.display = isListView ? 'flex' : 'grid';
@@ -1114,19 +1091,15 @@ function closePDF() {
   }
   
   if (typeof hideTimerCompletely === 'function') hideTimerCompletely();
-  
-    if (typeof trackPdfViewEnd === 'function') trackPdfViewEnd(path.join('/'));
+  if (typeof trackPdfViewEnd === 'function') trackPdfViewEnd(path.join('/'));
 }
 
-/* --- Image Viewer (for whiteboards & saved images) --- */
+/* --- Image Viewer --- */
 let _currentImageBlobUrl = null;
 let _currentImageName = '';
-
 function showImage(url, name) {
   if (!url) return;
   _currentImageName = name || 'Image';
-
-  // Handle blob-id: references (images stored in IndexedDB)
   if (typeof url === 'string' && url.startsWith('blob-id:')) {
     const blobId = url.replace('blob-id:', '');
     if (typeof getPdfBlob === 'function') {
@@ -1134,22 +1107,14 @@ function showImage(url, name) {
         if (blob) {
           _currentImageBlobUrl = URL.createObjectURL(blob);
           _displayImageViewer(_currentImageBlobUrl, name);
-        } else {
-          showNotification('Image data not found', 'error');
         }
-      }).catch(err => {
-        console.error('Failed to load image:', err);
-        showNotification('Failed to load image', 'error');
       });
     }
     return;
   }
-
-  // Direct URL
   _currentImageBlobUrl = url;
   _displayImageViewer(url, name);
 }
-
 function _displayImageViewer(imgSrc, name) {
   const container = document.getElementById('imageViewerContainer');
   const img = document.getElementById('imageViewerImg');
@@ -1158,7 +1123,6 @@ function _displayImageViewer(imgSrc, name) {
   const sectionHeader = document.querySelector('#tilesSection .section-header');
   const dashboardHeader = document.querySelector('.dashboard-header');
   const breadcrumbContainer = document.querySelector('.breadcrumb-container');
-
   if (img) img.src = imgSrc;
   if (nameEl) nameEl.textContent = name || 'Image';
   if (container) container.style.display = 'block';
@@ -1168,21 +1132,16 @@ function _displayImageViewer(imgSrc, name) {
   if (breadcrumbContainer) breadcrumbContainer.style.display = 'flex';
   updateBreadcrumb();
 }
-
 function closeImageViewer() {
   const container = document.getElementById('imageViewerContainer');
   const img = document.getElementById('imageViewerImg');
   const tilesContainer = document.getElementById('tilesContainer');
   const sectionHeader = document.querySelector('#tilesSection .section-header');
   const dashboardHeader = document.querySelector('.dashboard-header');
-
   if (container) container.style.display = 'none';
   if (img) img.src = '';
-  if (_currentImageBlobUrl && _currentImageBlobUrl.startsWith('blob:')) {
-    URL.revokeObjectURL(_currentImageBlobUrl);
-  }
+  if (_currentImageBlobUrl && _currentImageBlobUrl.startsWith('blob:')) URL.revokeObjectURL(_currentImageBlobUrl);
   _currentImageBlobUrl = null;
-
   if (tilesContainer) {
     const isListView = tilesContainer.classList.contains('list-view');
     tilesContainer.style.display = isListView ? 'flex' : 'grid';
@@ -1190,7 +1149,6 @@ function closeImageViewer() {
   if (sectionHeader) sectionHeader.style.display = 'flex';
   if (dashboardHeader && path.length === 0) dashboardHeader.style.display = 'flex';
 }
-
 function downloadCurrentImage() {
   if (!_currentImageBlobUrl) return;
   const a = document.createElement('a');
@@ -1198,28 +1156,23 @@ function downloadCurrentImage() {
   a.download = _currentImageName || 'whiteboard.png';
   a.click();
 }
-
 window.showImage = showImage;
 window.closeImageViewer = closeImageViewer;
 window.downloadCurrentImage = downloadCurrentImage;
 window.showPDF = showPDF;
-
-// Expose closePDF globally
 window.closePDF = closePDF;
 
 function renderAnalytics() {
-  console.log('renderAnalytics called');
-  
-    const accessData = JSON.parse(localStorage.getItem('questionary-daily-access') || '{}');
+  const accessData = JSON.parse(localStorage.getItem('questionary-daily-access') || '{}');
   const recent = JSON.parse(localStorage.getItem('questionary-recent') || '[]');
   const subjectAccess = JSON.parse(localStorage.getItem('questionary-subject-access') || '{}');
   
-    const totalSessions = Object.values(accessData).reduce((sum, count) => sum + count, 0);
+  const totalSessions = Object.values(accessData).reduce((sum, count) => sum + count, 0);
   const totalDocsViewed = recent.length;
   const daysActive = Object.keys(accessData).length;
   const avgSessionsPerDay = daysActive > 0 ? (totalSessions / daysActive).toFixed(1) : 0;
   
-    const totalSessionsEl = document.getElementById('totalSessions');
+  const totalSessionsEl = document.getElementById('totalSessions');
   const totalDocsViewedEl = document.getElementById('totalDocsViewed');
   const daysActiveEl = document.getElementById('daysActive');
   const avgSessionsEl = document.getElementById('avgSessions');
@@ -1229,10 +1182,11 @@ function renderAnalytics() {
   if (daysActiveEl) daysActiveEl.textContent = daysActive;
   if (avgSessionsEl) avgSessionsEl.textContent = avgSessionsPerDay;
   
-    renderAccessChart(accessData);
+  renderAccessChart(accessData);
   renderSubjectChart(subjectAccess);
   renderRecentActivity(recent);
 }
+
 function renderCalendar() { 
   const calendarGrid = document.getElementById('calendarDays') || document.getElementById('calendarGrid');
   const currentMonthEl = document.getElementById('currentMonth');
@@ -1271,12 +1225,13 @@ function renderCalendar() {
   
   calendarGrid.innerHTML = html;
 }
+
 function renderSessions() { 
   const container = document.getElementById('sessionsList') || document.getElementById('sessionsContainer');
   if (!container) return;
   
   if (studySessions.length === 0) {
-    container.innerHTML = '<p style="text-align: center; color: var(--text-secondary); padding: 2rem;">No study sessions scheduled. Click "Add Session" to create one.</p>';
+    container.innerHTML = '<p style="text-align: center; color: var(--text-secondary); padding: 2rem;">No study sessions scheduled.</p>';
     return;
   }
   
@@ -1293,15 +1248,14 @@ function renderSessions() {
     </div>
   `).join('');
 }
+
 function renderFlashcardDecks() { 
-  const container = document.getElementById('flashcardsGrid') || document.getElementById('flashcardDecksContainer');
+  const container = document.getElementById('flashcardsGrid');
   if (!container) return;
-  
   if (flashcardDecks.length === 0) {
-    container.innerHTML = '<p style="text-align: center; color: var(--text-secondary); padding: 2rem;">No flashcard decks yet. Click "New Deck" to create one.</p>';
+    container.innerHTML = '<p style="text-align: center; color: var(--text-secondary); padding: 2rem;">No flashcard decks yet.</p>';
     return;
   }
-  
   container.innerHTML = flashcardDecks.map(deck => `
     <div class="deck-card">
       <h4>${escapeHtml(deck.name)}</h4>
@@ -1325,15 +1279,14 @@ function renderFlashcardDecks() {
     </div>
   `).join('');
 }
+
 function renderNotes() { 
-  const container = document.getElementById('notesGrid') || document.getElementById('notesContainer');
+  const container = document.getElementById('notesGrid');
   if (!container) return;
-  
   if (notes.length === 0) {
-    container.innerHTML = '<p style="text-align: center; color: var(--text-secondary); padding: 2rem;">No notes yet. Click "New Note" to create one.</p>';
+    container.innerHTML = '<p style="text-align: center; color: var(--text-secondary); padding: 2rem;">No notes yet.</p>';
     return;
   }
-  
   container.innerHTML = notes.map(note => `
     <div class="note-card" onclick="editNote('${note.id}')">
       <h4>${escapeHtml(note.title)}</h4>
@@ -1350,13 +1303,13 @@ function renderNotes() {
     </div>
   `).join('');
 }
-function updateProgressDisplay() { console.log('updateProgressDisplay called'); }
+
+function updateProgressDisplay() {}
 
 function renderQuickLinks() {
   const container = document.getElementById('quickLinksList');
   if (!container) return;
-  
-    quickLinks = quickLinks.filter(ql => ql && ql.pathArray && Array.isArray(ql.pathArray));
+  quickLinks = quickLinks.filter(ql => ql && ql.pathArray && Array.isArray(ql.pathArray));
   
   if (quickLinks.length === 0) {
     container.innerHTML = `
@@ -1384,8 +1337,8 @@ function renderQuickLinks() {
   `;
   }).join('');
   
-    container.querySelectorAll('.quick-link-item').forEach(item => {
-    item.addEventListener('click', (e) => {
+  container.querySelectorAll('.quick-link-item').forEach(item => {
+    item.addEventListener('click', async (e) => {
       if (e.target.closest('.quick-link-delete')) return;
       const pathStr = item.dataset.path;
       const pathArray = pathStr.split('|');
@@ -1393,11 +1346,11 @@ function renderQuickLinks() {
       const url = item.dataset.url;
       
       if (isFile && url) {
-                const parentPath = pathArray.slice(0, -1);
-        navigateToPath(parentPath);
+        const parentPath = pathArray.slice(0, -1);
+        await navigateToPath(parentPath);
         setTimeout(() => showPDF(url), 100);
       } else {
-        navigateToPath(pathArray);
+        await navigateToPath(pathArray);
       }
       document.getElementById('quickLinksPanel')?.classList.remove('active');
     });
@@ -1405,12 +1358,8 @@ function renderQuickLinks() {
 }
 
 let currentOpenPDF = null;
-window.setCurrentPDF = function(url, name) {
-  currentOpenPDF = { url, name };
-};
-window.clearCurrentPDF = function() {
-  currentOpenPDF = null;
-};
+window.setCurrentPDF = function(url, name) { currentOpenPDF = { url, name }; };
+window.clearCurrentPDF = function() { currentOpenPDF = null; };
 
 function removeQuickLink(id) {
   quickLinks = quickLinks.filter(ql => ql.id !== id);
@@ -1422,81 +1371,50 @@ function removeQuickLink(id) {
 function saveQuickLinks() { localStorage.setItem('questionary-quick-links', JSON.stringify(quickLinks)); }
 function loadQuickLinks() { quickLinks = JSON.parse(localStorage.getItem('questionary-quick-links') || '[]'); }
 
-
 function addFolderToQuickLinks(folderName, folderPath) {
   const pathStr = folderPath.join('|');
-  
-  
   if (quickLinks.some(ql => ql.pathArray.join('|') === pathStr)) {
-    if (typeof showNotification === 'function') showNotification('This folder is already in quick links', 'info');
+    showNotification('This folder is already in quick links', 'info');
     return;
   }
-  
-  quickLinks.push({ 
-    id: Date.now().toString(), 
-    name: folderName, 
-    pathArray: [...folderPath],
-    isFile: false
-  });
-  
+  quickLinks.push({ id: Date.now().toString(), name: folderName, pathArray: [...folderPath], isFile: false });
   saveQuickLinks();
   renderQuickLinks();
-  if (typeof showNotification === 'function') showNotification(`Folder "${folderName}" added to quick links!`, 'success');
+  showNotification(`Folder "${folderName}" added to quick links!`, 'success');
 }
-
-
 window.addFolderToQuickLinks = addFolderToQuickLinks;
-
 
 function addCurrentFolderToQuickLinks() {
   if (path.length === 0) {
-    if (typeof showNotification === 'function') showNotification('Navigate to a folder first to add it as a quick link', 'info');
+    showNotification('Navigate to a folder first to add it as a quick link', 'info');
     return;
   }
-  
   const pathStr = path.join('|');
   if (quickLinks.some(ql => ql.pathArray.join('|') === pathStr)) {
-    if (typeof showNotification === 'function') showNotification('This folder is already in quick links', 'info');
+    showNotification('This folder is already in quick links', 'info');
     return;
   }
-  
   const folderName = path[path.length - 1];
-  quickLinks.push({ 
-    id: Date.now().toString(), 
-    name: folderName, 
-    pathArray: [...path],
-    isFile: false
-  });
+  quickLinks.push({ id: Date.now().toString(), name: folderName, pathArray: [...path], isFile: false });
   saveQuickLinks();
   renderQuickLinks();
-  if (typeof showNotification === 'function') showNotification(`Folder "${folderName}" added to quick links!`, 'success');
+  showNotification(`Folder "${folderName}" added to quick links!`, 'success');
 }
-
 
 function addCurrentPdfToQuickLinks() {
   if (!currentOpenPDF) return;
-  
   const pathStr = [...path, currentOpenPDF.name].join('|');
   if (quickLinks.some(ql => ql.pathArray.join('|') === pathStr)) {
-    if (typeof showNotification === 'function') showNotification('This file is already in quick links', 'info');
+    showNotification('This file is already in quick links', 'info');
     return;
   }
-  
-  quickLinks.push({ 
-    id: Date.now().toString(), 
-    name: currentOpenPDF.name, 
-    pathArray: [...path, currentOpenPDF.name],
-    isFile: true,
-    url: currentOpenPDF.url
-  });
+  quickLinks.push({ id: Date.now().toString(), name: currentOpenPDF.name, pathArray: [...path, currentOpenPDF.name], isFile: true, url: currentOpenPDF.url });
   saveQuickLinks();
   renderQuickLinks();
-  if (typeof showNotification === 'function') showNotification('PDF added to quick links!', 'success');
+  showNotification('PDF added to quick links!', 'success');
 }
 
-
 function showQuickLinkChoiceDialog() {
-  
   const existing = document.getElementById('quickLinkChoiceDialog');
   if (existing) existing.remove();
   
@@ -1527,37 +1445,21 @@ function showQuickLinkChoiceDialog() {
       <button class="quicklink-choice-cancel" id="cancelQuickLinkChoice">Cancel</button>
     </div>
   `;
-  
   document.body.appendChild(dialog);
   
-  
-  document.getElementById('addPdfQuickLink').onclick = () => {
-    addCurrentPdfToQuickLinks();
-    dialog.remove();
-  };
-  
+  document.getElementById('addPdfQuickLink').onclick = () => { addCurrentPdfToQuickLinks(); dialog.remove(); };
   const folderBtn = document.getElementById('addFolderQuickLink');
-  if (folderBtn) {
-    folderBtn.onclick = () => {
-      addCurrentFolderToQuickLinks();
-      dialog.remove();
-    };
-  }
-  
+  if (folderBtn) folderBtn.onclick = () => { addCurrentFolderToQuickLinks(); dialog.remove(); };
   document.getElementById('cancelQuickLinkChoice').onclick = () => dialog.remove();
-  dialog.onclick = (e) => {
-    if (e.target === dialog) dialog.remove();
-  };
+  dialog.onclick = (e) => { if (e.target === dialog) dialog.remove(); };
 }
 
 function trackStudyTime(minutes) { 
-  console.log('Tracked study time:', minutes);
   studyStats.totalTime = (studyStats.totalTime || 0) + minutes;
   localStorage.setItem('questionary-study-stats', JSON.stringify(studyStats));
 }
 
 function updateDocProgress(docPath, progress) { 
-  console.log('Updated progress:', docPath, progress);
   documentProgress[docPath] = { progress, lastAccessed: Date.now() };
   localStorage.setItem('questionary-doc-progress', JSON.stringify(documentProgress));
 }
@@ -1572,35 +1474,21 @@ function trackSubjectAccess(subjectName) {
 function renderAccessChart(accessData) {
   const container = document.getElementById('accessChart');
   if (!container) return;
-  
-    const days = [];
+  const days = [];
   const today = new Date();
   for (let i = 6; i >= 0; i--) {
     const date = new Date(today);
     date.setDate(date.getDate() - i);
     const dateStr = date.toISOString().split('T')[0];
     const dayName = date.toLocaleDateString('en-US', { weekday: 'short' });
-    days.push({
-      date: dateStr,
-      day: dayName,
-      count: accessData[dateStr] || 0
-    });
+    days.push({ date: dateStr, day: dayName, count: accessData[dateStr] || 0 });
   }
-  
   const maxCount = Math.max(...days.map(d => d.count), 5);
-  
   container.innerHTML = `
     <div style="display: flex; align-items: flex-end; justify-content: space-between; height: 140px; gap: 8px; padding: 10px 0;">
       ${days.map(d => `
         <div style="display: flex; flex-direction: column; align-items: center; flex: 1;">
-          <div style="
-            width: 100%;
-            max-width: 40px;
-            height: ${Math.max((d.count / maxCount) * 100, 8)}px;
-            background: ${d.count > 0 ? 'var(--primary-color)' : 'var(--border)'};
-            border-radius: 4px 4px 0 0;
-            transition: height 0.3s ease;
-          " title="${d.count} sessions"></div>
+          <div style="width: 100%; max-width: 40px; height: ${Math.max((d.count / maxCount) * 100, 8)}px; background: ${d.count > 0 ? 'var(--primary-color)' : 'var(--border)'}; border-radius: 4px 4px 0 0; transition: height 0.3s ease;" title="${d.count} sessions"></div>
           <span style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 6px;">${d.day}</span>
           <span style="font-size: 0.7rem; color: var(--text-primary); font-weight: 600;">${d.count}</span>
         </div>
@@ -1612,81 +1500,48 @@ function renderAccessChart(accessData) {
 function renderSubjectChart(subjectAccess) {
   const container = document.getElementById('subjectChart');
   if (!container) return;
-  
-  const subjects = Object.entries(subjectAccess)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 5);
-  
+  const subjects = Object.entries(subjectAccess).sort((a, b) => b[1] - a[1]).slice(0, 5);
   if (subjects.length === 0) {
-    container.innerHTML = `
-      <div style="text-align: center; padding: 2rem; color: var(--text-secondary);">
-        <i class="fas fa-chart-pie" style="font-size: 2rem; opacity: 0.3; margin-bottom: 0.5rem; display: block;"></i>
-        <p style="margin: 0;">No subject data yet. Browse some documents!</p>
-      </div>
-    `;
+    container.innerHTML = '<div style="text-align: center; padding: 2rem; color: var(--text-secondary);"><p>No subject data yet. Browse some documents!</p></div>';
     return;
   }
-  
   const maxCount = subjects[0][1];
   const colors = ['#f97316', '#3b82f6', '#22c55e', '#a855f7', '#f59e0b'];
-  
-  container.innerHTML = `
-    <div style="display: flex; flex-direction: column; gap: 12px;">
-      ${subjects.map(([name, count], i) => `
+  container.innerHTML = `<div style="display: flex; flex-direction: column; gap: 12px;">${subjects.map(([name, count], i) => `
         <div>
           <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
             <span style="font-size: 0.85rem; font-weight: 500; color: var(--text-primary);">${escapeHtml(name)}</span>
             <span style="font-size: 0.8rem; color: var(--text-secondary);">${count} views</span>
           </div>
           <div style="height: 8px; background: var(--border); border-radius: 4px; overflow: hidden;">
-            <div style="
-              width: ${(count / maxCount) * 100}%;
-              height: 100%;
-              background: ${colors[i % colors.length]};
-              border-radius: 4px;
-              transition: width 0.3s ease;
-            "></div>
+            <div style="width: ${(count / maxCount) * 100}%; height: 100%; background: ${colors[i % colors.length]}; border-radius: 4px;"></div>
           </div>
         </div>
-      `).join('')}
-    </div>
-  `;
+      `).join('')}</div>`;
 }
 
 function renderRecentActivity(recent) {
   const container = document.getElementById('recentActivityList');
   if (!container) return;
-  
   const recentItems = recent.slice(0, 10);
-  
   if (recentItems.length === 0) {
-    container.innerHTML = `
-      <div style="text-align: center; padding: 2rem; color: var(--text-secondary);">
-        <i class="fas fa-clock" style="font-size: 2rem; opacity: 0.3; margin-bottom: 0.5rem; display: block;"></i>
-        <p style="margin: 0;">No recent activity yet.</p>
-      </div>
-    `;
+    container.innerHTML = '<div style="text-align: center; padding: 2rem; color: var(--text-secondary);"><p>No recent activity yet.</p></div>';
     return;
   }
-  
-  container.innerHTML = recentItems.map(item => {
-    const timeAgo = getTimeAgo(item.timestamp);
-    return `
+  container.innerHTML = recentItems.map(item => `
       <div style="display: flex; align-items: center; gap: 12px; padding: 10px; border-radius: 8px; background: var(--surface-hover); margin-bottom: 8px;">
         <i class="fas fa-file-pdf" style="color: var(--primary-color); font-size: 1.1rem;"></i>
         <div style="flex: 1; min-width: 0;">
           <div style="font-weight: 500; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(item.title)}</div>
-          <div style="font-size: 0.75rem; color: var(--text-secondary);">${timeAgo}</div>
+          <div style="font-size: 0.75rem; color: var(--text-secondary);">${getTimeAgo(item.timestamp)}</div>
         </div>
       </div>
-    `;
-  }).join('');
+    `).join('');
 }
 
 function getTimeAgo(timestamp) {
   if (!timestamp) return 'Unknown';
   const seconds = Math.floor((Date.now() - timestamp) / 1000);
-  
   if (seconds < 60) return 'Just now';
   if (seconds < 3600) return `${Math.floor(seconds / 60)} minutes ago`;
   if (seconds < 86400) return `${Math.floor(seconds / 3600)} hours ago`;
@@ -1700,45 +1555,29 @@ function navigateToNote(noteId) {
   const searchResults = document.getElementById('searchResults');
   if (searchResults) searchResults.style.display = 'none';
   document.getElementById('globalSearch').value = '';
-  
   showView('notes');
   setActiveNav('notesNav');
-  
-    setTimeout(() => {
-    if (typeof editNote === 'function') {
-      editNote(noteId);
-    }
-  }, 100);
+  setTimeout(() => { if (typeof editNote === 'function') editNote(noteId); }, 100);
 }
 
 function navigateToFlashcard(deckId) {
   const searchResults = document.getElementById('searchResults');
   if (searchResults) searchResults.style.display = 'none';
   document.getElementById('globalSearch').value = '';
-  
   showView('flashcards');
   setActiveNav('flashcardsNav');
-  
-    setTimeout(() => {
-    if (typeof startStudyDeck === 'function') {
-      startStudyDeck(deckId);
-    }
-  }, 100);
+  setTimeout(() => { if (typeof startStudyDeck === 'function') startStudyDeck(deckId); }, 100);
 }
 
 function navigateToSession(sessionId) {
   const searchResults = document.getElementById('searchResults');
   if (searchResults) searchResults.style.display = 'none';
   document.getElementById('globalSearch').value = '';
-  
   showView('planner');
   setActiveNav('studyPlannerNav');
-  
-    setTimeout(() => {
+  setTimeout(() => {
     const session = studySessions.find(s => s.id === sessionId);
-    if (session) {
-      showNotification(`Session: ${session.subject} on ${session.date} at ${session.time}`, 'info');
-    }
+    if (session) showNotification(`Session: ${session.subject} on ${session.date} at ${session.time}`, 'info');
   }, 100);
 }
 
@@ -1746,2228 +1585,15 @@ window.navigateToNote = navigateToNote;
 window.navigateToFlashcard = navigateToFlashcard;
 window.navigateToSession = navigateToSession;
 
-// IMPORTANT: Populate documents data and expose to window
-documents = {
-    "2020-21": {
-        "Class 9": {
-            "MT 1": {
-                "Bengali": "documents/2020-21_CL_9_MT_1_Bengali_I.pdf",
-                "Biology": "documents/2020-21_CL_9_MT_1_Biology_I.pdf",
-                "Chemistry": "documents/2020-21_CL_9_MT_1_Chemistry.pdf",
-                "Commerce": "documents/2020-21_CL_9_MT_1_Commerce_I.pdf",
-                "Computer": "documents/2020-21_CL_9_MT_1_Computer.pdf",
-                "Economics": "documents/2020-21_CL_9_MT_1_Economics.pdf",
-                "English Language": "documents/2020-21_CL_9_MT_1_English_Language.pdf",
-                "English Literature": "documents/2020-21_CL_9_MT_1_English_Literature.pdf",
-                "EVA": "documents/2020-21_CL_9_MT_1_EVA.pdf",
-                "EVS": "documents/2020-21_CL_9_MT_1_EVS.pdf",
-                "French": "documents/2020-21_CL_9_MT_1_French_I.pdf",
-                "Geography": "documents/2020-21_CL_9_MT_1_Geography.pdf",
-                "German": "documents/2020-21_CL_9_MT_1_German_I.pdf",
-                "Hindi": "documents/2020-21_CL_9_MT_1_Hindi.pdf",
-                "History": "documents/2020-21_CL_9_MT_1_History.pdf",
-                "Home Science": "documents/2020-21_CL_9_MT_1_Home_Science.pdf",
-                "Math": "documents/2020-21_CL_9_MT_1_Math.pdf",
-                "PE": "documents/2020-21_CL_9_MT_1_PE.pdf",
-                "Physics": "documents/2020-21_CL_9_MT_1_Physics.pdf",
-                "RAI": "#"
-            },
-            "MT 2": {
-                "Bengali": "documents/2020-21_CL_9_MT_2_Bengali.pdf",
-                "Biology": "documents/2020-21_CL_9_MT_2_Biology.pdf",
-                "Chemistry": "documents/2020-21_CL_9_MT_2_Chemistry.pdf",
-                "Commerce": "documents/2020-21_CL_9_MT_2_Commerce.pdf",
-                "Computer": "documents/2020-21_CL_9_MT_2_Computer.pdf",
-                "Economics": "documents/2020-21_CL_9_MT_2_Economics.pdf",
-                "English Language": "documents/2020-21_CL_9_MT_2_English_Language.pdf",
-                "English Literature": "documents/2020-21_CL_9_MT_2_English_Literature.pdf",
-                "EVA": "documents/2020-21_CL_9_MT_2_EVA.pdf",
-                "EVS": "documents/2020-21_CL_9_MT_2_EVS.pdf",
-                "French": "documents/2020-21_CL_9_MT_2_French.pdf",
-                "Geography": "documents/2020-21_CL_9_MT_2_Geography.pdf",
-                "German": "documents/2020-21_CL_9_MT_2_German.pdf",
-                "Hindi": "#",
-                "History": "documents/2020-21_CL_9_MT_2_History.pdf",
-                "Home Science": "documents/2020-21_CL_9_MT_2_Home_Science.pdf",
-                "Math": "documents/2020-21_CL_9_MT_2_Math.pdf",
-                "PE": "documents/2020-21_CL_9_MT_2_PE.pdf",
-                "Physics": "documents/2020-21_CL_9_MT_2_Physics.pdf",
-                "RAI": "#"
-            },
-            "HY": {
-                "Bengali": "documents/2020-21_CL_9_HY_Bengali_I.pdf",
-                "Biology": "documents/2020-21_CL_9_HY_Biology.pdf",
-                "Chemistry": "documents/2020-21_CL_9_HY_Chemistry.pdf",
-                "Commerce": "documents/2020-21_CL_9_HY_Commerce_I.pdf",
-                "Computer": "documents/2020-21_CL_9_HY_Computer.pdf",
-                "Economics": "#",
-                "English Language": "documents/2020-21_CL_9_HY_English_Language.pdf",
-                "English Literature": "documents/2020-21_CL_9_HY_English_Literature_I.pdf",
-                "EVA": "documents/2020-21_CL_9_HY_EVA.pdf",
-                "EVS": "documents/2020-21_CL_9_HY_EVS.pdf",
-                "French": "documents/2020-21_CL_9_HY_French.pdf",
-                "Geography": "documents/2020-21_CL_9_HY_Geography.pdf",
-                "German": "documents/2020-21_CL_9_HY_German.pdf",
-                "Hindi": "documents/2020-21_CL_9_HY_Hindi.pdf",
-                "History": "documents/2020-21_CL_9_HY_History.pdf",
-                "Home Science": "documents/2020-21_CL_9_HY_Home_Science.pdf",
-                "Math": "documents/2020-21_CL_9_HY_Math.pdf",
-                "PE": "documents/2020-21_CL_9_HY_PE.pdf",
-                "Physics": "documents/2020-21_CL_9_HY_Physics.pdf",
-                "RAI": "#"
-            },
-            "FT": {
-                "Bengali": "documents/2020-21_CL_9_FT_Bengali.pdf",
-                "Biology": "documents/2020-21_CL_9_FT_Biology.pdf",
-                "Chemistry": "documents/2020-21_CL_9_FT_Chemistry.pdf",
-                "Commerce": "documents/2020-21_CL_9_FT_Commerce.pdf",
-                "Computer": "documents/2020-21_CL_9_FT_Computer.pdf",
-                "Economics": "documents/2020-21_CL_9_FT_Economics.pdf",
-                "English Language": "documents/2020-21_CL_9_FT_English_Language_I.pdf",
-                "English Literature": "documents/2020-21_CL_9_FT_English_Literature_I.pdf",
-                "EVA": "documents/2020-21_CL_9_FT_EVA.pdf",
-                "EVS": "documents/2020-21_CL_9_FT_EVS.pdf",
-                "French": "documents/2020-21_CL_9_FT_French_.pdf",
-                "Geography": "documents/2020-21_CL_9_FT_Geography.pdf",
-                "German": "documents/2020-21_CL_9_FT_German.pdf",
-                "Hindi": "documents/2020-21_CL_9_FT_Hindi.pdf",
-                "History": "documents/2020-21_CL_9_FT_History_I.pdf",
-                "Home Science": "documents/2020-21_CL_9_FT_Home_Science.pdf",
-                "Math": "documents/2020-21_CL_9_FT_Math.pdf",
-                "PE": "documents/2020-21_CL_9_FT_PE.pdf",
-                "Physics": "documents/2020-21_CL_9_FT_Physics_I.pdf",
-                "RAI": "#"
-            }
-        },
-        "Class 10": {
-            "MT 1": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
-                "Commerce": "#",
-                "Computer": "#",
-                "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
-                "PE": "#",
-                "Physics": "#",
-                "RAI": "#"
-            },
-            "MT 2": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
-                "Commerce": "#",
-                "Computer": "#",
-                "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
-                "PE": "#",
-                "Physics": "#",
-                "RAI": "#"
-            },
-            "HY": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
-                "Commerce": "#",
-                "Computer": "#",
-                "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
-                "PE": "#",
-                "Physics": "#",
-                "RAI": "#"
-            },
-            "FT": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
-                "Commerce": "#",
-                "Computer": "#",
-                "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
-                "PE": "#",
-                "Physics": "#",
-                "RAI": "#"
-            }
-        },
-        "Class 11": {
-            "MT 1": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
-                "Commerce": "#",
-                "Computer": "#",
-                "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
-                "PE": "#",
-                "Physics": "#",
-                "RAI": "#"
-            },
-            "MT 2": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
-                "Commerce": "#",
-                "Computer": "#",
-                "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
-                "PE": "#",
-                "Physics": "#",
-                "RAI": "#"
-            },
-            "HY": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
-                "Commerce": "#",
-                "Computer": "#",
-                "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
-                "PE": "#",
-                "Physics": "#",
-                "RAI": "#"
-            },
-            "FT": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
-                "Commerce": "#",
-                "Computer": "#",
-                "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
-                "PE": "#",
-                "Physics": "#",
-                "RAI": "#"
-            }
-        },
-        "Class 12": {
-            "MT 1": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
-                "Commerce": "#",
-                "Computer": "#",
-                "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
-                "PE": "#",
-                "Physics": "#",
-                "RAI": "#"
-            },
-            "MT 2": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
-                "Commerce": "#",
-                "Computer": "#",
-                "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
-                "PE": "#",
-                "Physics": "#",
-                "RAI": "#"
-            },
-            "HY": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
-                "Commerce": "#",
-                "Computer": "#",
-                "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
-                "PE": "#",
-                "Physics": "#",
-                "RAI": "#"
-            },
-            "FT": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
-                "Commerce": "#",
-                "Computer": "#",
-                "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
-                "PE": "#",
-                "Physics": "#",
-                "RAI": "#"
-            }
-        }
-    },
-    "2021-22": {
-        "Class 9": {
-            "MT 1": {
-                "Bengali": "documents/2021-22_CL_9_MT_1_Bengali.pdf",
-                "Biology": "documents/2021-22_CL_9_MT_1_Biology.pdf",
-                "Chemistry": "documents/2021-22_CL_9_MT_1_Chemistry.pdf",
-                "Commerce": "documents/2021-22_CL_9_MT_1_Commerce.pdf",
-                "Computer": "documents/2021-22_CL_9_MT_1_Computer.pdf",
-                "Economics": "documents/2021-22_CL_9_MT_1_Economics.pdf",
-                "English Language": "documents/2021-22_CL_9_MT_1_English_Language.pdf",
-                "English Literature": "documents/2021-22_CL_9_MT_1_English_Literature.pdf",
-                "EVA": "documents/2021-22_CL_9_MT_1_EVA.pdf",
-                "EVS": "documents/2021-22_CL_9_MT_1_EVS.pdf",
-                "French": "documents/2021-22_CL_9_MT_1_French.pdf",
-                "Geography": "documents/2021-22_CL_9_MT_1_Geography.pdf",
-                "German": "documents/2021-22_CL_9_MT_1_German.pdf",
-                "Hindi": "documents/2021-22_CL_9_MT_1_Hindi.pdf",
-                "History": "documents/2021-22_CL_9_MT_1_History.pdf",
-                "Home Science": "documents/2021-22_CL_9_MT_1_Home_Science.pdf",
-                "Math": "documents/2021-22_CL_9_MT_1_Math.pdf",
-                "PE": "documents/2021-22_CL_9_MT_1_PE.pdf",
-                "Physics": "documents/2021-22_CL_9_MT_1_Physics.pdf",
-                "RAI": "#"
-            },
-            "MT 2": {
-                "Bengali": "documents/2021-22_CL_9_MT_2_Bengali.pdf",
-                "Biology": "documents/2021-22_CL_9_MT_2_Biology.pdf",
-                "Chemistry": "documents/2021-22_CL_9_MT_2_Chemistry.pdf",
-                "Commerce": "documents/2021-22_CL_9_MT_2_Commerce.pdf",
-                "Computer": "documents/2021-22_CL_9_MT_2_Computer.pdf",
-                "Economics": "documents/2021-22_CL_9_MT_2_Economics.pdf",
-                "English Language": "documents/2021-22_CL_9_MT_2_English_Language.pdf",
-                "English Literature": "documents/2021-22_CL_9_MT_2_English_Literature.pdf",
-                "EVA": "documents/2021-22_CL_9_MT_2_EVA.pdf",
-                "EVS": "documents/2021-22_CL_9_MT_2_EVS.pdf",
-                "French": "documents/2021-22_CL_9_MT_2_French.pdf",
-                "Geography": "documents/2021-22_CL_9_MT_2_Geography.pdf",
-                "German": "documents/2021-22_CL_9_MT_2_German.pdf",
-                "Hindi": "documents/2021-22_CL_9_MT_2_Hindi.pdf",
-                "History": "documents/2021-22_CL_9_MT_2_History.pdf",
-                "Home Science": "documents/2021-22_CL_9_MT_2_Home_Science.pdf",
-                "Math": "documents/2021-22_CL_9_MT_2_Math.pdf",
-                "PE": "documents/2021-22_CL_9_MT_2_PE.pdf",
-                "Physics": "documents/2021-22_CL_9_MT_2_Physics.pdf",
-                "RAI": "#"
-            },
-            "HY": {
-                "Bengali": "documents/2021-22_CL_9_HY_Bengali_I.pdf",
-                "Biology": "documents/2021-22_CL_9_HY_Biology_I.pdf",
-                "Chemistry": "documents/2021-22_CL_9_HY_Chemistry_I.pdf",
-                "Commerce": "documents/2021-22_CL_9_HY_Commerce_I.pdf",
-                "Computer": "documents/2021-22_CL_9_HY_Computer_I.pdf",
-                "Economics": "documents/2021-22_CL_9_HY_Economics_I.pdf",
-                "English Language": "documents/2021-22_CL_9_HY_English_Language_I.pdf",
-                "English Literature": "documents/2021-22_CL_9_HY_English_Literature_II.pdf",
-                "EVA": "documents/2021-22_CL_9_HY_EVA_I.pdf",
-                "EVS": "documents/2021-22_CL_9_HY_EVS_I.pdf",
-                "French": "#",
-                "Geography": "documents/2021-22_CL_9_HY_Geography_I.pdf",
-                "German": "documents/2021-22_CL_9_HY_German_I.pdf",
-                "Hindi": "documents/2021-22_CL_9_HY_Hindi.pdf",
-                "History": "documents/2021-22_CL_9_HY_History.pdf",
-                "Home Science": "documents/2021-22_CL_9_HY_Home_Science_I.pdf",
-                "Math": "documents/2021-22_CL_9_HY_Math_I.pdf",
-                "PE": "documents/2021-22_CL_9_HY_PE_I.pdf",
-                "Physics": "documents/2021-22_CL_9_HY_Physics_I.pdf",
-                "RAI": "#"
-            },
-            "FT": {
-                "Bengali": "documents/2021-22_CL_9_FT_Bengali.pdf",
-                "Biology": "documents/2021-22_CL_9_FT_Biology.pdf",
-                "Chemistry": "documents/2021-22_CL_9_FT_Chemistry.pdf",
-                "Commerce": "documents/2021-22_CL_9_FT_Commerce.pdf",
-                "Computer": "documents/2021-22_CL_9_FT_Computer.pdf",
-                "Economics": "documents/2021-22_CL_9_FT_Economics.pdf",
-                "English Language": "documents/2021-22_CL_9_FT_English_Language.pdf",
-                "English Literature": "documents/2021-22_CL_9_FT_English_Literature.pdf",
-                "EVA": "documents/2021-22_CL_9_FT_EVA.pdf",
-                "EVS": "documents/2021-22_CL_9_FT_EVS.pdf",
-                "French": "documents/2021-22_CL_9_FT_French.pdf",
-                "Geography": "documents/2021-22_CL_9_FT_Geography.pdf",
-                "German": "documents/2021-22_CL_9_FT_German.pdf",
-                "Hindi": "documents/2021-22_CL_9_FT_Hindi.pdf",
-                "History": "documents/2021-22_CL_9_FT_History.pdf",
-                "Home Science": "documents/2021-22_CL_9_FT_Home_Science.pdf",
-                "Math": "documents/2021-22_CL_9_FT_Math.pdf",
-                "PE": "documents/2021-22_CL_9_FT_PE.pdf",
-                "Physics": "documents/2021-22_CL_9_FT_Physics.pdf",
-                "RAI": "#"
-            }
-        },
-        "Class 10": {
-            "MT 1": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
-                "Commerce": "#",
-                "Computer": "#",
-                "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
-                "PE": "#",
-                "Physics": "#",
-                "RAI": "#"
-            },
-            "MT 2": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
-                "Commerce": "#",
-                "Computer": "#",
-                "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
-                "PE": "#",
-                "Physics": "#",
-                "RAI": "#"
-            },
-            "HY": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
-                "Commerce": "#",
-                "Computer": "#",
-                "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
-                "PE": "#",
-                "Physics": "#",
-                "RAI": "#"
-            },
-            "FT": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
-                "Commerce": "#",
-                "Computer": "#",
-                "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
-                "PE": "#",
-                "Physics": "#",
-                "RAI": "#"
-            }
-        },
-        "Class 11": {
-            "MT 1": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
-                "Commerce": "#",
-                "Computer": "#",
-                "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
-                "PE": "#",
-                "Physics": "#",
-                "RAI": "#"
-            },
-            "MT 2": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
-                "Commerce": "#",
-                "Computer": "#",
-                "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
-                "PE": "#",
-                "Physics": "#",
-                "RAI": "#"
-            },
-            "HY": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
-                "Commerce": "#",
-                "Computer": "#",
-                "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
-                "PE": "#",
-                "Physics": "#",
-                "RAI": "#"
-            },
-            "FT": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
-                "Commerce": "#",
-                "Computer": "#",
-                "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
-                "PE": "#",
-                "Physics": "#",
-                "RAI": "#"
-            }
-        },
-        "Class 12": {
-            "MT 1": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
-                "Commerce": "#",
-                "Computer": "#",
-                "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
-                "PE": "#",
-                "Physics": "#",
-                "RAI": "#"
-            },
-            "MT 2": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
-                "Commerce": "#",
-                "Computer": "#",
-                "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
-                "PE": "#",
-                "Physics": "#",
-                "RAI": "#"
-            },
-            "HY": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
-                "Commerce": "#",
-                "Computer": "#",
-                "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
-                "PE": "#",
-                "Physics": "#",
-                "RAI": "#"
-            },
-            "FT": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
-                "Commerce": "#",
-                "Computer": "#",
-                "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
-                "PE": "#",
-                "Physics": "#",
-                "RAI": "#"
-            }
-        }
-    },
-    "2022-23": {
-        "Class 9": {
-            "MT 1": {
-                "Bengali": "documents/2022-23_CL_9_MT_1_Bengali.pdf",
-                "Biology": "documents/2022-23_CL_9_MT_1_Biology.pdf",
-                "Chemistry": "documents/2022-23_CL_9_MT_1_Chemistry.pdf",
-                "Commerce": "documents/2022-23_CL_9_MT_1_Commerce.pdf",
-                "Computer": "documents/2022-23_CL_9_MT_1_Computer.pdf",
-                "Economics": "documents/2022-23_CL_9_MT_1_Economics.pdf",
-                "English Language": "documents/2022-23_CL_9_MT_1_English_Language.pdf",
-                "English Literature": "documents/2022-23_CL_9_MT_1_English_Literature.pdf",
-                "EVA": "documents/2022-23_CL_9_MT_1_EVA.pdf",
-                "EVS": "documents/2022-23_CL_9_MT_1_EVS.pdf",
-                "French": "documents/2022-23_CL_9_MT_1_French.pdf",
-                "Geography": "documents/2022-23_CL_9_MT_1_Geography.pdf",
-                "German": "documents/2022-23_CL_9_MT_1_German.pdf",
-                "Hindi": "documents/2022-23_CL_9_MT_1_Hindi.pdf",
-                "History": "documents/2022-23_CL_9_MT_1_History.pdf",
-                "Home Science": "documents/2022-23_CL_9_MT_1_Home_Science.pdf",
-                "Math": "documents/2022-23_CL_9_MT_1_Math.pdf",
-                "PE": "documents/2022-23_CL_9_MT_1_PE.pdf",
-                "Physics": "documents/2022-23_CL_9_MT_1_Physics.pdf",
-                "RAI": "#"
-            },
-            "MT 2": {
-                "Bengali": "documents/2022-23_CL_9_MT2_Bengali.pdf",
-                "Biology": "documents/2022-23_CL_9_MT2_Biology.pdf",
-                "Chemistry": "documents/2022-23_CL_9_MT2_Chemistry.pdf",
-                "Commerce": "documents/2022-23_CL_9_MT2_Commerce.pdf",
-                "Computer": "documents/2022-23_CL_9_MT2_Computer.pdf",
-                "Economics": "documents/2022-23_CL_9_MT2_Economics.pdf",
-                "English Language": "documents/2022-23_CL_9_MT2_EnglishLanguage.pdf",
-                "English Literature": "documents/2022-23_CL_9_MT2_EnglishLiterature.pdf",
-                "EVA": "documents/2022-23_CL_9_MT2_EVA.pdf",
-                "EVS": "documents/2022-23_CL_9_MT2_EVS.pdf",
-                "French": "documents/2022-23_CL_9_MT2_French.pdf",
-                "Geography": "documents/2022-23_CL_9_MT2_Geography.pdf",
-                "German": "documents/2022-23_CL_9_MT2_German.pdf",
-                "Hindi": "documents/2022-23_CL_9_MT2_Hindi.pdf",
-                "History": "documents/2022-23_CL_9_MT2_History.pdf",
-                "Home Science": "documents/2022-23_CL_9_MT2_HomeScience.pdf",
-                "Math": "documents/2022-23_CL_9_MT2_Math.pdf",
-                "PE": "documents/2022-23_CL_9_MT2_PE.pdf",
-                "Physics": "documents/2022-23_CL_9_MT2_Physics.pdf",
-                "RAI": "#",
-                "EnglishLanguage": "documents/2022-23_CL_9_MT2_EnglishLanguage.pdf",
-                "EnglishLiterature": "documents/2022-23_CL_9_MT2_EnglishLiterature.pdf",
-                "HomeScience": "documents/2022-23_CL_9_MT2_HomeScience.pdf"
-            },
-            "HY": {
-                "Bengali": "documents/2022-23_CL_9_HY_Bengali.pdf",
-                "Biology": "documents/2022-23_CL_9_HY_Biology.pdf",
-                "Chemistry": "documents/2022-23_CL_9_HY_Chemistry.pdf",
-                "Commerce": "documents/2022-23_CL_9_HY_Commerce.pdf",
-                "Computer": "documents/2022-23_CL_9_HY_Computer.pdf",
-                "Economics": "documents/2022-23_CL_9_HY_Economics.pdf",
-                "English Language": "documents/2022-23_CL_9_HY_English_Language.pdf",
-                "English Literature": "documents/2022-23_CL_9_HY_English_Literature.pdf",
-                "EVA": "documents/2022-23_CL_9_HY_EVA.pdf",
-                "EVS": "documents/2022-23_CL_9_HY_EVS.pdf",
-                "French": "documents/2022-23_CL_9_HY_French.pdf",
-                "Geography": "documents/2022-23_CL_9_HY_Geography.pdf",
-                "German": "documents/2022-23_CL_9_HY_German.pdf",
-                "Hindi": "documents/2022-23_CL_9_HY_Hindi.pdf",
-                "History": "documents/2022-23_CL_9_HY_History.pdf",
-                "Home Science": "documents/2022-23_CL_9_HY_Home_Science.pdf",
-                "Math": "documents/2022-23_CL_9_HY_Math.pdf",
-                "PE": "documents/2022-23_CL_9_HY_PE.pdf",
-                "Physics": "documents/2022-23_CL_9_HY_Physics.pdf",
-                "RAI": "#"
-            },
-            "FT": {
-                "Bengali": "documents/2022-23_CL_9_FT_Bengali.pdf",
-                "Biology": "documents/2022-23_CL_9_FT_Biology.pdf",
-                "Chemistry": "documents/2022-23_CL_9_FT_Chemistry.pdf",
-                "Commerce": "documents/2022-23_CL_9_FT_Commerce.pdf",
-                "Computer": "documents/2022-23_CL_9_FT_Computer.pdf",
-                "Economics": "documents/2022-23_CL_9_FT_Economics.pdf",
-                "English Language": "documents/2022-23_CL_9_FT_English_Language.pdf",
-                "English Literature": "documents/2022-23_CL_9_FT_English_Literature.pdf",
-                "EVA": "documents/2022-23_CL_9_FT_EVA.pdf",
-                "EVS": "documents/2022-23_CL_9_FT_EVS.pdf",
-                "French": "documents/2022-23_CL_9_FT_French.pdf",
-                "Geography": "documents/2022-23_CL_9_FT_Geography.pdf",
-                "German": "documents/2022-23_CL_9_FT_German.pdf",
-                "Hindi": "documents/2022-23_CL_9_FT_Hindi.pdf",
-                "History": "documents/2022-23_CL_9_FT_History.pdf",
-                "Home Science": "documents/2022-23_CL_9_FT_Home_Science.pdf",
-                "Math": "documents/2022-23_CL_9_FT_Math.pdf",
-                "PE": "documents/2022-23_CL_9_FT_PE.pdf",
-                "Physics": "documents/2022-23_CL_9_FT_Physics.pdf",
-                "RAI": "#"
-            }
-        },
-"Class 10": {
-            "MT 1": {
-                "Bengali": "documents/2022-23_CL_10_MT_1_MT 1_BENGALI.pdf",
-                "Biology": "documents/2022-23_CL_10_MT_1_MT 1_BIOLOGY.pdf",
-                "Chemistry": "documents/2022-23_CL_10_MT_1_MT 1_CHEMISTRY.pdf",
-                "Commerce": "#",
-                "Computer": "#",
-                "Economics": "#",
-                "English Language": "documents/2022-23_CL_10_MT_1_LANGUAGE.pdf",
-                "English Literature": "documents/2022-23_CL_10_MT_1_LITERATURE.pdf",
-                "EVA": "documents/2022-23_CL_10_MT_1_MT 1_EVA.pdf",
-                "EVS": "#",
-                "French": "documents/2022-23_CL_10_MT_1_MT 1_FRENCH (L2).pdf",
-                "Geography": "#",
-                "German": "documents/2022-23_CL_10_MT_1_MT 1_GERMAN (L2).pdf",
-                "Hindi": "documents/2022-23_CL_10_MT_1_MT 1_HINDI.pdf",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "documents/2022-23_CL_10_MT_1_MT 1_MATHS.pdf",
-                "PE": "#",
-                "Physics": "#",
-                "RAI": "#"
-            },
-            "MT 2": {
-                "Bengali": "documents/2022-23_CL_10_MT_2_MT 2_BENGALI.pdf",
-                "Biology": "documents/2022-23_CL_10_MT_2_MT 2_BIOLOGY.pdf",
-                "Chemistry": "documents/2022-23_CL_10_MT_2_MT 2_CHEMISTRY.pdf",
-                "Commerce": "#",
-                "Computer": "documents/2022-23_CL_10_MT_2_MT 2_COMPUTER APPLICATIONS.pdf",
-                "Economics": "#",
-                "English Language": "documents/2022-23_CL_10_MT_2_LANGUAGE.pdf",
-                "English Literature": "documents/2022-23_CL_10_MT_2_LITERATURE.pdf",
-                "EVA": "documents/2022-23_CL_10_MT_2_MT 2_EVA.pdf",
-                "EVS": "#",
-                "French": "documents/2022-23_CL_10_MT_2_MT 2_FRENCH (L2).pdf",
-                "Geography": "documents/2022-23_CL_10_MT_2_MT 2_GEOGRAPHY.pdf",
-                "German": "documents/2022-23_CL_10_MT_2_MT 2_GERMAN (L2).pdf",
-                "Hindi": "documents/2022-23_CL_10_MT_2_MT 2_HINDI.pdf",
-                "History": "documents/2022-23_CL_10_MT_2_MT 2_HISTORY _ CIVICS.pdf",
-                "Home Science": "documents/2022-23_CL_10_MT_2_MT 2_HOME SCIENCE.pdf",
-                "Math": "documents/2022-23_CL_10_MT_2_MT 2_MATHS.pdf",
-                "PE": "#",
-                "Physics": "documents/2022-23_CL_10_MT_2_MT 2_PHYSICS.pdf",
-                "RAI": "#"
-            },
-            "HY": {
-                "Bengali": "documents/2022-23_CL_10_HY_HY EXAM_BENGALI (SET-A).pdf",
-                "Biology": "documents/2022-23_CL_10_HY_HY EXAM_BIOLOGY (SET-A).pdf",
-                "Chemistry": "documents/2022-23_CL_10_HY_HY EXAM_CHEMISTRY (SET-A).pdf",
-                "Commerce": "#",
-                "Computer": "#",
-                "Economics": "#",
-                "English Language": "documents/2022-23_CL_10_HY_LANGUAGE.pdf",
-                "English Literature": "documents/2022-23_CL_10_HY_LITERATURE.pdf",
-                "EVA": "documents/2022-23_CL_10_HY_HY EXAM_EVA (SET-B).pdf",
-                "EVS": "documents/2022-23_CL_10_HY_HY EXAM_EVS.pdf",
-                "French": "documents/2022-23_CL_10_HY_HY EXAM_FRENCH (L2).pdf",
-                "Geography": "documents/2022-23_CL_10_HY_HY EXAM_GEOGRAPHY (SET-A).pdf",
-                "German": "#",
-                "Hindi": "documents/2022-23_CL_10_HY_HY EXAM_HINDI (SET-A).pdf",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "documents/2022-23_CL_10_HY_HY EXAM_MATHS (SET-B).pdf",
-                "PE": "documents/2022-23_CL_10_HY_CL.10_HY EXAM PE.pdf",
-                "Physics": "documents/2022-23_CL_10_HY_HY EXAM_PHYSICS (SET-B).pdf",
-                "RAI": "#"
-            },
-            "FT": {
-                "Bengali": "documents/2022-23_CL_10_PREBOARD_PRE BOARD_BENGALI (SET-A).pdf",
-                "Biology": "documents/2022-23_CL_10_PREBOARD_PRE BOARD_BIOLOGY (SET-A).pdf",
-                "Chemistry": "documents/2022-23_CL_10_PREBOARD_PRE BOARD_CHEMISTRY (SET-A).pdf",
-                "Commerce": "#",
-                "Computer": "documents/2022-23_CL_10_PREBOARD_PRE BOARD_COMPUTER APPLICATIONS (SET-A).pdf",
-                "Economics": "#",
-                "English Language": "documents/2022-23_CL_10_PREBOARD_LANGUAGE.pdf",
-                "English Literature": "documents/2022-23_CL_10_PREBOARD_LITERATURE.pdf",
-                "EVA": "documents/2022-23_CL_10_PREBOARD_PRE BOARD_EVA (SET-A).pdf",
-                "EVS": "documents/2022-23_CL_10_PREBOARD_PRE BOARD_EVS.pdf",
-                "French": "documents/2022-23_CL_10_PREBOARD_PRE BOARD_FRENCH (L2).pdf",
-                "Geography": "documents/2022-23_CL_10_PREBOARD_PRE BOARD_GEOGRAPHY (SET-A).pdf",
-                "German": "#",
-                "Hindi": "#",
-                "History": "documents/2022-23_CL_10_PREBOARD_PRE BOARD_HISTORY _ CIVICS (SET-A).pdf",
-                "Home Science": "documents/2022-23_CL_10_PREBOARD_PRE BOARD_HOME SCIENCE (SET-A).pdf",
-                "Math": "documents/2022-23_CL_10_PREBOARD_PRE BOARD_MATHS (SET-A).pdf",
-                "PE": "#",
-                "Physics": "documents/2022-23_CL_10_PREBOARD_PRE BOARD_PHYSICS (SET-A).pdf",
-                "RAI": "#"
-            }
-        },
-    
-        "Class 11": {
-            "MT 1": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
-                "Commerce": "#",
-                "Computer": "#",
-                "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
-                "PE": "#",
-                "Physics": "#",
-                "RAI": "#"
-            },
-            "MT 2": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
-                "Commerce": "#",
-                "Computer": "#",
-                "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
-                "PE": "#",
-                "Physics": "#",
-                "RAI": "#"
-            },
-            "HY": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
-                "Commerce": "#",
-                "Computer": "#",
-                "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
-                "PE": "#",
-                "Physics": "#",
-                "RAI": "#"
-            },
-            "FT": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
-                "Commerce": "#",
-                "Computer": "#",
-                "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
-                "PE": "#",
-                "Physics": "#",
-                "RAI": "#"
-            }
-        },
-        "Class 12": {
-            "MT 1": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
-                "Commerce": "#",
-                "Computer": "#",
-                "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
-                "PE": "#",
-                "Physics": "#",
-                "RAI": "#"
-            },
-            "MT 2": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
-                "Commerce": "#",
-                "Computer": "#",
-                "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
-                "PE": "#",
-                "Physics": "#",
-                "RAI": "#"
-            },
-            "HY": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
-                "Commerce": "#",
-                "Computer": "#",
-                "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
-                "PE": "#",
-                "Physics": "#",
-                "RAI": "#"
-            },
-            "FT": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
-                "Commerce": "#",
-                "Computer": "#",
-                "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
-                "PE": "#",
-                "Physics": "#",
-                "RAI": "#"
-            }
-        }
-    },
-    "2023-24": {
-        "Class 9": {
-            "MT 1": {
-                "Bengali": "documents/2023-24_CL_9_MT_1_Bengali.pdf",
-                "Biology": "documents/2023-24_CL_9_MT_1_Biology.pdf",
-                "Chemistry": "documents/2023-24_CL_9_MT_1_Chemistry.pdf",
-                "Commerce": "documents/2023-24_CL_9_MT_1_Commerce.pdf",
-                "Computer": "documents/2023-24_CL_9_MT_1_Computer.pdf",
-                "Economics": "documents/2023-24_CL_9_MT_1_Economics.pdf",
-                "English Language": "documents/2023-24_CL_9_MT_1_English_Language.pdf",
-                "English Literature": "documents/2023-24_CL_9_MT_1_English_Literature.pdf",
-                "EVA": "documents/2023-24_CL_9_MT_1_EVA.pdf",
-                "EVS": "documents/2023-24_CL_9_MT_1_EVS.pdf",
-                "French": "documents/2023-24_CL_9_MT_1_French.pdf",
-                "Geography": "documents/2023-24_CL_9_MT_1_Geography.pdf",
-                "German": "documents/2023-24_CL_9_MT_1_German.pdf",
-                "Hindi": "documents/2023-24_CL_9_MT_1_Hindi.pdf",
-                "History": "documents/2023-24_CL_9_MT_1_History.pdf",
-                "Home Science": "documents/2023-24_CL_9_MT_1_Home_Science.pdf",
-                "Math": "documents/2023-24_CL_9_MT_1_Math.pdf",
-                "PE": "documents/2023-24_CL_9_MT_1_PE.pdf",
-                "Physics": "#",
-                "RAI": "#"
-            },
-            "MT 2": {
-                "Bengali": "documents/2023-24_CL_9_MT_2_Bengali.pdf",
-                "Biology": "documents/2023-24_CL_9_MT_2_Biology.pdf",
-                "Chemistry": "documents/2023-24_CL_9_MT_2_Chemistry.pdf",
-                "Commerce": "documents/2023-24_CL_9_MT_2_Commerce.pdf",
-                "Computer": "documents/2023-24_CL_9_MT_2_Computer.pdf",
-                "Economics": "documents/2023-24_CL_9_MT_2_Economics.pdf",
-                "English Language": "documents/2023-24_CL_9_MT_2_English_Language.pdf",
-                "English Literature": "documents/2023-24_CL_9_MT_2_English_Literature.pdf",
-                "EVA": "documents/2023-24_CL_9_MT_2_EVA.pdf",
-                "EVS": "documents/2023-24_CL_9_MT_2_EVS.pdf",
-                "French": "documents/2023-24_CL_9_MT_2_French.pdf",
-                "Geography": "documents/2023-24_CL_9_MT_2_Geography.pdf",
-                "German": "documents/2023-24_CL_9_MT_2_German.pdf",
-                "Hindi": "documents/2023-24_CL_9_MT_2_Hindi.pdf",
-                "History": "documents/2023-24_CL_9_MT_2_History.pdf",
-                "Home Science": "documents/2023-24_CL_9_MT_2_Home_Science.pdf",
-                "Math": "documents/2023-24_CL_9_MT_2_Math.pdf",
-                "PE": "documents/2023-24_CL_9_MT_2_PE.pdf",
-                "Physics": "documents/2023-24_CL_9_MT_2_Physics.pdf",
-                "RAI": "#"
-            },
-            "HY": {
-                "Bengali": "documents/2023-24_CL_9_HY_Bengali.pdf",
-                "Biology": "documents/2023-24_CL_9_HY_Biology.pdf",
-                "Chemistry": "documents/2023-24_CL_9_HY_Chemistry.pdf",
-                "Commerce": "documents/2023-24_CL_9_HY_Commerce.pdf",
-                "Computer": "documents/2023-24_CL_9_HY_Computer.pdf",
-                "Economics": "documents/2023-24_CL_9_HY_Economics.pdf",
-                "English Language": "documents/2023-24_CL_9_HY_English_Language.pdf",
-                "English Literature": "documents/2023-24_CL_9_HY_English_Literature.pdf",
-                "EVA": "documents/2023-24_CL_9_HY_EVA.pdf",
-                "EVS": "documents/2023-24_CL_9_HY_EVS.pdf",
-                "French": "documents/2023-24_CL_9_HY_French.pdf",
-                "Geography": "documents/2023-24_CL_9_HY_Geography.pdf",
-                "German": "documents/2023-24_CL_9_HY_German.pdf",
-                "Hindi": "documents/2023-24_CL_9_HY_Hindi.pdf",
-                "History": "documents/2023-24_CL_9_HY_History.pdf",
-                "Home Science": "documents/2023-24_CL_9_HY_Home_Science.pdf",
-                "Math": "documents/2023-24_CL_9_HY_Math.pdf",
-                "PE": "documents/2023-24_CL_9_HY_PE.pdf",
-                "Physics": "documents/2023-24_CL_9_HY_Physics.pdf",
-                "RAI": "#"
-            },
-            "FT": {
-                "Bengali": "documents/2023-24_CL_9_FT_Bengali.pdf",
-                "Biology": "documents/2023-24_CL_9_FT_Biology.pdf",
-                "Chemistry": "documents/2023-24_CL_9_FT_Chemistry.pdf",
-                "Commerce": "documents/2023-24_CL_9_FT_Commerce.pdf",
-                "Computer": "documents/2023-24_CL_9_FT_Computer.pdf",
-                "Economics": "documents/2023-24_CL_9_FT_Economics.pdf",
-                "English Language": "documents/2023-24_CL_9_FT_English_Language.pdf",
-                "English Literature": "documents/2023-24_CL_9_FT_English_Literature.pdf",
-                "EVA": "documents/2023-24_CL_9_FT_EVA.pdf",
-                "EVS": "documents/2023-24_CL_9_FT_EVS.pdf",
-                "French": "documents/2023-24_CL_9_FT_French.pdf",
-                "Geography": "documents/2023-24_CL_9_FT_Geography.pdf",
-                "German": "documents/2023-24_CL_9_FT_German.pdf",
-                "Hindi": "documents/2023-24_CL_9_FT_Hindi.pdf",
-                "History": "documents/2023-24_CL_9_FT_History.pdf",
-                "Home Science": "documents/2023-24_CL_9_FT_Home_Science.pdf",
-                "Math": "documents/2023-24_CL_9_FT_Math.pdf",
-                "PE": "documents/2023-24_CL_9_FT_PE.pdf",
-                "Physics": "documents/2023-24_CL_9_FT_Physics.pdf",
-                "RAI": "documents/2023-24_CL_9_FT_RAI.pdf"
-            }
-        },
-        "Class 10": {
-            "MT 1": {
-                "Bengali": "documents/2023-24_CL_10_MT_1_BENGALI.pdf",
-                "Biology": "documents/2023-24_CL_10_MT_1_BIOLOGY.pdf",
-                "Chemistry": "documents/2023-24_CL_10_MT_1_CHEMISTRY.pdf",
-                "Commerce": "documents/2023-24_CL_10_MT_1_COMMERCIAL STUDIES.pdf",
-                "Computer": "documents/2023-24_CL_10_MT_1_COMPUTER APPLICATIONS.pdf",
-                "Economics": "documents/2023-24_CL_10_MT_1_ECONOMIC APPLICATIONS.pdf",
-                "English Language": "documents/2023-24_CL_10_MT_1_LANGUAGE.pdf",
-                "English Literature": "documents/2023-24_CL_10_MT_1_LITERATURE.pdf",
-                "EVA": "documents/2023-24_CL_10_MT_1_EVA.pdf",
-                "EVS": "documents/2023-24_CL_10_MT_1_EVS.pdf",
-                "French": "documents/2023-24_CL_10_MT_1_FRENCH (L2).pdf",
-                "Geography": "documents/2023-24_CL_10_MT_1_GEOGRAPHY.pdf",
-                "German": "documents/2023-24_CL_10_MT_1_GERMAN (L2).pdf",
-                "Hindi": "documents/2023-24_CL_10_MT_1_HINDI.pdf",
-                "History": "documents/2023-24_CL_10_MT_1_HISTORY AND CIVICS.pdf",
-                "Home Science": "documents/2023-24_CL_10_MT_1_HOME SCIENCE.pdf",
-                "Math": "documents/2023-24_CL_10_MT_1_MATHS.pdf",
-                "PE": "#",
-                "Physics": "documents/2023-24_CL_10_MT_1_PHYSICS.pdf",
-                "RAI": "#"
-            },
-            "MT 2": {
-                "Bengali": "documents/2023-24_CL_10_MT_2_BENGALI.pdf",
-                "Biology": "documents/2023-24_CL_10_MT_2_BIOLOGY.pdf",
-                "Chemistry": "documents/2023-24_CL_10_MT_2_CHEMISTRY.pdf",
-                "Commerce": "#",
-                "Computer": "documents/2023-24_CL_10_MT_2_M-2_COMPUTER APPLICATIONS.pdf",
-                "Economics": "documents/2023-24_CL_10_MT_2_ECONOMIC APPLICATIONS.pdf",
-                "English Language": "documents/2023-24_CL_10_MT_2_LANGUAGE.pdf",
-                "English Literature": "documents/2023-24_CL_10_MT_2_LITERATURE.pdf",
-                "EVA": "documents/2023-24_CL_10_MT_2_EVA.pdf",
-                "EVS": "documents/2023-24_CL_10_MT_2_X_EVS_MT2_2023.pdf",
-                "French": "documents/2023-24_CL_10_MT_2_M-2_FRENCH (L2).pdf",
-                "Geography": "documents/2023-24_CL_10_MT_2_GEOGRAPHY.pdf",
-                "German": "documents/2023-24_CL_10_MT_2_GERMAN (L2).pdf",
-                "Hindi": "documents/2023-24_CL_10_MT_2_M-2_HINDI.pdf",
-                "History": "documents/2023-24_CL_10_MT_2_HISTORY AND CIVICS.pdf",
-                "Home Science": "documents/2023-24_CL_10_MT_2_HOME SCIENCE.pdf",
-                "Math": "documents/2023-24_CL_10_MT_2_X_MATHS_MT-2_2023.pdf",
-                "PE": "#",
-                "Physics": "documents/2023-24_CL_10_MT_2_PHYSICS.pdf",
-                "RAI": "#"
-            },
-            "HY": {
-                "Bengali": "documents/2023-24_CL_10_HY_HY_BENGALI (SET-A).pdf",
-                "Biology": "documents/2023-24_CL_10_HY_HY_BIOLOGY (SET-A).pdf",
-                "Chemistry": "documents/2023-24_CL_10_HY_HY_CHEMISTRY (SET-A).pdf",
-                "Commerce": "#",
-                "Computer": "documents/2023-24_CL_10_HY_HY_COMPUTER APPLICATIONS (SET-A).pdf",
-                "Economics": "#",
-                "English Language": "documents/2023-24_CL_10_HY_LANGUAGE.pdf",
-                "English Literature": "documents/2023-24_CL_10_HY_LITERATURE.pdf",
-                "EVA": "documents/2023-24_CL_10_HY_HY_EVA (SET-A).pdf",
-                "EVS": "documents/2023-24_CL_10_HY_HY_EVS.pdf",
-                "French": "documents/2023-24_CL_10_HY_HY_FRENCH (L2).pdf",
-                "Geography": "documents/2023-24_CL_10_HY_HY_GEOGRAPHY (SET-A).pdf",
-                "German": "documents/2023-24_CL_10_HY_HY_GERMAN (L2).pdf",
-                "Hindi": "documents/2023-24_CL_10_HY_HY_HINDI (SET-A).pdf",
-                "History": "documents/2023-24_CL_10_HY_HY_HISTORY AND CIVICS (SET-A).pdf",
-                "Home Science": "documents/2023-24_CL_10_HY_HY_HOME SCIENCE (SET-A).pdf",
-                "Math": "documents/2023-24_CL_10_HY_HY_MATHS (SET-A).pdf",
-                "PE": "#",
-                "Physics": "documents/2023-24_CL_10_HY_HY_PHYSICS (SET-A).pdf",
-                "RAI": "#"
-            },
-            "FT": {
-                "Bengali": "documents/2023-24_CL_10_PREBOARD_PRE BOARD_BENGALI (SET-A).pdf",
-                "Biology": "documents/2023-24_CL_10_PREBOARD_PRE BOARD_BIOLOGY (SET-A).pdf",
-                "Chemistry": "documents/2023-24_CL_10_PREBOARD_PRE BOARD_CHEMISTRY (SET-A).pdf",
-                "Commerce": "#",
-                "Computer": "documents/2023-24_CL_10_PREBOARD_PRE BOARD_COMPUTER APPLICATIONS (SET-A).pdf",
-                "Economics": "#",
-                "English Language": "#",
-                "English Literature": "documents/2023-24_CL_10_PREBOARD_LITERATURE.pdf",
-                "EVA": "documents/2023-24_CL_10_PREBOARD_PRE BOARD_EVA (SET-A).pdf",
-                "EVS": "documents/2023-24_CL_10_PREBOARD_PRE BOARD_EVS.pdf",
-                "French": "documents/2023-24_CL_10_PREBOARD_PRE BOARD_FRENCH (L2).pdf",
-                "Geography": "documents/2023-24_CL_10_PREBOARD_PRE BOARD_GEOGRAPHY (SET-A).pdf",
-                "German": "documents/2023-24_CL_10_PREBOARD_PRE BOARD_GERMAN (L2).pdf",
-                "Hindi": "documents/2023-24_CL_10_PREBOARD_PRE BOARD_HINDI (SET-A).pdf",
-                "History": "documents/2023-24_CL_10_PREBOARD_PRE BOARD_HISTORY AND CIVICS (SET-A).pdf",
-                "Home Science": "documents/2023-24_CL_10_PREBOARD_PRE BOARD_HOME SCIENCE (SET-A).pdf",
-                "Math": "documents/2023-24_CL_10_PREBOARD_PRE BOARD_MATHS (SET-A).pdf",
-                "PE": "#",
-                "Physics": "documents/2023-24_CL_10_PREBOARD_PRE BOARD_PHYSICS (SET-A).pdf",
-                "RAI": "#"
-            }
-        },
-        "Class 11": {
-            "MT 1": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
-                "Commerce": "#",
-                "Computer": "#",
-                "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
-                "PE": "#",
-                "Physics": "#",
-                "RAI": "#"
-            },
-            "MT 2": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
-                "Commerce": "#",
-                "Computer": "#",
-                "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
-                "PE": "#",
-                "Physics": "#",
-                "RAI": "#"
-            },
-            "HY": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
-                "Commerce": "#",
-                "Computer": "#",
-                "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
-                "PE": "#",
-                "Physics": "#",
-                "RAI": "#"
-            },
-            "FT": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
-                "Commerce": "#",
-                "Computer": "#",
-                "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
-                "PE": "#",
-                "Physics": "#",
-                "RAI": "#"
-            }
-        },
-        "Class 12": {
-            "MT 1": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
-                "Commerce": "#",
-                "Computer": "#",
-                "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
-                "PE": "#",
-                "Physics": "#",
-                "RAI": "#"
-            },
-            "MT 2": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
-                "Commerce": "#",
-                "Computer": "#",
-                "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
-                "PE": "#",
-                "Physics": "#",
-                "RAI": "#"
-            },
-            "HY": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
-                "Commerce": "#",
-                "Computer": "#",
-                "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
-                "PE": "#",
-                "Physics": "#",
-                "RAI": "#"
-            },
-            "FT": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
-                "Commerce": "#",
-                "Computer": "#",
-                "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
-                "PE": "#",
-                "Physics": "#",
-                "RAI": "#"
-            }
-        }
-    },
-    "2024-25": {
-        "Class 9": {
-            "MT 1": {
-                "Bengali": "documents/2024-25_CL_9_MT_1_Bengali.pdf",
-                "Biology": "documents/2024-25_CL_9_MT_1_Biology.pdf",
-                "Chemistry": "documents/2024-25_CL_9_MT_1_Chemistry.pdf",
-                "Commerce": "documents/2024-25_CL_9_MT_1_Commerce.pdf",
-                "Computer": "documents/2024-25_CL_9_MT_1_Computer.pdf",
-                "Economics": "#",
-                "English Language": "documents/2024-25_CL_9_MT_1_English_Language.pdf",
-                "English Literature": "documents/2024-25_CL_9_MT_1_English_Literature.pdf",
-                "EVA": "documents/2024-25_CL_9_MT_1_EVA.pdf",
-                "EVS": "documents/2024-25_CL_9_MT_1_EVS.pdf",
-                "French": "documents/2024-25_CL_9_MT_1_French.pdf",
-                "Geography": "documents/2024-25_CL_9_MT_1_Geography.pdf",
-                "German": "#",
-                "Hindi": "documents/2024-25_CL_9_MT_1_Hindi.pdf",
-                "History": "documents/2024-25_CL_9_MT_1_History.pdf",
-                "Home Science": "documents/2024-25_CL_9_MT_1_Home_Science.pdf",
-                "Math": "documents/2024-25_CL_9_MT_1_Math.pdf",
-                "PE": "documents/2024-25_CL_9_MT_1_PE.pdf",
-                "Physics": "documents/2024-25_CL_9_MT_1_Physics.pdf",
-                "RAI": "documents/2024-25_CL_9_MT_1_RAI.pdf"
-            },
-            "MT 2": {
-                "Bengali": "documents/2024-25_CL_9_MT_2_Bengali.pdf",
-                "Biology": "documents/2024-25_CL_9_MT_2_Biology.pdf",
-                "Chemistry": "documents/2024-25_CL_9_MT_2_Chemistry.pdf",
-                "Commerce": "documents/2024-25_CL_9_MT_2_Commerce.pdf",
-                "Computer": "documents/2024-25_CL_9_MT_2_Computer.pdf",
-                "Economics": "documents/2024-25_CL_9_MT_2_Economics.pdf",
-                "English Language": "documents/2024-25_CL_9_MT_2_English_Language.pdf",
-                "English Literature": "documents/2024-25_CL_9_MT_2_English_Literature.pdf",
-                "EVA": "documents/2024-25_CL_9_MT_2_EVA.pdf",
-                "EVS": "documents/2024-25_CL_9_MT_2_EVS.pdf",
-                "French": "documents/2024-25_CL_9_MT_2_French.pdf",
-                "Geography": "documents/2024-25_CL_9_MT_2_Geography.pdf",
-                "German": "documents/2024-25_CL_9_MT_2_German.pdf",
-                "Hindi": "documents/2024-25_CL_9_MT_2_Hindi.pdf",
-                "History": "documents/2024-25_CL_9_MT_2_History.pdf",
-                "Home Science": "documents/2024-25_CL_9_MT_2_Home_Science.pdf",
-                "Math": "documents/2024-25_CL_9_MT_2_Math.pdf",
-                "PE": "documents/2024-25_CL_9_MT_2_PE.pdf",
-                "Physics": "documents/2024-25_CL_9_MT_2_Physics.pdf",
-                "RAI": "#"
-            },
-            "HY": {
-                "Bengali": "#",
-                "Biology": "documents/2024-25_CL_9_HY_Biology.pdf",
-                "Chemistry": "documents/2024-25_CL_9_HY_Chemistry.pdf",
-                "Commerce": "documents/2024-25_CL_9_HY_Commerce.pdf",
-                "Computer": "documents/2024-25_CL_9_HY_Computer.pdf",
-                "Economics": "documents/2024-25_CL_9_HY_Economics.pdf",
-                "English Language": "documents/2024-25_CL_9_HY_English_Language.pdf",
-                "English Literature": "documents/2024-25_CL_9_HY_English_Literature.pdf",
-                "EVA": "documents/2024-25_CL_9_HY_EVA.pdf",
-                "EVS": "documents/2024-25_CL_9_HY_EVS.pdf",
-                "French": "documents/2024-25_CL_9_HY_French.pdf",
-                "Geography": "documents/2024-25_CL_9_HY_Geography.pdf",
-                "German": "documents/2024-25_CL_9_HY_German.pdf",
-                "Hindi": "documents/2024-25_CL_9_HY_Hindi.pdf",
-                "History": "documents/2024-25_CL_9_HY_History.pdf",
-                "Home Science": "documents/2024-25_CL_9_HY_Home_Science.pdf",
-                "Math": "documents/2024-25_CL_9_HY_Math.pdf",
-                "PE": "documents/2024-25_CL_9_HY_PE.pdf",
-                "Physics": "documents/2024-25_CL_9_HY_Physics.pdf",
-                "RAI": "documents/2024-25_CL_9_HY_RAI.pdf"
-            },
-            "FT": {
-                "Bengali": "documents/2024-25_CL_9_FT_Bengali.pdf",
-                "Biology": "documents/2024-25_CL_9_FT_Biology.pdf",
-                "Chemistry": "documents/2024-25_CL_9_FT_Chemistry.pdf",
-                "Commerce": "documents/2024-25_CL_9_FT_Commerce.pdf",
-                "Computer": "documents/2024-25_CL_9_FT_Computer.pdf",
-                "Economics": "documents/2024-25_CL_9_FT_Economics.pdf",
-                "English Language": "documents/2024-25_CL_9_FT_English_Language.pdf",
-                "English Literature": "documents/2024-25_CL_9_FT_English_Literature.pdf",
-                "EVA": "documents/2024-25_CL_9_FT_EVA.pdf",
-                "EVS": "documents/2024-25_CL_9_FT_EVS.pdf",
-                "French": "documents/2024-25_CL_9_FT_French_Language.pdf",
-                "Geography": "documents/2024-25_CL_9_FT_Geography.pdf",
-                "German": "documents/2024-25_CL_9_FT_German.pdf",
-                "Hindi": "documents/2024-25_CL_9_FT_Hindi.pdf",
-                "History": "documents/2024-25_CL_9_FT_History.pdf",
-                "Home Science": "documents/2024-25_CL_9_FT_Home_Science.pdf",
-                "Math": "documents/2024-25_CL_9_FT_Math.pdf",
-                "PE": "documents/2024-25_CL_9_FT_PE.pdf",
-                "Physics": "documents/2024-25_CL_9_FT_Physics.pdf",
-                "RAI": "documents/2024-25_CL_9_FT_RAI.pdf"
-            }
-        },
-        "Class 10": {
-            "MT 1": {
-                "Bengali": "documents/2024-25_CL_10_MT_1_BENGALI.pdf",
-                "Biology": "documents/2024-25_CL_10_MT_1_BIOLOGY.pdf",
-                "Chemistry": "documents/2024-25_CL_10_MT_1_CHEMISTRY.pdf",
-                "Commerce": "documents/2024-25_CL_10_MT_1_COMMERCIAL STUDIES.pdf",
-                "Computer": "documents/2024-25_CL_10_MT_1_COMPUTER APPLICATIONS.pdf",
-                "Economics": "documents/2024-25_CL_10_MT_1_ECONOMIC APPLICATIONS.pdf",
-                "English Language": "documents/2024-25_CL_10_MT_1_LANGUAGE.pdf",
-                "English Literature": "documents/2024-25_CL_10_MT_1_LITERATURE.pdf",
-                "EVA": "documents/2024-25_CL_9_MT_1_EVA.pdf",
-                "EVS": "documents/2024-25_CL_10_MT_1_EVS.pdf",
-                "French": "documents/2024-25_CL_10_MT_1_FRENCH (L2).pdf",
-                "Geography": "documents/2024-25_CL_10_MT_1_GEOGRAPHY.pdf",
-                "German": "documents/2024-25_CL_10_MT_1_GERMAN (L2).pdf",
-                "Hindi": "documents/2024-25_CL_10_MT_1_HINDI.pdf",
-                "History": "documents/2024-25_CL_10_MT_1_HISTORY AND CIVICS.pdf",
-                "Home Science": "documents/2024-25_CL_10_MT_1_HOME SCIENCE.pdf",
-                "Math": "documents/2024-25_CL_10_MT_1_MATHS.pdf",
-                "PE": "documents/2024-25_CL_9_MT_1_PE.pdf#",
-                "Physics": "documents/2024-25_CL_10_MT_1_PHYSICS.pdf",
-                "RAI": "documents/2024-25_CL_10_MT_1_ROBOTICS AND AI.pdf"
-            },
-            "MT 2": {
-                "Bengali": "documents/2024-25_CL_10_MT_2_BENGALI.pdf",
-                "Biology": "documents/2024-25_CL_10_MT_2_BIOLOGY.pdf",
-                "Chemistry": "documents/2024-25_CL_10_MT_2_CHEMISTRY.pdf",
-                "Commerce": "documents/2024-25_CL_10_MT_2_COMMERCIAL STUDIES.pdf",
-                "Computer": "documents/2024-25_CL_10_MT_2_COMPUTER APPLICATIONS.pdf",
-                "Economics": "documents/2024-25_CL_10_MT_2_ECONOMIC APPLICATIONS.pdf",
-                "English Language": "documents/2024-25_CL_10_MT_2_LANGUAGE.pdf",
-                "English Literature": "documents/2024-25_CL_10_MT_2_LITERATURE.pdf",
-                "EVA": "documents/2024-25_CL_10_MT_2_EVA.pdf",
-                "EVS": "documents/2024-25_CL_10_MT_2_EVS.pdf",
-                "French": "documents/2024-25_CL_10_MT_2_FRENCH (L2).pdf",
-                "Geography": "documents/2024-25_CL_10_MT_2_GEOGRAPHY.pdf",
-                "German": "documents/2024-25_CL_10_MT_2_GERMAN (L2).pdf",
-                "Hindi": "documents/2024-25_CL_10_MT_2_HINDI.pdf",
-                "History": "documents/2024-25_CL_10_MT_2_HISTORY AND CIVICS.pdf",
-                "Home Science": "documents/2024-25_CL_10_MT_2_HOME SCIENCE.pdf",
-                "Math": "documents/2024-25_CL_10_MT_2_MATHS.pdf",
-                "PE": "documents/2024-25_CL_9_MT_2_PE.pdf",
-                "Physics": "documents/2024-25_CL_10_MT_2_PHYSICS.pdf",
-                "RAI": "#"
-            },
-            "HY": {
-                "Bengali": "documents/2024-25_CL_10_HY_HY EXAM_BENGALI (SET-A).pdf",
-                "Biology": "documents/2024-25_CL_10_HY_HY EXAM_BIOLOGY (SET-A).pdf",
-                "Chemistry": "documents/2024-25_CL_10_HY_HY EXAM_CHEMISTRY (SET-A).pdf",
-                "Commerce": "documents/2024-25_CL_10_HY_HY EXAM_COMMERCIAL STUDIES (SET-A).pdf",
-                "Computer": "documents/2024-25_CL_10_HY_HY EXAM_COMPUTER APPLICATIONS (SET-A).pdf",
-                "Economics": "documents/2024-25_CL_10_HY_HY EXAM_ECONOMIC APPLICATIONS (ET-A).pdf",
-                "English Language": "documents/2024-25_CL_10_HY_LANGUAGE.pdf",
-                "English Literature": "documents/2024-25_CL_10_HY_LITERATURE.pdf",
-                "EVA": "documents/2024-25_CL_10_HY_HY EXAM_EVA (SET-A).pdf",
-                "EVS": "documents/2024-25_CL_10_HY_HY EXAM_EVS (SETA-).pdf",
-                "French": "documents/2024-25_CL_10_HY_HY EXAM_FRENCH (L2) (SET-A).pdf",
-                "Geography": "documents/2024-25_CL_10_HY_HY EXAM_GEOGRAPHY (SET-A).pdf",
-                "German": "documents/2024-25_CL_10_HY_HY EXAM_GERMAN (L2) (SET-A).pdf",
-                "Hindi": "documents/2024-25_CL_10_HY_HY EXAM_HINDI (SET-A).pdf",
-                "History": "documents/2024-25_CL_10_HY_HY EXAM_HISTORY AND CIVICS (SET-A).pdf",
-                "Home Science": "documents/2024-25_CL_10_HY_HY EXAM_HOME SCIENCE (SET-A).pdf",
-                "Math": "documents/2024-25_CL_10_HY_HY EXAM_MATHS (SET-A).pdf",
-                "PE": "#",
-                "Physics": "documents/2024-25_CL_10_HY_HY EXAM_PHYSICS (SET-A).pdf",
-                "RAI": "#"
-            },
-            "FT": {
-                "Bengali": "#",
-                "Biology": "documents/2024-25_CL_10_PREBOARD_PRE BOARD_BIOLOGY (SET-A).pdf",
-                "Chemistry": "documents/2024-25_CL_10_PREBOARD_PRE BOARD_CHEMISTRY (SET-A).pdf",
-                "Commerce": "#",
-                "Computer": "documents/2024-25_CL_10_PREBOARD_PRE BOARD_COMPUTER APPLICATIONS (SET-A).pdf",
-                "Economics": "#",
-                "English Language": "#",
-                "English Literature": "documents/2024-25_CL_10_PREBOARD_LITERATURE.pdf",
-                "EVA": "documents/2024-25_CL_10_PREBOARD_PRE BOARD_EVA (SET-A).pdf",
-                "EVS": "documents/2024-25_CL_10_PREBOARD_PRE BOARD_EVS (SET-A).pdf",
-                "French": "documents/2024-25_CL_10_PREBOARD_PRE BOARD_FRENCH (L2).pdf",
-                "Geography": "#",
-                "German": "documents/2024-25_CL_10_PREBOARD_PRE BOARD_GERMAN (L2) (SET-A).pdf",
-                "Hindi": "documents/2024-25_CL_10_PREBOARD_PRE BOARD_HINDI (SET-A).pdf",
-                "History": "documents/2024-25_CL_10_PREBOARD_PRE BOARD_HISTORY AND CIVICS (SET-A).pdf",
-                "Home Science": "documents/2024-25_CL_10_PREBOARD_PRE BOARD_HOME SCIENCE (SET-A).pdf",
-                "Math": "documents/2024-25_CL_10_PREBOARD_PRE BOARD_MATHS (SET-A).pdf",
-                "PE": "#",
-                "Physics": "documents/2024-25_CL_10_PREBOARD_PRE BOARD_PHYSICS (SET-A).pdf",
-                "RAI": "#"
-            }
-        },
-        "Class 11": {
-            "MT 1": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
-                "Commerce": "#",
-                "Computer": "#",
-                "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
-                "PE": "#",
-                "Physics": "#",
-                "RAI": "#"
-            },
-            "MT 2": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
-                "Commerce": "#",
-                "Computer": "#",
-                "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
-                "PE": "#",
-                "Physics": "#",
-                "RAI": "#"
-            },
-            "HY": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
-                "Commerce": "#",
-                "Computer": "#",
-                "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
-                "PE": "#",
-                "Physics": "#",
-                "RAI": "#"
-            },
-            "FT": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
-                "Commerce": "#",
-                "Computer": "#",
-                "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
-                "PE": "#",
-                "Physics": "#",
-                "RAI": "#"
-            }
-        },
-        "Class 12": {
-            "MT 1": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
-                "Commerce": "#",
-                "Computer": "#",
-                "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
-                "PE": "#",
-                "Physics": "#",
-                "RAI": "#"
-            },
-            "MT 2": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
-                "Commerce": "#",
-                "Computer": "#",
-                "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
-                "PE": "#",
-                "Physics": "#",
-                "RAI": "#"
-            },
-            "HY": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
-                "Commerce": "#",
-                "Computer": "#",
-                "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
-                "PE": "#",
-                "Physics": "#",
-                "RAI": "#"
-            },
-            "FT": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
-                "Commerce": "#",
-                "Computer": "#",
-                "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
-                "PE": "#",
-                "Physics": "#",
-                "RAI": "#"
-            }
-        }
-    },
-    "2025-26": {
-        "Class 9": {
-            "MT 1": {
-                "Bengali": "documents/2025-26_CL_9_MT_1_Bengali.pdf",
-                "Biology": "documents/2025-26_CL_9_MT_1_Biology.pdf",
-                "Chemistry": "documents/2025-26_CL_9_MT_1_Chemistry.pdf",
-                "Commerce": "documents/2025-26_CL_9_MT_1_Commerce.pdf",
-                "Computer": "documents/2025-26_CL_9_MT_1_Computer.pdf",
-                "Economics": "documents/2025-26_CL_9_MT_1_Economics.pdf",
-                "English Language": "documents/2025-26_CL_9_MT_1_English_Language.pdf",
-                "English Literature": "documents/2025-26_CL_9_MT_1_English_Literature.pdf",
-                "EVA": "documents/2025-26_CL_9_MT_1_EVA.pdf",
-                "EVS": "documents/2025-26_CL_9_MT_1_EVS.pdf",
-                "French": "documents/2025-26_CL_9_MT_1_French.pdf",
-                "Geography": "#",
-                "German": "documents/2025-26_CL_9_MT_1_German.pdf",
-                "Hindi": "documents/2025-26_CL_9_MT_1_Hindi.pdf",
-                "History": "#",
-                "Home Science": "documents/2025-26_CL_9_MT_1_Home_Science.pdf",
-                "Math": "documents/2025-26_CL_9_MT_1_Math.pdf",
-                "PE": "documents/2025-26_CL_9_MT_1_PE.pdf",
-                "Physics": "documents/2025-26_CL_9_MT_1_Physics.pdf",
-                "RAI": "documents/2025-26_CL_9_MT_1_RAI.pdf"
-            },
-            "MT 2": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
-                "Commerce": "#",
-                "Computer": "#",
-                "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
-                "PE": "#",
-                "Physics": "#",
-                "RAI": "#"
-            },
-            "HY": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
-                "Commerce": "#",
-                "Computer": "#",
-                "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
-                "PE": "#",
-                "Physics": "#",
-                "RAI": "#"
-            },
-            "FT": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
-                "Commerce": "#",
-                "Computer": "#",
-                "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
-                "PE": "#",
-                "Physics": "#",
-                "RAI": "#"
-            }
-        },
-        "Class 10": {
-            "MT 1": {
-                "Bengali": "documents/2025-26_CL_10_MT_1_CLASS.10_MT1_BENGALI_2025.pdf",
-                "Biology": "documents/2025-26_CL_10_MT_1_CLASS.10_MT1_BIOLOGY_2025.pdf",
-                "Chemistry": "documents/2025-26_CL_10_MT_1_CLASS.10_MT1_CHEM_2025.pdf",
-                "Commerce": "documents/2025-26_CL_10_MT_1_CLASS.10_MT1_COMMERCIAL STUDIES_2025.pdf",
-                "Computer": "documents/2025-26_CL_10_MT_1_CLASS.10_MT1_CA_25.pdf",
-                "Economics": "documents/2025-26_CL_10_MT_1_CLASS.10_MT1_ECON.APPS._2025.pdf",
-                "English Language": "documents/2025-26_CL_10_MT_1_CLASS.10_MT1_ENG LANG_2025.pdf",
-                "English Literature": "documents/2025-26_CL_10_MT_1_LITERATURE.pdf",
-                "EVA": "documents/2025-26_CL_10_MT_1_CLASS.10_MT1_EVA_2025.pdf",
-                "EVS": "documents/2025-26_CL_10_MT_1_CLASS.10_MT1_EVS_2025.pdf",
-                "French": "documents/2025-26_CL_10_MT_1_CLASS.10_MT1_FRENCH 2ND LAN_2025.pdf",
-                "Geography": "documents/2025-26_CL_10_MT_1_CLASS.10_MT1_GEOGRAPHY_2025.pdf",
-                "German": "documents/2025-26_CL_10_MT_1_CLASS.10_MT1_GERMAN_2025.pdf",
-                "Hindi": "documents/2025-26_CL_10_MT_1_CLASS.10_MT1_HINDI_2025.pdf",
-                "History": "documents/2025-26_CL_10_MT_1_CLASS.10_MT1_HIST_2025.pdf",
-                "Home Science": "documents/2025-26_CL_10_MT_1_CLASS.10_MT1_HOME SC_2025.pdf",
-                "Math": "documents/2025-26_CL_10_MT_1_CLASS.10_MT1_ MATHS_2025.pdf",
-                "PE": "documents/2025-26_CL_10_MT_1_CLASS.10_MT1_ PE_2025.pdf",
-                "Physics": "documents/2025-26_CL_10_MT_1_CLASS.10_MT1_ PHYSICS_2025.pdf",
-                "RAI": "documents/2025-26_CL_10_HY_ROBOTICS AND AI_X_HY_2025.pdf"
-            },
-            "MT 2": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
-                "Commerce": "#",
-                "Computer": "#",
-                "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
-                "PE": "#",
-                "Physics": "#",
-                "RAI": "#"
-            },
-            "HY": {
-                "Bengali": "documents/2025-26_CL_10_HY_BENGALI_CL-10-HY.pdf",
-                "Biology": "documents/2025-26_CL_10_HY_BIOLOGY_CLASS 10_HYE_2025.pdf",
-                "Chemistry": "documents/2025-26_CL_10_HY_CHEMISTRY_CLASS10 _HY_2025.pdf",
-                "Commerce": "documents/2025-26_CL_10_HY_COMMERCIAL STUDIES_CLASS10_HY_2025.pdf",
-                "Computer": "documents/2025-26_CL_10_HY_COMPUTER APPLICATION_CLASS 10_HY_2025.pdf",
-                "Economics": "documents/2025-26_CL_10_HY_ECO_APP_CLASS10_HY_2025.pdf",
-                "English Language": "documents/2025-26_CL_10_HY_ENG LANG_CLASS 10_HY_2025.pdf",
-                "English Literature": "documents/2025-26_CL_10_HY_LITERATURE_CL10_HY_2025.pdf",
-                "EVA": "documents/2025-26_CL_10_HY_10EVA_HY_2025.pdf",
-                "EVS": "documents/2025-26_CL_10_HY_10 EVS_HY_2025_26.pdf",
-                "French": "documents/2025-26_CL_10_HY_FRENCH_SECOND LANGUAGUE_CLASS 10_HY_2025.pdf",
-                "Geography": "documents/2025-26_CL_10_HY_GEOGRAPHY_CLASS 10_HY_2025.pdf",
-                "German": "documents/2025-26_CL_10_HY_GERMAN_CLASS 10_HY_2025.pdf",
-                "Hindi": "documents/2025-26_CL_10_HY_HINDI_CLASS 10_HY_2025.pdf",
-                "History": "documents/2025-26_CL_10_HY_HISTORY_CLASS 10_HALF YEARLY_2025.pdf",
-                "Home Science": "documents/2025-26_CL_10_HY_HOME SC_CLASS 10_HY_2025.pdf",
-                "Math": "documents/2025-26_CL_10_HY_MATHEMATICS_CLASS 10_HY_2025.pdf",
-                "PE": "documents/2025-26_CL_10_HY_PHYSICAL EDUCATION_CLASS 10_HY_2025.pdf",
-                "Physics": "documents/2025-26_CL_10_HY_PHYSICS_CLASS 10_HY.pdf",
-                "RAI": "documents/2025-26_CL_10_HY_ROBOTICS AND AI_X_HY_2025.pdf"
-            },
-            "FT": {
-                "Bengali": "documents/2025-26_CL_10_PREBOARD_BENGALI_CL- 10 PB_SET -A-- MOHUA.pdf",
-                "Biology": "documents/2025-26_CL_10_PREBOARD_CLASS X_ BIOLOGY PREBOARDS -2026_ SET A.pdf",
-                "Chemistry": "documents/2025-26_CL_10_PREBOARD_CLASS X_PREBOARDCHEMISTRY SET A.pdf",
-                "Commerce": "documents/2025-26_CL_10_PREBOARD_COMM STD PREBOARDS PAPER SET A.pdf",
-                "Computer": "documents/2025-26_CL_10_PREBOARD_COMPUTER APPLICATIONS_CLASS 10_PB_2025.pdf",
-                "Economics": "documents/2025-26_CL_10_PREBOARD_ECONOMIC APPLICATIONS_CLASS 10_PRE BOARD 2025_26_SET_A-(Q-PAPER)-1.pdf",
-                "English Language": "documents/2025-26_CL_10_PREBOARD_ENG LANG_CLASS 10_SET A_PB_2025.pdf",
-                "English Literature": "documents/2025-26_CL_10_PREBOARD_ENG LIT_CLASS 10_PB_SET A_2025.pdf",
-                "EVA": "documents/2025-26_CL_10_PREBOARD_10EVA_PB_SET A_2025.pdf",
-                "EVS": "documents/2025-26_CL_10_PREBOARD_EVS_10_PB_2025.pdf",
-                "French": "documents/2025-26_CL_10_PREBOARD_FRENCH_SECOND LANGUAGE_GRADE X_PRE BOARD_2025 (1).pdf",
-                "Geography": "documents/2025-26_CL_10_PREBOARD_CLASS X_GEOGRAPHY_PREBOARDS_2025_26.pdf",
-                "German": "documents/2025-26_CL_10_PREBOARD_GERMAN_CLASS 10_PREBOARD_2025.pdf",
-                "Hindi": "documents/2025-26_CL_10_PREBOARD_HINDI_CLASS X_PRE_BOARD_2025.pdf",
-                "History": "documents/2025-26_CL_10_PREBOARD_HISTORYANDCIVICS_CLASS10_PREBOARD_2025.pdf",
-                "Home Science": "documents/2025-26_CL_10_PREBOARD_HOME SC_CLASS 10_PREBOARD_2025.pdf",
-                "Math": "documents/2025-26_CL_10_PREBOARD_MATHS_CLASS X_PREBOARD.pdf",
-                "PE": "documents/2025-26_CL_10_PREBOARD_ECONOMIC APPLICATIONS_CLASS 10_PRE BOARD 2025_26_SET_A-(Q-PAPER)-1.pdf",
-                "Physics": "documents/2025-26_CL_10_PREBOARD_PHYSICS _SET A_CLASS X PREBOARD_2025-.DOCX.DOCX (3).pdf",
-                "RAI": "documents/2025-26_CL_10_PREBOARD_RAI-PRE BOARD CLASS 10.pdf"
-            }
-        },
-        "Class 11": {
-            "MT 1": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
-                "Commerce": "#",
-                "Computer": "#",
-                "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
-                "PE": "#",
-                "Physics": "#",
-                "RAI": "#"
-            },
-            "MT 2": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
-                "Commerce": "#",
-                "Computer": "#",
-                "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
-                "PE": "#",
-                "Physics": "#",
-                "RAI": "#"
-            },
-            "HY": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
-                "Commerce": "#",
-                "Computer": "#",
-                "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
-                "PE": "#",
-                "Physics": "#",
-                "RAI": "#"
-            },
-            "FT": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
-                "Commerce": "#",
-                "Computer": "#",
-                "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
-                "PE": "#",
-                "Physics": "#",
-                "RAI": "#"
-            }
-        },
-        "Class 12": {
-            "MT 1": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
-                "Commerce": "#",
-                "Computer": "#",
-                "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
-                "PE": "#",
-                "Physics": "#",
-                "RAI": "#"
-            },
-            "MT 2": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
-                "Commerce": "#",
-                "Computer": "#",
-                "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
-                "PE": "#",
-                "Physics": "#",
-                "RAI": "#"
-            },
-            "HY": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
-                "Commerce": "#",
-                "Computer": "#",
-                "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
-                "PE": "#",
-                "Physics": "#",
-                "RAI": "#"
-            },
-            "FT": {
-                "Bengali": "#",
-                "Biology": "#",
-                "Chemistry": "#",
-                "Commerce": "#",
-                "Computer": "#",
-                "Economics": "#",
-                "English Language": "#",
-                "English Literature": "#",
-                "EVA": "#",
-                "EVS": "#",
-                "French": "#",
-                "Geography": "#",
-                "German": "#",
-                "Hindi": "#",
-                "History": "#",
-                "Home Science": "#",
-                "Math": "#",
-                "PE": "#",
-                "Physics": "#",
-                "RAI": "#"
-            }
-        }
-    },
-    "Study Materials": {
-        "Biology Class 10 Book PDFS":{
-          "Biology Class 10 Book PDFS Endocrine System": "documents/Study_Material_Class_9_Biology_Class_10_Book_PDFS_Endocrine_System.pdf",
-          "Biology Class 10 Book PDFS Excretory System": "documents/Study_Material_Class_9_Biology_Class_10_Book_PDFS_Excretory_System.pdf",
-          "Biology Class 10 Book PDFS Reproduction": "documents/Study_Material_Class_9_Biology_Class_10_Book_PDFS_Reproduction.pdf",
-          "Biology Class 10 Book PDFS Full Book": "documents/Study_Material_Class_9_Biology_Class_10_Book_PDFS_Full_Book.pdf",
-        },
-        "Physics FT":{
-          "Physics FT Current Electricity": "documents/Study_Material_Class_9_Physics_FT_Current_Electricity.pdf",
-          "Physics FT Heat and Energy": "documents/Study_Material_Class_9_Physics_FT_Heat_and_Energy.pdf",
-          "Physics FT Magnetism": "documents/Study_Material_Class_9_Physics_FT_Magnetism.pdf",
-          "Physics FT Propagation of Sound Waves": "documents/Study_Material_Class_9_Physics_FT_Propagation_of_Sound_Waves.pdf",
-          "Physics FT Reflection of Light": "documents/Study_Material_Class_9_Physics_FT_Reflection_of_Light.pdf",
-          "Physics FT  Principle and Floatation": "documents/Study_Material_Class_9_Physics_FT__Principle_and_Floatation.pdf"
-
-        }
-    }
-};
-
-// Expose documents globally immediately after definition
-window.documents = documents;
-
-// Load user-added document entries (moved from Library)
-if (typeof window.loadCustomDocuments === 'function') {
-  window.loadCustomDocuments();
-}
-
-
-function loadNotes() {
-  notes = JSON.parse(localStorage.getItem('questionary-notes') || '[]');
-}
-
-function saveNotes() {
-  localStorage.setItem('questionary-notes', JSON.stringify(notes));
-}
+function loadNotes() { notes = JSON.parse(localStorage.getItem('questionary-notes') || '[]'); }
+function saveNotes() { localStorage.setItem('questionary-notes', JSON.stringify(notes)); }
 
 function openNoteModal(noteId = null) {
   const modal = document.getElementById('noteModal');
   const titleInput = document.getElementById('noteTitle');
   const contentInput = document.getElementById('noteContent');
   const modalTitle = document.getElementById('noteModalTitle');
-  
-  if (!modal) { console.error('Note modal not found'); return; }
-  
+  if (!modal) return;
   if (noteId) {
     const note = notes.find(n => n.id === noteId);
     if (note) {
@@ -3982,37 +1608,22 @@ function openNoteModal(noteId = null) {
     if (contentInput) contentInput.value = '';
     if (modalTitle) modalTitle.innerHTML = '<i class="fas fa-sticky-note"></i> Create Note';
   }
-  
   modal.classList.add('active');
 }
 
 function saveNote() {
-  const titleInput = document.getElementById('noteTitle');
-  const contentInput = document.getElementById('noteContent');
+  const title = document.getElementById('noteTitle')?.value.trim();
+  const content = document.getElementById('noteContent')?.value.trim();
   const modal = document.getElementById('noteModal');
-  
-  const title = titleInput?.value.trim();
-  const content = contentInput?.value.trim();
-  
-  if (!title) {
-    showNotification('Please enter a title', 'error');
-    return;
-  }
+  if (!title) { showNotification('Please enter a title', 'error'); return; }
   
   if (currentEditingNote) {
     currentEditingNote.title = title;
     currentEditingNote.content = content;
     currentEditingNote.updatedAt = Date.now();
   } else {
-    notes.push({
-      id: Date.now().toString(),
-      title,
-      content,
-      createdAt: Date.now(),
-      updatedAt: Date.now()
-    });
+    notes.push({ id: Date.now().toString(), title, content, createdAt: Date.now(), updatedAt: Date.now() });
   }
-  
   saveNotes();
   renderNotes();
   modal?.classList.remove('active');
@@ -4020,42 +1631,27 @@ function saveNote() {
   currentEditingNote = null;
 }
 
-function editNote(noteId) {
-  openNoteModal(noteId);
-}
+function editNote(noteId) { openNoteModal(noteId); }
 
 function deleteNote(noteId) {
   const note = notes.find(n => n.id === noteId);
-  const noteTitle = note ? note.title : 'this note';
-  
-  showConfirmModal(
-    'Delete Note',
-    `Are you sure you want to delete "${noteTitle}"? This action cannot be undone.`,
-    () => {
-      notes = notes.filter(n => n.id !== noteId);
-      saveNotes();
-      renderNotes();
-      showNotification('Note deleted', 'info');
-    }
-  );
+  showConfirmModal('Delete Note', `Are you sure you want to delete "${note ? note.title : ''}"?`, () => {
+    notes = notes.filter(n => n.id !== noteId);
+    saveNotes();
+    renderNotes();
+    showNotification('Note deleted', 'info');
+  });
 }
 
-function loadFlashcardDecks() {
-  flashcardDecks = JSON.parse(localStorage.getItem('questionary-flashcards') || '[]');
-}
-
-function saveFlashcardDecks() {
-  localStorage.setItem('questionary-flashcards', JSON.stringify(flashcardDecks));
-}
+function loadFlashcardDecks() { flashcardDecks = JSON.parse(localStorage.getItem('questionary-flashcards') || '[]'); }
+function saveFlashcardDecks() { localStorage.setItem('questionary-flashcards', JSON.stringify(flashcardDecks)); }
 
 function openFlashcardModal(deckId = null) {
   const modal = document.getElementById('flashcardModal');
   const nameInput = document.getElementById('deckName');
   const cardsContainer = document.getElementById('cardsContainer');
   const modalTitle = document.getElementById('flashcardModalTitle');
-  
-  if (!modal) { console.error('Flashcard modal not found'); return; }
-  
+  if (!modal) return;
   if (deckId) {
     const deck = flashcardDecks.find(d => d.id === deckId);
     if (deck) {
@@ -4071,14 +1667,12 @@ function openFlashcardModal(deckId = null) {
     if (cardsContainer) cardsContainer.innerHTML = '';
     addCardEditor();
   }
-  
   modal.classList.add('active');
 }
 
 function addCardEditor(front = '', back = '') {
   const container = document.getElementById('cardsContainer');
   if (!container) return;
-  
   const cardDiv = document.createElement('div');
   cardDiv.className = 'card-editor';
   cardDiv.style.cssText = 'display:flex;gap:8px;margin-bottom:8px;align-items:center;';
@@ -4101,38 +1695,23 @@ function saveDeck() {
   const nameInput = document.getElementById('deckName');
   const modal = document.getElementById('flashcardModal');
   const name = nameInput?.value.trim();
+  if (!name) { showNotification('Please enter a deck name', 'error'); return; }
   
-  if (!name) {
-    showNotification('Please enter a deck name', 'error');
-    return;
-  }
-  
-  const cardEditors = document.querySelectorAll('.card-editor');
   const cards = [];
-  cardEditors.forEach(editor => {
+  document.querySelectorAll('.card-editor').forEach(editor => {
     const front = editor.querySelector('.card-front')?.value.trim();
     const back = editor.querySelector('.card-back')?.value.trim();
-    if (front && back) {
-      cards.push({ front, back });
-    }
+    if (front && back) cards.push({ front, back });
   });
   
-  if (cards.length === 0) {
-    showNotification('Please add at least one card with both front and back', 'error');
-    return;
-  }
+  if (cards.length === 0) { showNotification('Please add at least one valid card', 'error'); return; }
   
   if (currentEditingDeck) {
     currentEditingDeck.name = name;
     currentEditingDeck.cards = cards;
   } else {
-    flashcardDecks.push({
-      id: Date.now().toString(),
-      name,
-      cards
-    });
+    flashcardDecks.push({ id: Date.now().toString(), name, cards });
   }
-  
   saveFlashcardDecks();
   renderFlashcardDecks();
   modal?.classList.remove('active');
@@ -4142,194 +1721,96 @@ function saveDeck() {
 
 function deleteDeck(deckId) {
   const deck = flashcardDecks.find(d => d.id === deckId);
-  const deckName = deck ? deck.name : 'this deck';
-  
-  showConfirmModal(
-    'Delete Flashcard Deck',
-    `Are you sure you want to delete "${deckName}"? All cards in this deck will be lost.`,
-    () => {
-      flashcardDecks = flashcardDecks.filter(d => d.id !== deckId);
-      saveFlashcardDecks();
-      renderFlashcardDecks();
-      showNotification('Deck deleted', 'info');
-    }
-  );
+  showConfirmModal('Delete Flashcard Deck', `Delete "${deck ? deck.name : ''}"?`, () => {
+    flashcardDecks = flashcardDecks.filter(d => d.id !== deckId);
+    saveFlashcardDecks();
+    renderFlashcardDecks();
+    showNotification('Deck deleted', 'info');
+  });
 }
 
 function startStudyDeck(deckId) {
   const deck = flashcardDecks.find(d => d.id === deckId);
   if (!deck || deck.cards.length === 0) return;
-  
   currentStudyDeck = deck;
   currentCardIndex = 0;
-  
-  const modal = document.getElementById('studyModal');
-  if (modal) {
-    modal.classList.add('active');
-    showCurrentCard();
-  }
+  document.getElementById('studyModal')?.classList.add('active');
+  showCurrentCard();
 }
 
 function showCurrentCard() {
   if (!currentStudyDeck) return;
-  
   const card = currentStudyDeck.cards[currentCardIndex];
-  const flashcard = document.getElementById('activeFlashcard');
-  const counter = document.getElementById('cardProgress');
-  const frontEl = document.getElementById('cardFront');
-  const backEl = document.getElementById('cardBack');
-  
-  if (flashcard) {
-    flashcard.classList.remove('flipped');
-  }
-  if (frontEl) frontEl.textContent = card.front;
-  if (backEl) backEl.textContent = card.back;
-  
-  if (counter) {
-    counter.textContent = `${currentCardIndex + 1} / ${currentStudyDeck.cards.length}`;
-  }
+  document.getElementById('activeFlashcard')?.classList.remove('flipped');
+  document.getElementById('cardFront').textContent = card.front;
+  document.getElementById('cardBack').textContent = card.back;
+  document.getElementById('cardProgress').textContent = `${currentCardIndex + 1} / ${currentStudyDeck.cards.length}`;
 }
 
-function flipCard() {
-  const flashcard = document.getElementById('activeFlashcard');
-  flashcard?.classList.toggle('flipped');
-}
+function flipCard() { document.getElementById('activeFlashcard')?.classList.toggle('flipped'); }
+function nextCard() { if (currentStudyDeck) { currentCardIndex = (currentCardIndex + 1) % currentStudyDeck.cards.length; showCurrentCard(); } }
+function prevCard() { if (currentStudyDeck) { currentCardIndex = (currentCardIndex - 1 + currentStudyDeck.cards.length) % currentStudyDeck.cards.length; showCurrentCard(); } }
 
-function nextCard() {
-  if (!currentStudyDeck) return;
-  currentCardIndex = (currentCardIndex + 1) % currentStudyDeck.cards.length;
-  showCurrentCard();
-}
-
-function prevCard() {
-  if (!currentStudyDeck) return;
-  currentCardIndex = (currentCardIndex - 1 + currentStudyDeck.cards.length) % currentStudyDeck.cards.length;
-  showCurrentCard();
-}
-
-function loadStudySessions() {
-  studySessions = JSON.parse(localStorage.getItem('questionary-sessions') || '[]');
-}
-
-function saveStudySessions() {
-  localStorage.setItem('questionary-sessions', JSON.stringify(studySessions));
-}
+function loadStudySessions() { studySessions = JSON.parse(localStorage.getItem('questionary-sessions') || '[]'); }
+function saveStudySessions() { localStorage.setItem('questionary-sessions', JSON.stringify(studySessions)); }
 
 function openSessionModal() {
   const modal = document.getElementById('sessionModal');
-  const subjectInput = document.getElementById('sessionSubject');
-  const dateInput = document.getElementById('sessionDate');
-  const timeInput = document.getElementById('sessionTime');
-  
-  if (!modal) { console.error('Session modal not found'); return; }
-  
-  if (subjectInput) subjectInput.value = '';
-  if (dateInput) dateInput.value = new Date().toISOString().split('T')[0];
-  if (timeInput) timeInput.value = '09:00';
-  
+  if (!modal) return;
+  document.getElementById('sessionSubject').value = '';
+  document.getElementById('sessionDate').value = new Date().toISOString().split('T')[0];
+  document.getElementById('sessionTime').value = '09:00';
   modal.classList.add('active');
 }
 
 function saveSession() {
-  const subjectInput = document.getElementById('sessionSubject');
-  const dateInput = document.getElementById('sessionDate');
-  const timeInput = document.getElementById('sessionTime');
-  const modal = document.getElementById('sessionModal');
+  const subject = document.getElementById('sessionSubject')?.value.trim();
+  const date = document.getElementById('sessionDate')?.value;
+  const time = document.getElementById('sessionTime')?.value;
+  if (!subject || !date) { showNotification('Subject and date are required', 'error'); return; }
   
-  const subject = subjectInput?.value.trim();
-  const date = dateInput?.value;
-  const time = timeInput?.value;
-  
-  if (!subject) {
-    showNotification('Please enter a subject', 'error');
-    return;
-  }
-  
-  if (!date) {
-    showNotification('Please select a date', 'error');
-    return;
-  }
-  
-  const session = {
-    id: Date.now().toString(),
-    subject,
-    date,
-    time: time || '09:00'
-  };
-  
+  const session = { id: Date.now().toString(), subject, date, time: time || '09:00' };
   studySessions.push(session);
-  
-  // Schedule notification for this session
   scheduleSessionNotification(session);
-  
   saveStudySessions();
   renderCalendar();
   renderSessions();
-  modal?.classList.remove('active');
+  document.getElementById('sessionModal')?.classList.remove('active');
   showNotification('Session added!', 'success');
 }
 
 function scheduleSessionNotification(session) {
   const sessionDateTime = new Date(`${session.date}T${session.time}`);
   const now = new Date();
-  
   if (sessionDateTime > now) {
-    const delay = sessionDateTime - now;
-    
     setTimeout(() => {
-      // Play alarm sound
-      if (typeof window.playAlarmSound === 'function') {
-        window.playAlarmSound();
-      }
-      
-      // Show notification
+      if (typeof window.playAlarmSound === 'function') window.playAlarmSound();
       showNotification(`📚 Time for: ${session.subject}`, 'info');
-      
-      // Browser notification
       if ('Notification' in window && Notification.permission === 'granted') {
-        new Notification('Questionary - Study Session', {
-          body: `Time for: ${session.subject}`,
-          icon: 'assets/logo.png'
-        });
+        new Notification('Questionary - Study Session', { body: `Time for: ${session.subject}`, icon: 'assets/logo.png' });
       }
-    }, delay);
+    }, sessionDateTime - now);
   }
 }
 
 function deleteSession(sessionId) {
-  const session = studySessions.find(s => s.id === sessionId);
-  const sessionSubject = session ? session.subject : 'this session';
-  
-  showConfirmModal(
-    'Delete Study Session',
-    `Are you sure you want to delete the "${sessionSubject}" session?`,
-    () => {
-      studySessions = studySessions.filter(s => s.id !== sessionId);
-      saveStudySessions();
-      renderCalendar();
-      renderSessions();
-      showNotification('Session deleted', 'info');
-    }
-  );
+  showConfirmModal('Delete Session', 'Are you sure?', () => {
+    studySessions = studySessions.filter(s => s.id !== sessionId);
+    saveStudySessions();
+    renderCalendar();
+    renderSessions();
+    showNotification('Session deleted', 'info');
+  });
 }
 
 function showDaySessions(dateStr) {
   const sessionsOnDay = studySessions.filter(s => s.date === dateStr);
-  if (sessionsOnDay.length === 0) {
-    showNotification(`No sessions on ${dateStr}`, 'info');
-  } else {
-    const list = sessionsOnDay.map(s => `• ${s.subject} at ${s.time}`).join('\n');
-    showInfoDialog(list, { title: `Sessions on ${dateStr}`, type: 'info' });
-  }
+  if (sessionsOnDay.length === 0) showNotification(`No sessions on ${dateStr}`, 'info');
+  else showInfoDialog(sessionsOnDay.map(s => `• ${s.subject} at ${s.time}`).join('\n'), { title: `Sessions on ${dateStr}`, type: 'info' });
 }
 
-function loadStudyStats() {
-  studyStats = JSON.parse(localStorage.getItem('questionary-study-stats') || '{"totalTime":0,"streak":0,"lastStudyDate":null,"hourlyActivity":{}}');
-}
-
-function loadDocumentProgress() {
-  documentProgress = JSON.parse(localStorage.getItem('questionary-doc-progress') || '{}');
-}
+function loadStudyStats() { studyStats = JSON.parse(localStorage.getItem('questionary-study-stats') || '{"totalTime":0,"streak":0,"lastStudyDate":null,"hourlyActivity":{}}'); }
+function loadDocumentProgress() { documentProgress = JSON.parse(localStorage.getItem('questionary-doc-progress') || '{}'); }
 
 window.openNoteModal = openNoteModal;
 window.saveNote = saveNote;
@@ -4348,11 +1829,8 @@ window.saveSession = saveSession;
 window.deleteSession = deleteSession;
 window.showDaySessions = showDaySessions;
 
-
-
 async function initializeApp() {
   console.log('[App] Starting initialization...');
-  
   
   if (window.__TAURI__ && window.__TAURI__.window) {
     try {
@@ -4367,21 +1845,18 @@ async function initializeApp() {
   
   await initializeFavorites();
   
+  // Initialize SQLite Database Engine
+  await DbService.init();
+
   applyAccessibilitySettings();
-  
   
   if (typeof initializeNewFeatures === 'function') {
     initializeNewFeatures();
   }
   
-  
   const themeToggle = document.getElementById('themeToggle');
-  const themeIcon = document.getElementById('themeIcon');
-  
-  
   let savedTheme = localStorage.getItem('theme');
   if (!savedTheme) {
-    
     if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
       savedTheme = 'dark';
     } else {
@@ -4391,10 +1866,8 @@ async function initializeApp() {
   document.documentElement.setAttribute('data-theme', savedTheme);
   updateThemeIcon(savedTheme);
   
-  
   if (window.matchMedia) {
     window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
-      
       if (!localStorage.getItem('theme')) {
         const newTheme = e.matches ? 'dark' : 'light';
         document.documentElement.setAttribute('data-theme', newTheme);
@@ -4407,7 +1880,6 @@ async function initializeApp() {
     themeToggle.addEventListener('click', () => {
       const currentTheme = document.documentElement.getAttribute('data-theme') || 'light';
       const newTheme = currentTheme === 'light' ? 'dark' : 'light';
-      
       if (typeof window.setTheme === 'function') {
         window.setTheme(newTheme);
       } else {
@@ -4418,14 +1890,12 @@ async function initializeApp() {
     });
   }
   
-  
   const accessibilityToggle = document.getElementById('accessibilityToggle');
   const accessibilityPanel = document.getElementById('accessibilityPanel');
   if (accessibilityToggle && accessibilityPanel) {
     accessibilityToggle.addEventListener('click', (e) => {
       e.stopPropagation();
       accessibilityPanel.classList.toggle('active');
-      console.log('Accessibility panel toggled:', accessibilityPanel.classList.contains('active'));
     });
     
     document.addEventListener('click', (e) => {
@@ -4435,12 +1905,10 @@ async function initializeApp() {
     });
   }
   
-  
   const loginForm = document.getElementById('loginForm');
   if (loginForm) {
     loginForm.addEventListener('submit', handleLogin);
   }
-  
   
   checkSavedLogin();
   
@@ -4455,11 +1923,9 @@ async function initializeApp() {
   loadDocuments();
   trackDailyAccess();
   
-  // Restore last location after a short delay to ensure everything is loaded
   setTimeout(() => {
     restoreLastLocation();
   }, 100);
-  
   
   if (window.contentUpdateSystem && typeof window.contentUpdateSystem.init === 'function') {
     window.contentUpdateSystem.init();
@@ -4473,27 +1939,24 @@ async function initializeApp() {
     console.error('Application error:', e.error);
   });
   
-  // Expose documents and renderTiles for PDF Library integration
-  window.documents = documents;
   window.renderTiles = renderTiles;
   window.getCurrentDocumentsLevel = getCurrentDocumentsLevel;
   
-  // Load custom documents again in case features.js loaded after initial load
   if (typeof window.loadCustomDocuments === 'function') {
     window.loadCustomDocuments();
   }
   
-  // Render document tiles now that everything is loaded
-  renderTiles(getCurrentDocumentsLevel());
+  if (DbService.db) {
+    const nodes = await DbService.getChildren(path);
+    renderTilesFromDb(nodes);
+  }
   
   console.log('Questionary application initialized successfully');
 }
 
-
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', initializeApp);
 } else {
-  
   initializeApp();
 }
 
@@ -4509,8 +1972,6 @@ function updateThemeIcon(theme) {
 
 function handleLogin(e) {
   if (e) e.preventDefault();
-  console.log('Login form submitted');
-  
   const usernameEl = document.getElementById('username');
   const passwordEl = document.getElementById('password');
   const rememberMeEl = document.getElementById('rememberMe');
@@ -4524,8 +1985,6 @@ function handleLogin(e) {
   const password = passwordEl.value;
   const rememberMe = rememberMeEl ? rememberMeEl.checked : false;
   
-  console.log('Attempting login for:', username);
-  
   if (!username || !password) {
     showNotification('Please enter both username and password', 'warning');
     return;
@@ -4533,7 +1992,6 @@ function handleLogin(e) {
   
   if (users[username] && users[username].password === password) {
     currentUser = { username, role: users[username].role };
-    
     if (rememberMe) {
       localStorage.setItem('revamp-dpsnt-remember', JSON.stringify({ username, role: users[username].role }));
     }
@@ -4541,7 +1999,7 @@ function handleLogin(e) {
     
     showNotification(`Welcome, ${username}!`, 'success');
     
-        setTimeout(() => {
+    setTimeout(() => {
       showApp();
       initializeAppAfterLogin();
     }, 500);
@@ -4578,11 +2036,9 @@ function checkSavedLogin() {
     }
   }
   
-  
   if (loadingOverlay) loadingOverlay.classList.remove('active');
   return false;
 }
-
 
 function initializeNavigation() {
   const homeNav = document.getElementById('homeNav');
@@ -4599,22 +2055,16 @@ function initializeNavigation() {
   const navLinks = document.getElementById('navLinks');
   const backBtn = document.getElementById('backBtn');
   
-  
-  if (backBtn) {
-    backBtn.addEventListener('click', handleBackButton);
-  }
-  
+  if (backBtn) backBtn.addEventListener('click', handleBackButton);
   
   mobileMenuToggle && mobileMenuToggle.addEventListener('click', () => {
     navLinks && navLinks.classList.toggle('active');
-    
     const icon = mobileMenuToggle.querySelector('i');
     if (icon) {
       icon.classList.toggle('fa-bars');
       icon.classList.toggle('fa-times');
     }
   });
-  
   
   document.addEventListener('click', (e) => {
     if (navLinks && navLinks.classList.contains('active')) {
@@ -4629,9 +2079,8 @@ function initializeNavigation() {
     }
   });
   
-  
   const closeMenuOnClick = () => {
-        if (navLinks && window.innerWidth <= 768) {
+    if (navLinks && window.innerWidth <= 768) {
       navLinks.classList.remove('active');
       const icon = mobileMenuToggle?.querySelector('i');
       if (icon) {
@@ -4639,16 +2088,13 @@ function initializeNavigation() {
         icon.classList.remove('fa-times');
       }
     }
-        if (document.body.classList.contains('vertical-navbar-mode')) {
-      closeSidebar();
-    }
+    if (document.body.classList.contains('vertical-navbar-mode')) closeSidebar();
   };
   
-  homeNav && homeNav.addEventListener('click', () => {
+  homeNav && homeNav.addEventListener('click', async () => {
     showView('home');
     path = [];
-    renderTiles(window.documents || documents);
-    updateBreadcrumb();
+    await navigateToPath([]);
     setActiveNav('homeNav');
     closeMenuOnClick();
   });
@@ -4690,7 +2136,6 @@ function initializeNavigation() {
     if (typeof renderVoiceNotesGrid === 'function') renderVoiceNotesGrid();
   });
   
-  // Tags navigation
   const tagsNav = document.getElementById('tagsNav');
   tagsNav && tagsNav.addEventListener('click', () => {
     showView('tags');
@@ -4726,7 +2171,6 @@ function initializeNavigation() {
   });
 }
 
-
 function initializeGlobalSearch() {
   const searchInput = document.getElementById('globalSearch');
   const searchResults = document.getElementById('searchResults');
@@ -4743,30 +2187,19 @@ function initializeGlobalSearch() {
   });
 }
 
-
 function initializeAccessibility() {
   setupAccessibilityToggle('highContrastToggle', 'highContrast', 'high-contrast');
   setupAccessibilityToggle('largeTextToggle', 'largeText', 'large-text');
   setupAccessibilityToggle('reducedMotionToggle', 'reducedMotion', 'reduced-motion');
   setupAccessibilityToggle('enhancedFocusToggle', 'enhancedFocus', 'enhanced-focus');
-  
-  
   applyAccessibilitySettings();
-  
-  
   updateAccessibilityToggleStates();
 }
 
 function setupAccessibilityToggle(toggleId, settingKey, className) {
   const toggle = document.getElementById(toggleId);
-  if (!toggle) {
-    console.log('Toggle not found:', toggleId);
-    return;
-  }
-  
-  
+  if (!toggle) return;
   const switchEl = toggle.querySelector('.accessibility-switch');
-  
   
   if (accessibilitySettings[settingKey]) {
     toggle.classList.add('active');
@@ -4781,7 +2214,6 @@ function setupAccessibilityToggle(toggleId, settingKey, className) {
     toggle.classList.toggle('active', accessibilitySettings[settingKey]);
     if (switchEl) switchEl.classList.toggle('active', accessibilitySettings[settingKey]);
     document.body.classList.toggle(className, accessibilitySettings[settingKey]);
-    console.log('Toggled', settingKey, 'to', accessibilitySettings[settingKey]);
   });
 }
 
@@ -4795,25 +2227,20 @@ function updateAccessibilityToggleStates() {
   
   toggleMappings.forEach(({ id, key }) => {
     const toggle = document.getElementById(id);
-    if (toggle && accessibilitySettings[key]) {
-      toggle.classList.add('active');
-    }
+    if (toggle && accessibilitySettings[key]) toggle.classList.add('active');
   });
 }
 
 function initializeKeyboardNavigation() {
-  document.addEventListener('keydown', (e) => {
-    
+  document.addEventListener('keydown', async (e) => {
     const isInputFocused = e.target.closest('input, textarea, [contenteditable]');
     
     if (e.key === 'Escape') {
-      
       const searchResults = document.getElementById('searchResults');
       if (searchResults && searchResults.style.display !== 'none') {
         searchResults.style.display = 'none';
         return;
       }
-      
       
       const accessibilityPanel = document.getElementById('accessibilityPanel');
       if (accessibilityPanel && accessibilityPanel.classList.contains('active')) {
@@ -4821,25 +2248,21 @@ function initializeKeyboardNavigation() {
         return;
       }
       
-      
       const pdfViewerContainer = document.getElementById('pdfViewerContainer');
       if (pdfViewerContainer && pdfViewerContainer.style.display !== 'none') {
         closePDF();
         return;
       }
       
-      
       if (path.length > 0) {
-        handleBackButton();
+        await handleBackButton();
         return;
       }
-      
       
       if (currentView !== 'home') {
         showView('home');
         path = [];
-        renderTiles(window.documents || documents);
-        updateBreadcrumb();
+        await navigateToPath([]);
         setActiveNav('homeNav');
         return;
       }
@@ -4851,9 +2274,8 @@ function initializeKeyboardNavigation() {
     }
     
     if (!isInputFocused && keybindMatches(e, 'goBack') && path.length > 0) {
-      handleBackButton();
+      await handleBackButton();
     }
-    
     
     if (!isInputFocused && keybindMatches(e, 'navBack')) {
       e.preventDefault();
@@ -4861,16 +2283,14 @@ function initializeKeyboardNavigation() {
       if (pdfViewerContainer && pdfViewerContainer.style.display !== 'none') {
         closePDF();
       } else if (path.length > 0) {
-        handleBackButton();
+        await handleBackButton();
       } else if (currentView !== 'home') {
         showView('home');
         path = [];
-        renderTiles(window.documents || documents);
-        updateBreadcrumb();
+        await navigateToPath([]);
         setActiveNav('homeNav');
       }
     }
-    
     
     if (!isInputFocused && keybindMatches(e, 'goHome')) {
       e.preventDefault();
@@ -4883,19 +2303,15 @@ function initializeKeyboardNavigation() {
       hideTimerCompletely();
       showView('home');
       path = [];
-      renderTiles(window.documents || documents);
-      updateBreadcrumb();
+      await navigateToPath([]);
       setActiveNav('homeNav');
     }
   });
 }
 
-
-// Helper function to show and populate home tags panels
 function showHomeTagsPanels() {
   const homeTagsSection = document.getElementById('homeTagsSection');
   const homeTaggedItemsSection = document.getElementById('homeTaggedItemsSection');
-  
   if (homeTagsSection) {
     homeTagsSection.style.display = 'block';
     renderHomeTagsList();
@@ -4906,20 +2322,16 @@ function showHomeTagsPanels() {
   }
 }
 
-// Hide home tags panels when navigating away
 function hideHomeTagsPanels() {
   const homeTagsSection = document.getElementById('homeTagsSection');
   const homeTaggedItemsSection = document.getElementById('homeTaggedItemsSection');
-  
   if (homeTagsSection) homeTagsSection.style.display = 'none';
   if (homeTaggedItemsSection) homeTaggedItemsSection.style.display = 'none';
 }
 
-// Render tags list on home page
 function renderHomeTagsList() {
   const container = document.getElementById('homeTagsList');
   if (!container) return;
-  
   const tags = JSON.parse(localStorage.getItem('questionary-tags') || '[]');
   const itemTags = JSON.parse(localStorage.getItem('questionary-item-tags') || '{}');
   
@@ -4934,7 +2346,6 @@ function renderHomeTagsList() {
   }).join('');
 }
 
-// Render tagged items list on home page
 function renderHomeTaggedItemsList() {
   const container = document.getElementById('homeTaggedItemsList');
   if (!container) return;
@@ -4942,7 +2353,6 @@ function renderHomeTaggedItemsList() {
   const tags = JSON.parse(localStorage.getItem('questionary-tags') || '[]');
   const itemTags = JSON.parse(localStorage.getItem('questionary-item-tags') || '{}');
   
-  // Filter to only items that have at least one valid (existing) tag
   const items = Object.entries(itemTags)
     .filter(([_, tagIds]) => tagIds.length > 0 && tagIds.some(tid => tags.find(t => t.id === tid)))
     .slice(0, 8);
@@ -4958,7 +2368,6 @@ function renderHomeTaggedItemsList() {
       return tag ? `<span class="tag-mini" style="background: ${tag.color}">${escapeHtml(tag.name)}</span>` : '';
     }).join(' ');
     
-    // Parse itemId to get display name and type
     const isFolder = itemId.startsWith('folder_');
     const isDoc = itemId.startsWith('doc_');
     let displayName = itemId;
@@ -4976,7 +2385,6 @@ function renderHomeTaggedItemsList() {
   }).join('');
 }
 
-// Filter by tag from home
 function filterByTagHome(tagId) {
   showView('tags');
   if (typeof window.filterByTag === 'function') {
@@ -4984,16 +2392,12 @@ function filterByTagHome(tagId) {
   }
 }
 
-// Expose home tag renderers globally so features.js can call them after tag creation/deletion
 window.renderHomeTagsList = renderHomeTagsList;
 window.renderHomeTaggedItemsList = renderHomeTaggedItemsList;
 window.showView = showView;
 
-
 function showView(viewName) {
   currentView = viewName;
-  
-  // Save location when view changes
   saveUserPreferences();
   
   const pdfViewerContainer = document.getElementById('pdfViewerContainer');
@@ -5020,7 +2424,6 @@ function showView(viewName) {
   const backBtn = document.getElementById('backBtn');
   const pdfViewer = document.getElementById('pdfViewer');
   
-  
   const allSections = [tilesSection, favoritesSection, recentSection, analyticsSection, 
                        plannerSection, flashcardsSection, notesSection, progressSection,
                        remindersSection, settingsSection, tagsSection, importedSection, studyRoomSection];
@@ -5030,9 +2433,7 @@ function showView(viewName) {
   if (searchResults) searchResults.style.display = 'none';
   if (pdfViewerContainer) pdfViewerContainer.style.display = 'none';
   if (pdfViewer) { pdfViewer.classList.remove('active'); pdfViewer.src = ''; }
-  // Always hide home tag panels first; only home case re-shows them
   hideHomeTagsPanels();
-  
   
   switch(viewName) {
     case 'home':
@@ -5050,8 +2451,7 @@ function showView(viewName) {
       if (breadcrumb) breadcrumb.style.display = 'flex';
       if (backBtn) backBtn.style.display = path.length > 0 ? 'flex' : 'none';
       if (typeof window.renderLibrary === 'function') window.renderLibrary();
-      // Render document tiles
-      renderTiles(getCurrentDocumentsLevel());
+      navigateToPath(path);
       break;
     case 'favorites':
       if (favoritesSection) favoritesSection.style.display = 'block';
@@ -5142,7 +2542,6 @@ function showView(viewName) {
   }
 }
 
-
 function addToRecent(title, docPath, url) {
   if (!url || url === '#') return;
   const recent = JSON.parse(localStorage.getItem('questionary-recent') || '[]');
@@ -5153,14 +2552,13 @@ function addToRecent(title, docPath, url) {
   
   saveRecentToStorage(updatedRecent);
   
-    if (docPath && docPath.length > 0) {
+  if (docPath && docPath.length > 0) {
     trackSubjectAccess(docPath[0]);
     if (docPath.length > 1) {
       trackSubjectAccess(docPath[1]);
     }
   }
 }
-
 
 function toggleFavorite(title, docPath, url) {
   const pathString = Array.isArray(docPath) ? docPath.join('|') : docPath;
@@ -5176,7 +2574,6 @@ function toggleFavorite(title, docPath, url) {
   saveFavorites();
   updateDashboardStats();
 }
-
 
 function renderFavorites() {
   const container = document.getElementById('favoritesContainer');
@@ -5201,7 +2598,6 @@ function renderFavorites() {
     container.appendChild(tile);
   });
 }
-
 
 function renderRecent() {
   const container = document.getElementById('recentContainer');
@@ -5228,7 +2624,6 @@ function renderRecent() {
   });
 }
 
-
 function initializeViewControls() {
   const gridViewBtn = document.getElementById('gridView');
   const listViewBtn = document.getElementById('listView');
@@ -5253,15 +2648,15 @@ function initializeViewControls() {
     localStorage.setItem('questionary-view-mode', 'list');
   });
   
-  sortToggleBtn && sortToggleBtn.addEventListener('click', () => {
+  sortToggleBtn && sortToggleBtn.addEventListener('click', async () => {
     currentSortOrder = currentSortOrder === 'asc' ? 'desc' : 'asc';
     localStorage.setItem('questionary-sort-order', currentSortOrder);
-    renderTiles(getCurrentLevel());
+    const nodes = await DbService.getChildren(path);
+    renderTilesFromDb(nodes);
   });
 }
 
-
-function handleBackButton() {
+async function handleBackButton() {
   if (path.length > 0) {
     path.pop();
     const pdfViewer = document.getElementById('pdfViewer');
@@ -5279,12 +2674,13 @@ function handleBackButton() {
       const isListView = tilesContainer.classList.contains('list-view');
       tilesContainer.style.display = isListView ? 'flex' : 'grid';
     }
-    renderTiles(getCurrentLevel());
+    
+    const nodes = await DbService.getChildren(path);
+    renderTilesFromDb(nodes);
     updateBreadcrumb();
     hideTimerCompletely();
   }
 }
-
 
 function initializeTimer() {
   const timerPanel = document.getElementById('timerPanel');
@@ -5299,13 +2695,9 @@ function initializeTimer() {
   const timerMiniLap = document.getElementById('timerMiniLap');
   const timerReopenBtn = document.getElementById('timerReopenBtn');
 
-  
   initializeTimerDrag();
-  
-  
   initializeTimerResize();
 
-  
   if (timerReopenBtn) {
     const newReopen = timerReopenBtn.cloneNode(true);
     timerReopenBtn.parentNode.replaceChild(newReopen, timerReopenBtn);
@@ -5315,84 +2707,62 @@ function initializeTimer() {
     });
   }
 
-  
   timerPresets.forEach(btn => {
-    
     if (btn.dataset.presetId || btn.id === 'addPresetBtn' || btn.classList.contains('custom-preset') || btn.classList.contains('add-custom')) return;
-    
-    
     if (btn.dataset.initialized === 'true') return;
-    
-    
     const durationAttr = btn.getAttribute('data-duration');
     if (!durationAttr) return;
-    
-    
     const duration = parseInt(durationAttr, 10);
     if (!duration || isNaN(duration) || duration <= 0) return;
     
-    
     btn.dataset.initialized = 'true';
-    
-    
     const newBtn = btn.cloneNode(true);
     btn.parentNode.replaceChild(newBtn, btn);
-    
-    newBtn.addEventListener('click', () => {
-      selectTimerPreset(newBtn, duration);
-    });
+    newBtn.addEventListener('click', () => { selectTimerPreset(newBtn, duration); });
   });
 
-  
   if (timerClose) {
     const newClose = timerClose.cloneNode(true);
     timerClose.parentNode.replaceChild(newClose, timerClose);
     newClose.addEventListener('click', () => hideTimer());
   }
 
-  
   if (timerMinimize) {
     const newMinimize = timerMinimize.cloneNode(true);
     timerMinimize.parentNode.replaceChild(newMinimize, timerMinimize);
     newMinimize.addEventListener('click', () => toggleTimerMinimize());
   }
 
-  
   if (timerStart) {
     const newStart = timerStart.cloneNode(true);
     timerStart.parentNode.replaceChild(newStart, timerStart);
     newStart.addEventListener('click', () => startTimer());
   }
 
-  
   if (timerPause) {
     const newPause = timerPause.cloneNode(true);
     timerPause.parentNode.replaceChild(newPause, timerPause);
     newPause.addEventListener('click', () => pauseTimer());
   }
 
-  
   if (timerResume) {
     const newResume = timerResume.cloneNode(true);
     timerResume.parentNode.replaceChild(newResume, timerResume);
     newResume.addEventListener('click', () => resumeTimer());
   }
 
-  
   if (timerReset) {
     const newReset = timerReset.cloneNode(true);
     timerReset.parentNode.replaceChild(newReset, timerReset);
     newReset.addEventListener('click', () => resetTimer());
   }
 
-  
   if (timerLap) {
     const newLap = timerLap.cloneNode(true);
     timerLap.parentNode.replaceChild(newLap, timerLap);
     newLap.addEventListener('click', () => addLap());
   }
 
-  
   if (timerMiniLap) {
     const newMiniLap = timerMiniLap.cloneNode(true);
     timerMiniLap.parentNode.replaceChild(newMiniLap, timerMiniLap);
@@ -5403,7 +2773,6 @@ function initializeTimer() {
 function initializeTimerDrag() {
   const timerPanel = document.getElementById('timerPanel');
   const dragHandle = document.getElementById('timerDragHandle');
-  
   if (!timerPanel || !dragHandle) return;
   
   let isDragging = false;
@@ -5413,12 +2782,9 @@ function initializeTimerDrag() {
   dragHandle.addEventListener('touchstart', startDrag, { passive: false });
   
   function startDrag(e) {
-    
     if (e.target.closest('button')) return;
-    
     isDragging = true;
     timerPanel.style.transition = 'none';
-    
     const rect = timerPanel.getBoundingClientRect();
     initialLeft = rect.left;
     initialTop = rect.top;
@@ -5431,7 +2797,6 @@ function initializeTimerDrag() {
       startY = e.clientY;
     }
     
-    
     timerPanel.style.bottom = 'auto';
     timerPanel.style.right = 'auto';
     timerPanel.style.left = initialLeft + 'px';
@@ -5441,13 +2806,11 @@ function initializeTimerDrag() {
     document.addEventListener('mouseup', stopDrag);
     document.addEventListener('touchmove', drag, { passive: false });
     document.addEventListener('touchend', stopDrag);
-    
     e.preventDefault();
   }
   
   function drag(e) {
     if (!isDragging) return;
-    
     let currentX, currentY;
     if (e.type === 'touchmove') {
       currentX = e.touches[0].clientX;
@@ -5456,13 +2819,11 @@ function initializeTimerDrag() {
       currentX = e.clientX;
       currentY = e.clientY;
     }
-    
     const deltaX = currentX - startX;
     const deltaY = currentY - startY;
     
     let newLeft = initialLeft + deltaX;
     let newTop = initialTop + deltaY;
-    
     
     const panelRect = timerPanel.getBoundingClientRect();
     const maxLeft = window.innerWidth - panelRect.width;
@@ -5473,14 +2834,12 @@ function initializeTimerDrag() {
     
     timerPanel.style.left = newLeft + 'px';
     timerPanel.style.top = newTop + 'px';
-    
     e.preventDefault();
   }
   
   function stopDrag() {
     isDragging = false;
     timerPanel.style.transition = '';
-    
     document.removeEventListener('mousemove', drag);
     document.removeEventListener('mouseup', stopDrag);
     document.removeEventListener('touchmove', drag);
@@ -5491,7 +2850,6 @@ function initializeTimerDrag() {
 function initializeTimerResize() {
   const timerPanel = document.getElementById('timerPanel');
   const resizeHandle = document.getElementById('timerResizeHandle');
-  
   if (!timerPanel || !resizeHandle) return;
   
   let isResizing = false;
@@ -5503,7 +2861,6 @@ function initializeTimerResize() {
   function startResize(e) {
     isResizing = true;
     timerPanel.style.transition = 'none';
-    
     const rect = timerPanel.getBoundingClientRect();
     startWidth = rect.width;
     startHeight = rect.height;
@@ -5520,14 +2877,12 @@ function initializeTimerResize() {
     document.addEventListener('mouseup', stopResize);
     document.addEventListener('touchmove', resize, { passive: false });
     document.addEventListener('touchend', stopResize);
-    
     e.preventDefault();
     e.stopPropagation();
   }
   
   function resize(e) {
     if (!isResizing) return;
-    
     let currentX, currentY;
     if (e.type === 'touchmove') {
       currentX = e.touches[0].clientX;
@@ -5536,7 +2891,6 @@ function initializeTimerResize() {
       currentX = e.clientX;
       currentY = e.clientY;
     }
-    
     const deltaX = currentX - startX;
     const deltaY = currentY - startY;
     
@@ -5545,14 +2899,12 @@ function initializeTimerResize() {
     
     timerPanel.style.width = newWidth + 'px';
     timerPanel.style.height = newHeight + 'px';
-    
     e.preventDefault();
   }
   
   function stopResize() {
     isResizing = false;
     timerPanel.style.transition = '';
-    
     document.removeEventListener('mousemove', resize);
     document.removeEventListener('mouseup', stopResize);
     document.removeEventListener('touchmove', resize);
@@ -5564,13 +2916,12 @@ function toggleTimerMinimize() {
   const timerPanel = document.getElementById('timerPanel');
   const minimizeBtn = document.getElementById('timerMinimize');
   const timerControls = document.getElementById('timerControls');
-  
   if (!timerPanel) return;
   
   timerPanel.classList.toggle('minimized');
   const isMinimized = timerPanel.classList.contains('minimized');
   
-    if (timerControls && isMinimized) {
+  if (timerControls && isMinimized) {
     timerControls.style.display = 'flex';
   }
   
@@ -5589,27 +2940,18 @@ function toggleTimerMinimize() {
 }
 
 function selectTimerPreset(btn, duration) {
-  
-  if (!duration || isNaN(duration) || duration <= 0) {
-    console.error('Invalid timer duration:', duration);
-    return;
-  }
-  
+  if (!duration || isNaN(duration) || duration <= 0) return;
   
   document.querySelectorAll('.timer-preset-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
   
-  
   timerState.duration = duration;
   timerState.remaining = duration;
   
-  
   updateTimerDisplay();
-  
   
   const timerControls = document.getElementById('timerControls');
   timerControls && (timerControls.style.display = 'flex');
-  
   
   const startBtn = document.getElementById('timerStart');
   const pauseBtn = document.getElementById('timerPause');
@@ -5619,14 +2961,11 @@ function selectTimerPreset(btn, duration) {
   if (pauseBtn) pauseBtn.style.display = 'none';
   if (resumeBtn) resumeBtn.style.display = 'none';
   
-  
   updateTimerStatus('Ready to start');
-  
   
   const progressBar = document.getElementById('timerProgressBar');
   progressBar && (progressBar.style.width = '100%');
   progressBar && progressBar.classList.remove('warning', 'danger');
-  
   
   const timerDisplay = document.getElementById('timerDisplay');
   timerDisplay && timerDisplay.classList.remove('warning', 'danger');
@@ -5639,12 +2978,10 @@ function startTimer() {
   timerState.isPaused = false;
   timerState.lastLapTime = timerState.duration;
   
-  
   document.getElementById('timerStart').style.display = 'none';
   document.getElementById('timerPause').style.display = 'flex';
   document.getElementById('timerResume').style.display = 'none';
   document.getElementById('timerLap').style.display = 'flex';
-  
   
   const miniLap = document.getElementById('timerMiniLap');
   if (miniLap) {
@@ -5653,7 +2990,6 @@ function startTimer() {
   }
   
   updateTimerStatus('Timer running', 'active');
-  
   
   timerState.interval = setInterval(() => {
     if (timerState.remaining > 0) {
@@ -5669,13 +3005,10 @@ function startTimer() {
 function pauseTimer() {
   timerState.isRunning = false;
   timerState.isPaused = true;
-  
   clearInterval(timerState.interval);
-  
   
   document.getElementById('timerPause').style.display = 'none';
   document.getElementById('timerResume').style.display = 'flex';
-  
   updateTimerStatus('Timer paused', 'paused');
 }
 
@@ -5683,12 +3016,9 @@ function resumeTimer() {
   timerState.isRunning = true;
   timerState.isPaused = false;
   
-  
   document.getElementById('timerPause').style.display = 'flex';
   document.getElementById('timerResume').style.display = 'none';
-  
   updateTimerStatus('Timer running', 'active');
-  
   
   timerState.interval = setInterval(() => {
     if (timerState.remaining > 0) {
@@ -5703,19 +3033,16 @@ function resumeTimer() {
 
 function resetTimer() {
   clearInterval(timerState.interval);
-  
   timerState.isRunning = false;
   timerState.isPaused = false;
   timerState.remaining = timerState.duration;
   timerState.laps = [];
   timerState.lastLapTime = timerState.duration;
   
-  
   document.getElementById('timerStart').style.display = 'flex';
   document.getElementById('timerPause').style.display = 'none';
   document.getElementById('timerResume').style.display = 'none';
   document.getElementById('timerLap').style.display = 'none';
-  
   
   const miniLap = document.getElementById('timerMiniLap');
   if (miniLap) {
@@ -5726,13 +3053,13 @@ function resetTimer() {
   updateTimerDisplay();
   renderLaps();
   
-    const progressBar = document.getElementById('timerProgressBar');
+  const progressBar = document.getElementById('timerProgressBar');
   if (progressBar) {
     progressBar.style.width = '100%';
     progressBar.classList.remove('warning', 'danger');
   }
   
-    const timerDisplay = document.getElementById('timerDisplay');
+  const timerDisplay = document.getElementById('timerDisplay');
   if (timerDisplay) timerDisplay.classList.remove('warning', 'danger');
   
   updateTimerStatus('Timer reset');
@@ -5743,15 +3070,12 @@ function timerFinished() {
   timerState.isRunning = false;
   timerState.isPaused = false;
   
-  // Play alarm sound
   if (typeof window.playAlarmSound === 'function') {
     window.playAlarmSound();
   }
   
-  // Show notification
   showNotification('⏰ Timer Complete! Time\'s up!', 'success');
   
-  // Update UI
   document.getElementById('timerStart').style.display = 'flex';
   document.getElementById('timerPause').style.display = 'none';
   document.getElementById('timerResume').style.display = 'none';
@@ -5771,7 +3095,6 @@ function updateTimerDisplay() {
   const timerTitle = document.querySelector('.timer-title');
   if (!display) return;
   
-  
   const remaining = timerState.remaining || 0;
   const duration = timerState.duration || 1; 
   
@@ -5782,14 +3105,11 @@ function updateTimerDisplay() {
   const timeStr = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
   display.textContent = timeStr;
   
-  
   if (timerTitle) {
     timerTitle.setAttribute('data-time', timeStr);
   }
   
-  
   const percentRemaining = (remaining / duration) * 100;
-  
   display.classList.remove('warning', 'danger');
   
   if (percentRemaining <= 10) {
@@ -5817,7 +3137,6 @@ function updateTimerProgress() {
 function updateTimerStatus(message, statusClass = '') {
   const status = document.getElementById('timerStatus');
   if (!status) return;
-  
   status.textContent = message;
   status.className = 'timer-status';
   if (statusClass) {
@@ -5828,27 +3147,20 @@ function updateTimerStatus(message, statusClass = '') {
 function showTimer() {
   const timerPanel = document.getElementById('timerPanel');
   const reopenBtn = document.getElementById('timerReopenBtn');
-  if (timerPanel) {
-    timerPanel.style.display = 'flex';
-  }
-  if (reopenBtn) {
-    reopenBtn.style.display = 'none';
-  }
+  if (timerPanel) timerPanel.style.display = 'flex';
+  if (reopenBtn) reopenBtn.style.display = 'none';
 }
 
 function hideTimer() {
   const timerPanel = document.getElementById('timerPanel');
   const reopenBtn = document.getElementById('timerReopenBtn');
-  if (timerPanel) {
-    timerPanel.style.display = 'none';
-  }
+  if (timerPanel) timerPanel.style.display = 'none';
   
   const pdfViewer = document.getElementById('pdfViewer');
-    const isPdfVisible = pdfViewer && (pdfViewer.classList.contains('active') || (pdfViewer.src && pdfViewer.src !== '' && pdfViewer.src !== 'about:blank'));
+  const isPdfVisible = pdfViewer && (pdfViewer.classList.contains('active') || (pdfViewer.src && pdfViewer.src !== '' && pdfViewer.src !== 'about:blank'));
   
   if (reopenBtn && isPdfVisible) {
     reopenBtn.style.display = 'flex';
-    
     if (timerState.isRunning) {
       reopenBtn.classList.add('pulse');
     }
@@ -5858,15 +3170,11 @@ function hideTimer() {
 function hideTimerCompletely() {
   const timerPanel = document.getElementById('timerPanel');
   const reopenBtn = document.getElementById('timerReopenBtn');
-  if (timerPanel) {
-    timerPanel.style.display = 'none';
-  }
+  if (timerPanel) timerPanel.style.display = 'none';
   if (reopenBtn) {
     reopenBtn.style.display = 'none';
     reopenBtn.classList.remove('pulse');
   }
-  
-  
   if (timerState.isRunning) {
     clearInterval(timerState.interval);
     timerState.isRunning = false;
@@ -5876,24 +3184,18 @@ function hideTimerCompletely() {
 function playTimerAlert() {
   try {
     const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-    
-    
     const beepDuration = 0.2;
     const beepCount = 3;
     
     for (let i = 0; i < beepCount; i++) {
       const oscillator = audioContext.createOscillator();
       const gainNode = audioContext.createGain();
-      
       oscillator.connect(gainNode);
       gainNode.connect(audioContext.destination);
-      
       oscillator.frequency.value = 800;
       oscillator.type = 'sine';
-      
       gainNode.gain.setValueAtTime(0.3, audioContext.currentTime + i * 0.4);
       gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + i * 0.4 + beepDuration);
-      
       oscillator.start(audioContext.currentTime + i * 0.4);
       oscillator.stop(audioContext.currentTime + i * 0.4 + beepDuration);
     }
@@ -5902,13 +3204,8 @@ function playTimerAlert() {
   }
 }
 
-
 function addLap() {
-  if (!timerState.isRunning || timerState.remaining <= 0) {
-    console.log('Cannot add lap - timer not running or no time remaining');
-    return;
-  }
-  
+  if (!timerState.isRunning || timerState.remaining <= 0) return;
   const lapTime = timerState.remaining;
   const elapsed = timerState.lastLapTime - lapTime;
   
@@ -5920,17 +3217,12 @@ function addLap() {
   
   timerState.lastLapTime = lapTime;
   renderLaps();
-  
-  
   showNotification(`Lap ${timerState.laps.length} recorded`, 'success');
 }
 
 function deleteLap(index) {
   timerState.laps.splice(index, 1);
-  
-  timerState.laps.forEach((lap, i) => {
-    lap.number = i + 1;
-  });
+  timerState.laps.forEach((lap, i) => { lap.number = i + 1; });
   renderLaps();
 }
 
@@ -5944,7 +3236,6 @@ function formatLapTime(seconds) {
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
   const s = seconds % 60;
-  
   if (h > 0) {
     return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   }
@@ -5954,7 +3245,6 @@ function formatLapTime(seconds) {
 function renderLaps() {
   const lapsContainer = document.getElementById('timerLaps');
   if (!lapsContainer) return;
-  
   if (timerState.laps.length === 0) {
     lapsContainer.innerHTML = '';
     return;
@@ -5968,7 +3258,6 @@ function renderLaps() {
       </button>
     </div>
   `;
-  
   
   const reversedLaps = [...timerState.laps].reverse();
   reversedLaps.forEach((lap, i) => {
@@ -5991,7 +3280,6 @@ function renderLaps() {
 }
 
 window.addEventListener('contextmenu', e => {
-  
   if (e.target.closest('.custom-preset')) return;
   e.preventDefault();
 });
@@ -6007,42 +3295,30 @@ let updateState = {
 };
 
 async function checkForUpdatesManual() {
-    console.log('checkForUpdatesManual function called');
-    
     const btn = document.getElementById('checkUpdatesBtn');
-    
-        if (updateState.downloading) {
+    if (updateState.downloading) {
         showUpdateProgressNotification();
         return;
     }
-    
-        if (updateState.available && updateState.update) {
+    if (updateState.available && updateState.update) {
         await downloadAndInstallUpdate();
         return;
     }
-    
     if (btn) {
         btn.classList.add('checking');
         btn.disabled = true;
     }
-    
     try {
         if (window.__TAURI__) {
             showNotification('Checking for updates...', 'info');
-            
-                        const updater = window.__TAURI__.updater;
-            if (!updater) {
-                throw new Error('Updater plugin not available');
-            }
+            const updater = window.__TAURI__.updater;
+            if (!updater) throw new Error('Updater plugin not available');
             
             const update = await updater.check();
-            
             if (update) {
-                console.log('Update available:', update.version);
                 updateState.available = true;
                 updateState.version = update.version;
                 updateState.update = update;
-                
                 showNotification(`Update ${update.version} available! Click update button again to download.`, 'success');
                 updateButtonToDownloadMode(update.version);
             } else {
@@ -6066,21 +3342,16 @@ async function checkForUpdatesManual() {
 
 async function downloadAndInstallUpdate() {
     if (!updateState.update) return;
-    
-    const btn = document.getElementById('checkUpdatesBtn');
     updateState.downloading = true;
     updateState.downloadProgress = 0;
     updateState.downloadedBytes = 0;
-    
     try {
         updateButtonToProgressMode();
         showNotification('Downloading update...', 'info');
-        
         await updateState.update.downloadAndInstall((event) => {
             switch (event.event) {
                 case 'Started':
                     updateState.totalBytes = event.data.contentLength || 0;
-                    console.log('Download started, size:', updateState.totalBytes);
                     break;
                 case 'Progress':
                     updateState.downloadedBytes += event.data.chunkLength || 0;
@@ -6091,24 +3362,20 @@ async function downloadAndInstallUpdate() {
                     break;
                 case 'Finished':
                     updateState.downloadProgress = 100;
-                    console.log('Download finished');
                     updateProgressButton();
                     break;
             }
         });
-        
         showNotification('Update installed! Restarting app...', 'success');
         updateButtonToRestartMode();
-        
-                setTimeout(async () => {
+        setTimeout(async () => {
             if (window.__TAURI__ && window.__TAURI__.process) {
                 await window.__TAURI__.process.relaunch();
             }
         }, 2000);
-        
     } catch (error) {
         console.error('Download error:', error);
-        showNotification('Failed to download update. Please try again.', 'error');
+        showNotification('Failed to download update.', 'error');
         resetUpdateButton();
         updateState.downloading = false;
     }
@@ -6127,7 +3394,7 @@ function updateButtonToProgressMode() {
     const btn = document.getElementById('checkUpdatesBtn');
     if (btn) {
         btn.innerHTML = `<i class="fas fa-download"></i>`;
-        btn.title = 'Downloading... Click to see progress';
+        btn.title = 'Downloading...';
         btn.classList.add('downloading');
         btn.classList.remove('update-available');
     }
@@ -6135,43 +3402,24 @@ function updateButtonToProgressMode() {
 }
 
 function updateProgressButton() {
-    const progressBar = document.getElementById('downloadProgressBar');
     const progressFill = document.getElementById('downloadProgressFill');
     const progressPercent = document.getElementById('downloadProgressPercent');
     const progressText = document.getElementById('downloadProgressText');
-    
-    if (progressFill) {
-        progressFill.style.width = `${updateState.downloadProgress}%`;
-    }
-    if (progressPercent) {
-        progressPercent.textContent = `${updateState.downloadProgress}%`;
-    }
-    if (progressText) {
-        progressText.textContent = `${formatBytes(updateState.downloadedBytes)} / ${formatBytes(updateState.totalBytes)}`;
-    }
-    
-    const btn = document.getElementById('checkUpdatesBtn');
-    if (btn) {
-        btn.title = `Downloading: ${formatBytes(updateState.downloadedBytes)} / ${formatBytes(updateState.totalBytes)}`;
-    }
+    if (progressFill) progressFill.style.width = `${updateState.downloadProgress}%`;
+    if (progressPercent) progressPercent.textContent = `${updateState.downloadProgress}%`;
+    if (progressText) progressText.textContent = `${formatBytes(updateState.downloadedBytes)} / ${formatBytes(updateState.totalBytes)}`;
 }
 
 function showDownloadProgressBar() {
     const progressBar = document.getElementById('downloadProgressBar');
-    if (progressBar) {
-        progressBar.style.display = 'block';
-    }
+    if (progressBar) progressBar.style.display = 'block';
 }
 
 function hideDownloadProgressBar() {
     const progressBar = document.getElementById('downloadProgressBar');
-    if (progressBar) {
-        progressBar.style.display = 'none';
-    }
+    if (progressBar) progressBar.style.display = 'none';
     const progressFill = document.getElementById('downloadProgressFill');
-    if (progressFill) {
-        progressFill.style.width = '0%';
-    }
+    if (progressFill) progressFill.style.width = '0%';
 }
 
 function updateButtonToRestartMode() {
@@ -6217,51 +3465,36 @@ function formatBytes(bytes) {
     function setupButton() {
         const btn = document.getElementById('checkUpdatesBtn');
         if (btn && !btn.dataset.initialized) {
-            console.log('Update button found, attaching click handler');
             btn.dataset.initialized = 'true';
             btn.addEventListener('click', checkForUpdatesManual);
         }
     }
-    
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', setupButton);
     } else {
         setupButton();
     }
-    
     setTimeout(setupButton, 1000);
     setTimeout(setupButton, 3000);
 })();
 
 async function checkForUpdatesOnStartup() {
-        await new Promise(resolve => setTimeout(resolve, 5000));
-    
+    await new Promise(resolve => setTimeout(resolve, 5000));
     try {
         if (window.__TAURI__) {
-            console.log('Auto-checking for updates...');
-            
             const updater = window.__TAURI__.updater;
-            if (!updater) {
-                console.log('Updater plugin not available');
-                return;
-            }
-            
+            if (!updater) return;
             const update = await updater.check();
-            
             if (update) {
-                console.log('Update available:', update.version);
                 updateState.available = true;
                 updateState.version = update.version;
                 updateState.update = update;
-                
-                                showNotification(`Update ${update.version} is available! Click the update button to download.`, 'info');
+                showNotification(`Update ${update.version} is available!`, 'info');
                 updateButtonToDownloadMode(update.version);
-            } else {
-                console.log('App is up to date');
             }
         }
     } catch (error) {
-        console.log('Auto-update check failed (silent):', error.message);
+        console.log('Auto-update check failed:', error.message);
     }
 }
 
@@ -6271,17 +3504,13 @@ if (document.readyState === 'loading') {
     checkForUpdatesOnStartup();
 }
 
-
-
-
 function initializeNewFeatures() {
-    try { if (typeof loadNotes === 'function') loadNotes(); } catch(e) { console.log('loadNotes not available'); }
-  try { if (typeof loadFlashcardDecks === 'function') loadFlashcardDecks(); } catch(e) { console.log('loadFlashcardDecks not available'); }
-  try { if (typeof loadStudySessions === 'function') loadStudySessions(); } catch(e) { console.log('loadStudySessions not available'); }
-  try { if (typeof loadDocumentProgress === 'function') loadDocumentProgress(); } catch(e) { console.log('loadDocumentProgress not available'); }
-  try { if (typeof loadQuickLinks === 'function') loadQuickLinks(); } catch(e) { console.log('loadQuickLinks not available'); }
-  try { if (typeof loadStudyStats === 'function') loadStudyStats(); } catch(e) { console.log('loadStudyStats not available'); }
-  
+  try { if (typeof loadNotes === 'function') loadNotes(); } catch(e){}
+  try { if (typeof loadFlashcardDecks === 'function') loadFlashcardDecks(); } catch(e){}
+  try { if (typeof loadStudySessions === 'function') loadStudySessions(); } catch(e){}
+  try { if (typeof loadDocumentProgress === 'function') loadDocumentProgress(); } catch(e){}
+  try { if (typeof loadQuickLinks === 'function') loadQuickLinks(); } catch(e){}
+  try { if (typeof loadStudyStats === 'function') loadStudyStats(); } catch(e){}
   
   const createNoteBtn = document.getElementById('createNoteBtn');
   const closeNoteModal = document.getElementById('closeNoteModal');
@@ -6293,7 +3522,6 @@ function initializeNewFeatures() {
   if (closeNoteModal && noteModal) closeNoteModal.onclick = () => noteModal.classList.remove('active');
   if (cancelNoteBtn && noteModal) cancelNoteBtn.onclick = () => noteModal.classList.remove('active');
   if (saveNoteBtn && typeof saveNote === 'function') saveNoteBtn.onclick = saveNote;
-  
   
   const createDeckBtn = document.getElementById('createDeckBtn');
   const closeFlashcardModal = document.getElementById('closeFlashcardModal');
@@ -6308,7 +3536,6 @@ function initializeNewFeatures() {
   if (saveDeckBtn && typeof saveDeck === 'function') saveDeckBtn.onclick = saveDeck;
   if (addCardBtn && typeof addCardEditor === 'function') addCardBtn.onclick = () => addCardEditor();
   
-  
   const closeStudyModal = document.getElementById('closeStudyModal');
   const flipCardBtn = document.getElementById('flipCardBtn');
   const nextCardBtn = document.getElementById('nextCardBtn');
@@ -6321,7 +3548,6 @@ function initializeNewFeatures() {
   if (nextCardBtn && typeof nextCard === 'function') nextCardBtn.onclick = nextCard;
   if (prevCardBtn && typeof prevCard === 'function') prevCardBtn.onclick = prevCard;
   if (activeFlashcard && typeof flipCard === 'function') activeFlashcard.onclick = flipCard;
-  
   
   const addStudySessionBtn = document.getElementById('addStudySessionBtn');
   const closeSessionModal = document.getElementById('closeSessionModal');
@@ -6350,7 +3576,6 @@ function initializeNewFeatures() {
     };
   }
   
-  
   document.querySelectorAll('.progress-filter').forEach(btn => {
     btn.onclick = () => {
       document.querySelectorAll('.progress-filter').forEach(b => b.classList.remove('active'));
@@ -6358,7 +3583,6 @@ function initializeNewFeatures() {
       filterProgress(btn.dataset.filter);
     };
   });
-  
   
   const quickLinksToggle = document.getElementById('quickLinksToggle');
   const quickLinksPanel = document.getElementById('quickLinksPanel');
@@ -6369,11 +3593,9 @@ function initializeNewFeatures() {
     quickLinksToggle.onclick = () => quickLinksPanel.classList.toggle('active');
   }
   
-  
   if (quickLinksClose && quickLinksPanel) {
     quickLinksClose.onclick = () => quickLinksPanel.classList.remove('active');
   }
-  
   
   document.addEventListener('click', (e) => {
     if (quickLinksPanel && quickLinksPanel.classList.contains('active')) {
@@ -6383,32 +3605,22 @@ function initializeNewFeatures() {
     }
   });
   
-  
   if (addQuickLinkBtn) {
     addQuickLinkBtn.onclick = (e) => {
       e.stopPropagation();
-      
-      
       if (currentOpenPDF) {
         showQuickLinkChoiceDialog();
         return;
       }
-      
-      
       if (path.length === 0) {
         if (typeof showNotification === 'function') showNotification('Navigate to a folder first to add it as a quick link', 'info');
         return;
       }
-      
-      
       addCurrentFolderToQuickLinks();
     };
   }
   
-  
   if (typeof renderQuickLinks === 'function') renderQuickLinks();
-  
-  console.log('New features initialized');
 }
 
 function filterProgress(filter) {
@@ -6422,7 +3634,6 @@ function filterProgress(filter) {
     }
   });
 }
-
 
 let searchHistory = JSON.parse(localStorage.getItem('questionary-search-history') || '[]');
 
@@ -6441,7 +3652,6 @@ function addToSearchHistory(query) {
 function initSearchHistory() {
   const searchInput = document.getElementById('globalSearch');
   if (!searchInput) return;
-  
   
   const container = searchInput.parentElement;
   let dropdown = document.getElementById('searchHistoryDropdown');
@@ -6500,7 +3710,6 @@ function clearSearchHistory() {
 window.useSearchHistory = useSearchHistory;
 window.clearSearchHistory = clearSearchHistory;
 
-
 let customTimerPresets = JSON.parse(localStorage.getItem('questionary-timer-presets') || '[]');
 
 function saveCustomPresets() {
@@ -6508,7 +3717,6 @@ function saveCustomPresets() {
 }
 
 function initCustomPresets() {
-  
   customTimerPresets = customTimerPresets.filter(p => {
     const duration = parseInt(p.duration, 10);
     return duration && duration > 0;
@@ -6518,10 +3726,8 @@ function initCustomPresets() {
   renderTimerPresets();
   addCustomPresetButton();
   
-  
   const display = document.getElementById('timerDisplay');
   if (display) display.textContent = '00:00:00';
-  
   
   timerState.duration = 0;
   timerState.remaining = 0;
@@ -6531,12 +3737,9 @@ function renderTimerPresets() {
   const container = document.getElementById('timerPresets');
   if (!container) return;
   
-  
   container.querySelectorAll('[data-preset-id]').forEach(el => el.remove());
   
-  
   customTimerPresets.forEach(preset => {
-    
     const duration = parseInt(preset.duration, 10);
     if (!duration || duration <= 0) return;
     
@@ -6550,12 +3753,10 @@ function renderTimerPresets() {
       <small>${formatPresetTime(duration)}</small>
     `;
     
-    
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       selectTimerPreset(btn, duration);
     });
-    
     
     btn.addEventListener('contextmenu', async (e) => {
       e.preventDefault();
@@ -6563,7 +3764,6 @@ function renderTimerPresets() {
       const ok = await showConfirm(`Delete "${preset.label}" preset?`, { title: 'Delete Preset', type: 'danger', confirmText: 'Delete' });
       if (ok) removeCustomPreset(preset.id);
     });
-    
     
     const addBtn = document.getElementById('addPresetBtn');
     if (addBtn) {
@@ -6591,13 +3791,11 @@ function addCustomPresetButton() {
 }
 
 function showAddPresetForm() {
-  
   const existingForm = document.getElementById('addPresetForm');
   if (existingForm) {
     existingForm.remove();
     return;
   }
-  
   
   const overlay = document.createElement('div');
   overlay.id = 'addPresetForm';
@@ -6616,7 +3814,6 @@ function showAddPresetForm() {
       </div>
     </div>
   `;
-  
   
   overlay.addEventListener('click', (e) => {
     if (e.target === overlay) overlay.remove();
@@ -6642,12 +3839,7 @@ function addCustomPreset() {
   }
   
   const durationInSeconds = minutes * 60;
-  
-  const preset = {
-    id: Date.now().toString(),
-    label: label,
-    duration: durationInSeconds
-  };
+  const preset = { id: Date.now().toString(), label: label, duration: durationInSeconds };
   
   customTimerPresets.push(preset);
   saveCustomPresets();
@@ -6672,14 +3864,10 @@ function formatPresetTime(seconds) {
   return `${mins}m`;
 }
 
-
-
 window.addCustomPreset = addCustomPreset;
 window.removeCustomPreset = removeCustomPreset;
 
-
 document.addEventListener('DOMContentLoaded', () => setTimeout(initCustomPresets, 100));
-
 
 let darkModeSchedule = JSON.parse(localStorage.getItem('questionary-darkmode-schedule') || '{"enabled":false,"darkStart":19,"darkEnd":7}');
 
@@ -6689,7 +3877,6 @@ function saveDarkModeSchedule() {
 
 function checkDarkModeSchedule() {
   if (!darkModeSchedule.enabled) return;
-  
   const hour = new Date().getHours();
   const shouldBeDark = (hour >= darkModeSchedule.darkStart || hour < darkModeSchedule.darkEnd);
   const isDark = document.body.classList.contains('dark-theme');
@@ -6703,10 +3890,8 @@ function checkDarkModeSchedule() {
   }
 }
 
-
 setInterval(checkDarkModeSchedule, 60000);
 document.addEventListener('DOMContentLoaded', checkDarkModeSchedule);
-
 
 let pageBookmarks = JSON.parse(localStorage.getItem('questionary-page-bookmarks') || '{}');
 
@@ -6769,8 +3954,6 @@ function renderPageBookmarks(docPath) {
 function goToPage(pageNumber) {
   const pdfViewer = document.getElementById('pdfViewer');
   if (pdfViewer && pdfViewer.src) {
-    
-    
     showNotification(`Navigate to page ${pageNumber}`, 'info');
   }
 }
@@ -6779,39 +3962,23 @@ window.addPageBookmark = addPageBookmark;
 window.removePageBookmark = removePageBookmark;
 window.goToPage = goToPage;
 
-
-
 function initDocumentPreview() {
-  
   const existingTooltip = document.getElementById('previewTooltip');
-  if (existingTooltip) {
-    existingTooltip.remove();
-  }
+  if (existingTooltip) existingTooltip.remove();
 }
 
 let previewTimeout = null;
-
-function showPreviewTooltip(element, url, name) {
-  
-  return;
-}
-
+function showPreviewTooltip(element, url, name) { return; }
 function hidePreviewTooltip() {
   clearTimeout(previewTimeout);
   const tooltip = document.getElementById('previewTooltip');
-  if (tooltip) {
-    tooltip.remove();
-  }
+  if (tooltip) tooltip.remove();
 }
 
 document.addEventListener('DOMContentLoaded', initDocumentPreview);
 
-
 function generateShareLink(docPath) {
-  // Build a readable path string for sharing
   const readablePath = docPath.join(' > ');
-  
-  // Copy the readable path to clipboard
   if (navigator.clipboard) {
     navigator.clipboard.writeText(readablePath).then(() => {
       showNotification('Document path copied to clipboard!', 'success');
@@ -6821,18 +3988,13 @@ function generateShareLink(docPath) {
   } else {
     showInfoDialog(readablePath, { title: 'Document Path', type: 'info' });
   }
-  
   return readablePath;
 }
 
-function handleShareLink() {
-  // In a Tauri desktop app, URL query params aren't used for navigation.
-  // This is kept as a no-op for backward compatibility.
-}
+function handleShareLink() {}
 
 window.generateShareLink = generateShareLink;
 document.addEventListener('DOMContentLoaded', handleShareLink);
-
 
 let printQueue = [];
 
@@ -6841,7 +4003,6 @@ function addToPrintQueue(docPath, url) {
     showNotification('Already in queue', 'info');
     return;
   }
-  
   printQueue.push({ path: docPath, url, name: docPath[docPath.length - 1] });
   showNotification(`Added to print queue (${printQueue.length} items)`, 'success');
   updatePrintQueueBadge();
@@ -6881,12 +4042,10 @@ function updatePrintQueueBadge() {
 function renderPrintQueue() {
   const container = document.getElementById('printQueueList');
   if (!container) return;
-  
   if (printQueue.length === 0) {
     container.innerHTML = '<p style="text-align: center; color: var(--text-secondary);">Queue is empty</p>';
     return;
   }
-  
   container.innerHTML = printQueue.map(doc => `
     <div class="print-queue-item">
       <i class="fas fa-file-pdf"></i>
@@ -6900,7 +4059,6 @@ window.addToPrintQueue = addToPrintQueue;
 window.removeFromPrintQueue = removeFromPrintQueue;
 window.clearPrintQueue = clearPrintQueue;
 
-
 function registerServiceWorker() {
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js')
@@ -6908,10 +4066,6 @@ function registerServiceWorker() {
       .catch(err => console.log('Service Worker registration failed:', err));
   }
 }
-
-
-
-
 
 let pdfViewStartTime = null;
 
@@ -6924,8 +4078,6 @@ function trackPdfViewEnd(docPath) {
     const viewedMinutes = Math.round((Date.now() - pdfViewStartTime) / 60000);
     if (viewedMinutes >= 1) {
       trackStudyTime(viewedMinutes);
-      
-      
       const currentProgress = documentProgress[docPath]?.progress || 0;
       const newProgress = Math.min(100, currentProgress + Math.min(viewedMinutes * 5, 25));
       updateDocProgress(docPath, newProgress);
@@ -6937,12 +4089,9 @@ function trackPdfViewEnd(docPath) {
 window.trackPdfViewStart = trackPdfViewStart;
 window.trackPdfViewEnd = trackPdfViewEnd;
 
-
 document.addEventListener('keydown', (e) => {
-  
   const isInputFocused = e.target.closest('input, textarea, [contenteditable]');
   
-  // --- Whiteboard shortcuts (always active when WB is open, even in input) ---
   if (typeof window.isWhiteboardActive === 'function' && window.isWhiteboardActive()) {
     if (keybindMatches(e, 'wbUndo')) { e.preventDefault(); if (typeof window.wbUndo === 'function') window.wbUndo(); return; }
     if (keybindMatches(e, 'wbRedo')) { e.preventDefault(); if (typeof window.wbRedo === 'function') window.wbRedo(); return; }
@@ -6953,32 +4102,25 @@ document.addEventListener('keydown', (e) => {
     }
   }
   
-  // --- Skip single-key shortcuts when typing ---
   if (isInputFocused) return;
   
   if (keybindMatches(e, 'newNote')) {
     if (typeof openNoteModal === 'function') { e.preventDefault(); openNoteModal(); }
   }
-  
   if (keybindMatches(e, 'newFlashcard')) {
     if (typeof openFlashcardModal === 'function') { e.preventDefault(); openFlashcardModal(); }
   }
-  
   if (keybindMatches(e, 'shareLocation')) {
     if (path.length > 0 && typeof generateShareLink === 'function') { e.preventDefault(); generateShareLink(path); }
   }
-  
   if (keybindMatches(e, 'quickLinks')) {
     e.preventDefault();
-    const panel = document.getElementById('quickLinksPanel');
-    panel?.classList.toggle('active');
+    document.getElementById('quickLinksPanel')?.classList.toggle('active');
   }
-
   if (keybindMatches(e, 'toggleMic')) {
     e.preventDefault();
     if (typeof window.srToggleMicrophone === 'function') window.srToggleMicrophone();
   }
-
   if (keybindMatches(e, 'toggleCam')) {
     e.preventDefault();
     if (typeof window.srToggleCamera === 'function') window.srToggleCamera();
@@ -6989,80 +4131,63 @@ function initSettingsDropdown() {
   const userBadge = document.getElementById('userBadge');
   const userDropdown = document.getElementById('userDropdownMenu');
   
-  if (!userBadge || !userDropdown) {
-    console.log('Settings dropdown elements not found');
-    return;
-  }
+  if (!userBadge || !userDropdown) return;
   
-    userBadge.addEventListener('click', (e) => {
-        if (e.target.closest('#userDropdownMenu')) return;
+  userBadge.addEventListener('click', (e) => {
+    if (e.target.closest('#userDropdownMenu')) return;
     e.stopPropagation();
     userBadge.classList.toggle('active');
     
-        const usernameDisplay = document.getElementById('username-display');
+    const usernameDisplay = document.getElementById('username-display');
     const dropdownUsername = document.getElementById('dropdownUsername');
     if (usernameDisplay && dropdownUsername) {
       dropdownUsername.textContent = usernameDisplay.textContent;
     }
   });
   
-    document.addEventListener('click', (e) => {
+  document.addEventListener('click', (e) => {
     if (!e.target.closest('.user-badge')) {
       userBadge.classList.remove('active');
     }
   });
   
-    loadSettingsState();
-  
-    setupSettingsToggles();
-  
-    setupSettingsActions();
-  
-  console.log('Settings dropdown initialized');
+  loadSettingsState();
+  setupSettingsToggles();
+  setupSettingsActions();
 }
 
 function loadSettingsState() {
   const settings = JSON.parse(localStorage.getItem('questionary-settings') || '{}');
   
-    const verticalNavToggle = document.getElementById('verticalNavbarToggle');
+  const verticalNavToggle = document.getElementById('verticalNavbarToggle');
   if (verticalNavToggle) {
     verticalNavToggle.checked = settings.verticalNavbar || false;
-    if (settings.verticalNavbar) {
-      document.body.classList.add('vertical-navbar-mode');
-    }
+    if (settings.verticalNavbar) document.body.classList.add('vertical-navbar-mode');
   }
   
-    const compactToggle = document.getElementById('compactModeToggle');
+  const compactToggle = document.getElementById('compactModeToggle');
   if (compactToggle) {
     compactToggle.checked = settings.compactMode || false;
-    if (settings.compactMode) {
-      document.body.classList.add('compact-mode');
-    }
+    if (settings.compactMode) document.body.classList.add('compact-mode');
   }
   
-    const animationsToggle = document.getElementById('animationsToggle');
+  const animationsToggle = document.getElementById('animationsToggle');
   if (animationsToggle) {
-    animationsToggle.checked = settings.animations !== false;     if (settings.animations === false) {
-      document.body.classList.add('reduced-animations');
-    }
+    animationsToggle.checked = settings.animations !== false;
+    if (settings.animations === false) document.body.classList.add('reduced-animations');
   }
   
-    const autoPlayToggle = document.getElementById('autoPlayToggle');
-  if (autoPlayToggle) {
-    autoPlayToggle.checked = settings.autoOpenPdfs || false;
-  }
+  const autoPlayToggle = document.getElementById('autoPlayToggle');
+  if (autoPlayToggle) autoPlayToggle.checked = settings.autoOpenPdfs || false;
   
-    const focusModeToggle = document.getElementById('focusModeToggle');
+  const focusModeToggle = document.getElementById('focusModeToggle');
   if (focusModeToggle) {
     focusModeToggle.checked = settings.focusMode || false;
-    if (settings.focusMode) {
-      document.body.classList.add('focus-mode');
-    }
+    if (settings.focusMode) document.body.classList.add('focus-mode');
   }
   
-    const rememberLocationToggle = document.getElementById('rememberLocationToggle');
-  if (rememberLocationToggle) {
-    rememberLocationToggle.checked = settings.rememberLocation !== false;   }
+  const rememberLocationToggle = document.getElementById('rememberLocationToggle');
+  if (rememberLocationToggle) rememberLocationToggle.checked = settings.rememberLocation !== false;
 }
 
 function saveSettingsState() {
@@ -7078,22 +4203,21 @@ function saveSettingsState() {
 }
 
 function setupSettingsToggles() {
-    function setupToggleRow(toggleId, onToggle) {
+  function setupToggleRow(toggleId, onToggle) {
     const toggle = document.getElementById(toggleId);
     if (!toggle) return;
+    const toggleItem = toggle.closest('.toggle-item');
     
-        const toggleItem = toggle.closest('.toggle-item');
-    
-        toggle.addEventListener('change', (e) => {
+    toggle.addEventListener('change', (e) => {
       e.stopPropagation();
       onToggle(toggle.checked);
       saveSettingsState();
     });
     
-        if (toggleItem) {
+    if (toggleItem) {
       toggleItem.style.cursor = 'pointer';
       toggleItem.addEventListener('click', (e) => {
-                if (e.target === toggle) return;
+        if (e.target === toggle) return;
         e.preventDefault();
         e.stopPropagation();
         toggle.checked = !toggle.checked;
@@ -7101,12 +4225,9 @@ function setupSettingsToggles() {
         saveSettingsState();
       });
     }
-    
-    console.log(`${toggleId} handler attached`);
   }
   
-    setupToggleRow('verticalNavbarToggle', (checked) => {
-    console.log('Vertical navbar toggled:', checked);
+  setupToggleRow('verticalNavbarToggle', (checked) => {
     if (checked) {
       document.body.classList.add('vertical-navbar-mode');
       showNotification('Vertical navbar enabled', 'success');
@@ -7117,68 +4238,59 @@ function setupSettingsToggles() {
     }
   });
   
-    setupToggleRow('compactModeToggle', (checked) => {
-    console.log('Compact mode toggled:', checked);
+  setupToggleRow('compactModeToggle', (checked) => {
     document.body.classList.toggle('compact-mode', checked);
     showNotification(checked ? 'Compact mode enabled' : 'Compact mode disabled', 'info');
   });
   
-    setupToggleRow('animationsToggle', (checked) => {
-    console.log('Animations toggled:', checked);
+  setupToggleRow('animationsToggle', (checked) => {
     document.body.classList.toggle('reduced-animations', !checked);
     showNotification(checked ? 'Animations enabled' : 'Animations reduced', 'info');
   });
   
-    setupToggleRow('autoPlayToggle', (checked) => {
-    console.log('Auto-play toggled:', checked);
+  setupToggleRow('autoPlayToggle', (checked) => {
     showNotification(checked ? 'PDFs will auto-open on click' : 'PDF preview mode', 'info');
   });
   
-    setupToggleRow('focusModeToggle', (checked) => {
-    console.log('Focus mode toggled:', checked);
+  setupToggleRow('focusModeToggle', (checked) => {
     document.body.classList.toggle('focus-mode', checked);
-    showNotification(checked ? 'Focus mode enabled - distractions hidden' : 'Focus mode disabled', 'info');
+    showNotification(checked ? 'Focus mode enabled' : 'Focus mode disabled', 'info');
   });
   
-    setupToggleRow('rememberLocationToggle', (checked) => {
-    console.log('Remember location toggled:', checked);
+  setupToggleRow('rememberLocationToggle', (checked) => {
     showNotification(checked ? 'Will remember your last location' : 'Will start at home on launch', 'info');
   });
 }
 
 function setupSettingsActions() {
-    const clearDataBtn = document.getElementById('clearDataBtn');
+  const clearDataBtn = document.getElementById('clearDataBtn');
   if (clearDataBtn) {
     clearDataBtn.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
-      console.log('Clear data clicked');
       showConfirmModal(
         'Clear Local Data',
         'Are you sure you want to clear all local data? This will reset favorites, notes, flashcards, quick links, and settings.',
-        () => {
+        async () => {
           const keysToKeep = ['questionary-login'];
           const allKeys = Object.keys(localStorage).filter(k => k.startsWith('questionary-'));
           allKeys.forEach(key => {
-            if (!keysToKeep.includes(key)) {
-              localStorage.removeItem(key);
-            }
+            if (!keysToKeep.includes(key)) localStorage.removeItem(key);
           });
+          await DbService.clearIndexedDB();
           showNotification('Local data cleared', 'success');
           document.getElementById('userBadge')?.classList.remove('active');
           setTimeout(() => location.reload(), 1000);
         }
       );
     });
-    console.log('Clear data button handler attached');
   }
   
-    const exportDataBtn = document.getElementById('exportDataBtn');
+  const exportDataBtn = document.getElementById('exportDataBtn');
   if (exportDataBtn) {
     exportDataBtn.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
-      console.log('Export clicked');
       const exportData = {};
       Object.keys(localStorage).filter(k => k.startsWith('questionary-')).forEach(key => {
         exportData[key] = localStorage.getItem(key);
@@ -7195,15 +4307,13 @@ function setupSettingsActions() {
       showNotification('Data exported successfully', 'success');
       document.getElementById('userBadge')?.classList.remove('active');
     });
-    console.log('Export button handler attached');
   }
   
-    const importDataBtn = document.getElementById('importDataBtn');
+  const importDataBtn = document.getElementById('importDataBtn');
   if (importDataBtn) {
     importDataBtn.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
-      console.log('Import clicked');
       const input = document.createElement('input');
       input.type = 'file';
       input.accept = '.json';
@@ -7231,15 +4341,13 @@ function setupSettingsActions() {
       input.click();
       document.getElementById('userBadge')?.classList.remove('active');
     });
-    console.log('Import button handler attached');
   }
   
-    const logoutBtn = document.getElementById('logoutBtn');
+  const logoutBtn = document.getElementById('logoutBtn');
   if (logoutBtn) {
     logoutBtn.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
-      console.log('Logout clicked');
       showConfirmModal(
         'Logout',
         'Are you sure you want to logout?',
@@ -7250,20 +4358,17 @@ function setupSettingsActions() {
         }
       );
     });
-    console.log('Logout button handler attached');
   }
   
-    const openSettingsBtn = document.getElementById('openSettingsBtn');
+  const openSettingsBtn = document.getElementById('openSettingsBtn');
   if (openSettingsBtn) {
     openSettingsBtn.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
-      console.log('All settings clicked — navigating to settings view');
       document.getElementById('userBadge')?.classList.remove('active');
       showView('settings');
       setActiveNav('settingsNav');
     });
-    console.log('Open settings button handler attached');
   }
 }
 
@@ -7272,10 +4377,9 @@ function getKeyboardShortcuts() {
 }
 
 /* ================================================================
-   KEYBINDS SYSTEM — configurable keyboard shortcuts
+   KEYBINDS SYSTEM — Configurable keyboard shortcuts
    ================================================================ */
 const DEFAULT_KEYBINDS = {
-  // General
   focusSearch:   { key: '/', ctrl: false, alt: false, shift: false, label: 'Focus Search' },
   newNote:       { key: 'n', ctrl: false, alt: false, shift: false, label: 'New Note' },
   newFlashcard:  { key: 'f', ctrl: false, alt: false, shift: false, label: 'New Flashcard' },
@@ -7284,13 +4388,11 @@ const DEFAULT_KEYBINDS = {
   goBack:        { key: 'Backspace', ctrl: false, alt: false, shift: false, label: 'Go Back' },
   goHome:        { key: 'Home', ctrl: false, alt: true, shift: false, label: 'Go Home' },
   navBack:       { key: 'ArrowLeft', ctrl: false, alt: true, shift: false, label: 'Navigate Back' },
-  // Whiteboard
   wbUndo:        { key: 'z', ctrl: true, alt: false, shift: false, label: 'Whiteboard Undo' },
   wbRedo:        { key: 'y', ctrl: true, alt: false, shift: false, label: 'Whiteboard Redo' },
   wbPen:         { key: 'p', ctrl: false, alt: false, shift: false, label: 'Whiteboard Pen' },
   wbEraser:      { key: 'e', ctrl: false, alt: false, shift: false, label: 'Whiteboard Eraser' },
   wbHighlighter: { key: 'h', ctrl: false, alt: false, shift: false, label: 'Whiteboard Highlighter' },
-  // Study Room Media
   toggleMic:     { key: 'm', ctrl: true, alt: false, shift: false, label: 'Toggle Microphone' },
   toggleCam:     { key: 'v', ctrl: true, alt: false, shift: false, label: 'Toggle Camera' },
   pushToTalk:    { key: 't', ctrl: false, alt: false, shift: false, label: 'Push to Talk (Hold)' },
@@ -7299,7 +4401,6 @@ const DEFAULT_KEYBINDS = {
 function loadKeybinds() {
   const saved = localStorage.getItem('questionary-keybinds');
   const binds = saved ? JSON.parse(saved) : {};
-  // merge defaults with saved (saved overrides)
   const merged = {};
   for (const id in DEFAULT_KEYBINDS) {
     merged[id] = binds[id] ? { ...DEFAULT_KEYBINDS[id], ...binds[id] } : { ...DEFAULT_KEYBINDS[id] };
@@ -7348,7 +4449,6 @@ function keybindMatches(e, bindId) {
   return keyMatch && e.ctrlKey === !!b.ctrl && e.altKey === !!b.alt && e.shiftKey === !!b.shift;
 }
 
-/* --- Keybinds Settings UI --- */
 function renderKeybindsSettings() {
   const container = document.getElementById('keybindsList');
   if (!container) return;
@@ -7371,7 +4471,6 @@ function renderKeybindsSettings() {
     }
   }
   container.innerHTML = html;
-  // attach listeners
   container.querySelectorAll('.kb-key-btn').forEach(btn => {
     btn.addEventListener('click', () => startKeybindCapture(btn));
   });
@@ -7379,7 +4478,6 @@ function renderKeybindsSettings() {
 
 let _capturingBind = null;
 function startKeybindCapture(btn) {
-  // mark as listening
   if (_capturingBind) {
     _capturingBind.classList.remove('kb-listening');
     _capturingBind.textContent = _capturingBind._prevText;
@@ -7392,7 +4490,6 @@ function startKeybindCapture(btn) {
   function onKey(e) {
     e.preventDefault();
     e.stopPropagation();
-    // ignore bare modifier keys
     if (['Control', 'Alt', 'Shift', 'Meta'].includes(e.key)) return;
     document.removeEventListener('keydown', onKey, true);
     btn.classList.remove('kb-listening');
@@ -7414,7 +4511,7 @@ function startKeybindCapture(btn) {
   document.addEventListener('keydown', onKey, true);
 }
 
-/* --- Study Room Settings & PTT --- */
+/* --- Study Room Settings & Media --- */
 window.initStudyRoomMediaSettings = async function() {
   const pttToggle = document.getElementById('pttToggle');
   if (pttToggle) {
@@ -7429,7 +4526,7 @@ window.initStudyRoomMediaSettings = async function() {
         const tempStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
         tempStream.getTracks().forEach(t => t.stop());
     } catch (e) {
-        console.warn("Media permissions not granted upfront, device labels might be empty.", e);
+        console.warn("Media permissions not granted upfront.", e);
     }
 
     const devices = await navigator.mediaDevices.enumerateDevices();
@@ -7481,7 +4578,7 @@ window.initStudyRoomMediaSettings = async function() {
 
 window.testSpeaker = function() {
     const audioId = document.getElementById('audioOutputSelect')?.value;
-    const audio = new Audio('assets/sounds/bell.mp3'); // or any other sound
+    const audio = new Audio('assets/sounds/bell.mp3');
     if (audioId && typeof audio.setSinkId === 'function') {
         audio.setSinkId(audioId).catch(console.error);
     }
@@ -7496,7 +4593,6 @@ window.testMicrophone = async function() {
     const row = document.getElementById('micTestVolumeRow');
     const bar = document.getElementById('micTestVolumeBar');
     if (_testMicStream) {
-        // Stop testing
         _testMicStream.getTracks().forEach(t => t.stop());
         _testMicStream = null;
         if (_testMicAudioCtx) _testMicAudioCtx.close();
@@ -7608,7 +4704,7 @@ function initHamburgerMenu() {
     });
   }
   
-    if (navLinks) {
+  if (navLinks) {
     navLinks.addEventListener('click', (e) => {
       e.stopPropagation();
     });
@@ -7627,8 +4723,7 @@ function initHamburgerMenu() {
       closeSidebar();
     });
   }
-  
-    }
+}
 
 function closeSidebar() {
   document.getElementById('navLinks')?.classList.remove('sidebar-open');
@@ -7639,4 +4734,3 @@ document.addEventListener('DOMContentLoaded', () => {
   initSettingsDropdown();
   initHamburgerMenu();
 });
-

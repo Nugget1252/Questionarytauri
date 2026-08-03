@@ -1,13 +1,3 @@
-/* ============================================================
-   Study Room — Live Collaborative Study Sessions
-   ────────────────────────────────────────────────
-   Supports TWO networking modes:
-     1) LAN — host starts a local relay server (Rust/Tauri)
-     2) Internet — both parties connect to a public relay server
-
-   NO WebRTC / PeerJS required — works on every OS & webview.
-   ============================================================ */
-
 (function () {
   'use strict';
 
