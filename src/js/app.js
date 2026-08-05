@@ -24,6 +24,62 @@ let accessibilitySettings = {
 };
 
 // ================================================================
+// PREVENT ACCIDENTAL UI TEXT SELECTION ENGINE
+// ================================================================
+function preventAccidentalSelection() {
+  if (!document.getElementById('prevent-selection-styles')) {
+    const style = document.createElement('style');
+    style.id = 'prevent-selection-styles';
+    style.textContent = `
+      body, header, .header, .logo, .nav-links, .user-badge, .user-dropdown-menu,
+      .dashboard-header, .stat-card, .breadcrumb-container, .section-header, .tile,
+      .btn, .btn-sm, .modal-header, .modal-footer, .timer-panel, .quick-links-panel,
+      .accessibility-panel, .sr-lobby, .sr-lobby-header, .sr-lobby-card,
+      .sr-feature-item, .sr-session-bar, .sr-sidebar, .sr-sidebar-tabs, .sr-ctrl-btn,
+      .sr-wb-toolbar, .sr-exp-badge, .alarm-notification, .login-screen, .login-card,
+      .card-editor, .session-item, .deck-card, .note-card, .quick-link-item,
+      .search-result-item, .page-bookmark-item, .print-queue-item, .timer-preset-btn,
+      .dialog-box, .dialog-overlay, #dbUploadOverlay, #dbDropZone {
+        -webkit-user-select: none !important;
+        -moz-user-select: none !important;
+        -ms-user-select: none !important;
+        user-select: none !important;
+      }
+
+      input, textarea, select, code, pre, [contenteditable="true"],
+      .note-card-content, .note-card-title, .flashcard-front, .flashcard-back,
+      .quiz-question, .sr-chat-msg, .sr-wb-q-textarea, .selectable-text {
+        -webkit-user-select: text !important;
+        -moz-user-select: text !important;
+        -ms-user-select: text !important;
+        user-select: text !important;
+      }
+    `;
+    (document.head || document.documentElement).appendChild(style);
+  }
+
+  document.addEventListener('selectstart', (e) => {
+    const isSelectable = e.target.closest && e.target.closest(
+      'input, textarea, select, code, pre, [contenteditable="true"], .note-card-content, .note-card-title, .flashcard-front, .flashcard-back, .quiz-question, .sr-chat-msg, .sr-wb-q-textarea, .selectable-text, iframe, #pdfViewer'
+    );
+    if (!isSelectable) {
+      e.preventDefault();
+    }
+  }, false);
+
+  document.addEventListener('dragstart', (e) => {
+    const isDraggable = e.target.closest && e.target.closest(
+      'a, img, [draggable="true"]'
+    );
+    if (!isDraggable) {
+      e.preventDefault();
+    }
+  }, false);
+}
+
+preventAccidentalSelection();
+
+// ================================================================
 // SQLITE DATABASE SERVICE (Auto-Fetch & Validation Engine)
 // ================================================================
 const DbService = {
@@ -51,7 +107,7 @@ const DbService = {
       const savedDb = await this.loadFromIndexedDB();
       if (savedDb) {
         this.db = new this.SQL.Database(savedDb);
-        
+
         // VALIDATE: If cached DB is empty or invalid, purge it!
         if (await this.isValidDatabase()) {
           console.log('[SQLite] Valid DB loaded from local IndexedDB cache');
@@ -61,8 +117,8 @@ const DbService = {
           await this.clearIndexedDB();
           this.db = null;
         }
-      } 
-      
+      }
+
       // 3. Attempt to fetch 'questionary.db' from the app directory (same folder as app.js/index.html)
       console.log('[SQLite] Attempting to fetch questionary.db from root directory...');
       try {
@@ -71,7 +127,7 @@ const DbService = {
           const arrayBuffer = await response.arrayBuffer();
           const uInt8Array = new Uint8Array(arrayBuffer);
           const tempDb = new this.SQL.Database(uInt8Array);
-          
+
           this.db = tempDb;
           if (await this.isValidDatabase()) {
             await this.saveToIndexedDB();
@@ -168,26 +224,26 @@ const DbService = {
     const overlay = document.createElement('div');
     overlay.id = 'dbUploadOverlay';
     overlay.style.cssText = `
-      position: fixed; inset: 0; background: var(--bg, #111113); z-index: 100000;
-      display: flex; flex-direction: column; align-items: center; justify-content: center;
-      font-family: inherit; color: var(--fg, #ededef); text-align: center; padding: 2rem;
+    position: fixed; inset: 0; background: var(--bg, #111113); z-index: 100000;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    font-family: inherit; color: var(--fg, #ededef); text-align: center; padding: 2rem;
     `;
 
     overlay.innerHTML = `
-      <div id="dbDropZone" style="
-        border: 2px dashed var(--accent, #cf6215); border-radius: 12px; padding: 3rem;
-        background: var(--surface, #18181b); max-width: 520px; width: 100%;
-        transition: all 0.2s ease; cursor: pointer;
-      ">
-        <i class="fas fa-database" style="font-size: 3rem; color: var(--accent, #cf6215); margin-bottom: 1rem;"></i>
-        <h2 style="margin: 0 0 0.5rem; font-size: 1.2rem;">Database Needed</h2>
-        <p style="margin: 0 0 1.5rem; font-size: 0.9rem; color: var(--fg2, #a0a0ab); line-height: 1.5;">
-          No valid database found.<br>
-          Either place <strong>questionary.db</strong> in the app directory and refresh, or drag & drop your <code>.db</code> file here.
-        </p>
-        <button class="btn btn-primary" style="pointer-events: none;">Select .db File</button>
-      </div>
-      <input type="file" id="dbFileInput" accept=".db,.sqlite,.sqlite3" style="display: none;">
+    <div id="dbDropZone" style="
+    border: 2px dashed var(--accent, #cf6215); border-radius: 12px; padding: 3rem;
+    background: var(--surface, #18181b); max-width: 520px; width: 100%;
+    transition: all 0.2s ease; cursor: pointer;
+    ">
+    <i class="fas fa-database" style="font-size: 3rem; color: var(--accent, #cf6215); margin-bottom: 1rem;"></i>
+    <h2 style="margin: 0 0 0.5rem; font-size: 1.2rem;">Database Needed</h2>
+    <p style="margin: 0 0 1.5rem; font-size: 0.9rem; color: var(--fg2, #a0a0ab); line-height: 1.5;">
+    No valid database found.<br>
+    Either place <strong>questionary.db</strong> in the app directory and refresh, or drag & drop your <code>.db</code> file here.
+    </p>
+    <button class="btn btn-primary" style="pointer-events: none;">Select .db File</button>
+    </div>
+    <input type="file" id="dbFileInput" accept=".db,.sqlite,.sqlite3" style="display: none;">
     `;
 
     document.body.appendChild(overlay);
@@ -196,7 +252,7 @@ const DbService = {
     const fileInput = document.getElementById('dbFileInput');
 
     dropZone.addEventListener('click', () => fileInput.click());
-    
+
     ['dragenter', 'dragover'].forEach(evt => {
       dropZone.addEventListener(evt, e => {
         e.preventDefault();
@@ -226,7 +282,7 @@ const DbService = {
       const arrayBuffer = await file.arrayBuffer();
       const uInt8Array = new Uint8Array(arrayBuffer);
       const tempDb = new this.SQL.Database(uInt8Array);
-      
+
       this.db = tempDb;
       if (!(await this.isValidDatabase())) {
         this.db = null;
@@ -236,7 +292,7 @@ const DbService = {
       await this.saveToIndexedDB();
       overlay.remove();
       showNotification('Database imported successfully!', 'success');
-      
+
       if (currentUser) {
         initializeAppAfterLogin();
       } else {
@@ -254,8 +310,8 @@ const DbService = {
     let currentId = null;
     for (const segment of pathArray) {
       const sql = currentId === null
-        ? "SELECT id FROM nodes WHERE parent_id IS NULL AND name = ?"
-        : "SELECT id FROM nodes WHERE parent_id = ? AND name = ?";
+      ? "SELECT id FROM nodes WHERE parent_id IS NULL AND name = ?"
+      : "SELECT id FROM nodes WHERE parent_id = ? AND name = ?";
       const params = currentId === null ? [segment] : [currentId, segment];
       const res = await this.query(sql, params);
       if (res.length === 0) return null;
@@ -314,7 +370,6 @@ window.resetDatabase = async function() {
     location.reload();
   }
 };
-// ================================================================
 
 async function initializeFavorites() {
   try {
@@ -363,8 +418,8 @@ async function saveFavoritesToTauri() {
       try {
         await createDir('', { dir: BaseDirectory.AppData, recursive: true });
       } catch (e) {}
-      await writeTextFile('favorites.json', JSON.stringify(favorites, null, 2), { 
-        dir: BaseDirectory.AppData 
+      await writeTextFile('favorites.json', JSON.stringify(favorites, null, 2), {
+        dir: BaseDirectory.AppData
       });
     }
   } catch (e) {
@@ -396,8 +451,8 @@ async function saveRecentToStorage(recent) {
         try {
           await createDir('', { dir: BaseDirectory.AppData, recursive: true });
         } catch (e) {}
-        await writeTextFile('recent.json', JSON.stringify(recent, null, 2), { 
-          dir: BaseDirectory.AppData 
+        await writeTextFile('recent.json', JSON.stringify(recent, null, 2), {
+          dir: BaseDirectory.AppData
         });
       }
     }
@@ -434,21 +489,21 @@ function showApp() {
   const loginScreen = document.getElementById('loginScreen');
   const app = document.getElementById('app');
   const loadingOverlay = document.getElementById('loadingOverlay');
-  
+
   if (loginScreen) loginScreen.style.display = 'none';
   if (app) app.style.display = 'block';
   if (loadingOverlay) loadingOverlay.classList.remove('active');
-  
+
   console.log('App displayed');
 }
 
 function showNotification(message, type = 'info') {
   const existing = document.querySelector('.notification-toast');
   if (existing) existing.remove();
-  
+
   const toast = document.createElement('div');
   toast.className = `notification-toast notification-${type}`;
-  
+
   let icon = 'fa-info-circle';
   let bgColor = '#3b82f6';
   if (type === 'success') {
@@ -461,47 +516,47 @@ function showNotification(message, type = 'info') {
     icon = 'fa-exclamation-triangle';
     bgColor = '#f59e0b';
   }
-  
+
   toast.style.cssText = `
-    position: fixed;
-    bottom: 24px;
-    left: 50%;
-    transform: translateX(-50%) translateY(100px);
-    padding: 14px 24px;
-    border-radius: 12px;
-    color: white;
-    font-weight: 500;
-    z-index: 10000;
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.2);
-    background: ${bgColor};
-    font-size: 0.95rem;
-    max-width: 90%;
-    animation: slideUpToast 0.3s ease forwards;
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%) translateY(100px);
+  padding: 14px 24px;
+  border-radius: 12px;
+  color: white;
+  font-weight: 500;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+  background: ${bgColor};
+  font-size: 0.95rem;
+  max-width: 90%;
+  animation: slideUpToast 0.3s ease forwards;
   `;
-  
+
   toast.innerHTML = `<i class="fas ${icon}"></i><span>${message}</span>`;
-  
+
   if (!document.getElementById('toast-animations')) {
     const style = document.createElement('style');
     style.id = 'toast-animations';
     style.textContent = `
-      @keyframes slideUpToast {
-        from { transform: translateX(-50%) translateY(100px); opacity: 0; }
-        to { transform: translateX(-50%) translateY(0); opacity: 1; }
-      }
-      @keyframes slideDownToast {
-        from { transform: translateX(-50%) translateY(0); opacity: 1; }
-        to { transform: translateX(-50%) translateY(100px); opacity: 0; }
-      }
+    @keyframes slideUpToast {
+      from { transform: translateX(-50%) translateY(100px); opacity: 0; }
+      to { transform: translateX(-50%) translateY(0); opacity: 1; }
+    }
+    @keyframes slideDownToast {
+      from { transform: translateX(-50%) translateY(0); opacity: 1; }
+      to { transform: translateX(-50%) translateY(100px); opacity: 0; }
+    }
     `;
     document.head.appendChild(style);
   }
-  
+
   document.body.appendChild(toast);
-  
+
   setTimeout(() => {
     toast.style.animation = 'slideDownToast 0.3s ease forwards';
     setTimeout(() => toast.remove(), 300);
@@ -534,15 +589,15 @@ function showConfirm(message, opts = {}) {
     const color = colorMap[type] || colorMap.question;
 
     overlay.innerHTML = `
-      <div class="dialog-box">
-        <div class="dialog-icon" style="color: ${color}"><i class="fas ${icon}"></i></div>
-        <h3 class="dialog-title">${title}</h3>
-        <p class="dialog-message">${message}</p>
-        <div class="dialog-actions">
-          <button class="dialog-btn dialog-btn-cancel">${cancelText}</button>
-          <button class="dialog-btn dialog-btn-confirm" style="background: ${type === 'danger' ? 'var(--red, #ef4444)' : 'var(--accent)'}">${confirmText}</button>
-        </div>
-      </div>
+    <div class="dialog-box">
+    <div class="dialog-icon" style="color: ${color}"><i class="fas ${icon}"></i></div>
+    <h3 class="dialog-title">${title}</h3>
+    <p class="dialog-message">${message}</p>
+    <div class="dialog-actions">
+    <button class="dialog-btn dialog-btn-cancel">${cancelText}</button>
+    <button class="dialog-btn dialog-btn-confirm" style="background: ${type === 'danger' ? 'var(--red, #ef4444)' : 'var(--accent)'}">${confirmText}</button>
+    </div>
+    </div>
     `;
 
     const close = (val) => { _closeDialog(overlay); resolve(val); };
@@ -560,16 +615,16 @@ function showPrompt(message, opts = {}) {
     const overlay = _createDialogOverlay();
 
     overlay.innerHTML = `
-      <div class="dialog-box">
-        <div class="dialog-icon" style="color: var(--accent)"><i class="fas fa-pen"></i></div>
-        <h3 class="dialog-title">${title}</h3>
-        <p class="dialog-message">${message}</p>
-        <input class="dialog-input" type="text" value="${defaultValue.replace(/"/g, '&quot;')}" placeholder="${placeholder}" spellcheck="false" />
-        <div class="dialog-actions">
-          <button class="dialog-btn dialog-btn-cancel">${cancelText}</button>
-          <button class="dialog-btn dialog-btn-confirm">${confirmText}</button>
-        </div>
-      </div>
+    <div class="dialog-box">
+    <div class="dialog-icon" style="color: var(--accent)"><i class="fas fa-pen"></i></div>
+    <h3 class="dialog-title">${title}</h3>
+    <p class="dialog-message">${message}</p>
+    <input class="dialog-input" type="text" value="${defaultValue.replace(/"/g, '&quot;')}" placeholder="${placeholder}" spellcheck="false" />
+    <div class="dialog-actions">
+    <button class="dialog-btn dialog-btn-cancel">${cancelText}</button>
+    <button class="dialog-btn dialog-btn-confirm">${confirmText}</button>
+    </div>
+    </div>
     `;
 
     const input = overlay.querySelector('.dialog-input');
@@ -597,14 +652,14 @@ function showInfoDialog(message, opts = {}) {
     const colorMap = { info: 'var(--accent)', success: 'var(--green, #22c55e)', warning: 'var(--yellow, #f59e0b)', error: 'var(--red, #ef4444)' };
 
     overlay.innerHTML = `
-      <div class="dialog-box">
-        <div class="dialog-icon" style="color: ${colorMap[type] || colorMap.info}"><i class="fas ${iconMap[type] || iconMap.info}"></i></div>
-        <h3 class="dialog-title">${title}</h3>
-        <div class="dialog-message dialog-message-scrollable">${message}</div>
-        <div class="dialog-actions">
-          <button class="dialog-btn dialog-btn-confirm">${buttonText}</button>
-        </div>
-      </div>
+    <div class="dialog-box">
+    <div class="dialog-icon" style="color: ${colorMap[type] || colorMap.info}"><i class="fas ${iconMap[type] || iconMap.info}"></i></div>
+    <h3 class="dialog-title">${title}</h3>
+    <div class="dialog-message dialog-message-scrollable">${message}</div>
+    <div class="dialog-actions">
+    <button class="dialog-btn dialog-btn-confirm">${buttonText}</button>
+    </div>
+    </div>
     `;
 
     const close = () => { _closeDialog(overlay); resolve(); };
@@ -620,16 +675,16 @@ async function initializeAppAfterLogin() {
   if (usernameDisplay && currentUser) {
     usernameDisplay.textContent = currentUser.username;
   }
-  
+
   const adminBadge = document.getElementById('adminBadge');
   if (adminBadge && currentUser && currentUser.role === 'admin') {
     adminBadge.style.display = 'inline-block';
   }
-  
+
   if (typeof initializeNewFeatures === 'function') {
     initializeNewFeatures();
   }
-  
+
   if (DbService.db) {
     const nodes = await DbService.getChildren(path);
     renderTilesFromDb(nodes);
@@ -646,29 +701,29 @@ function showAutoLoginNotification(username) {
 async function performSearch(e) {
   const query = typeof e === 'string' ? e : (e?.target?.value || '');
   const searchResults = document.getElementById('searchResults');
-  
+
   if (!query || query.length < 2) {
     if (searchResults) searchResults.style.display = 'none';
     return;
   }
-  
+
   if (typeof addToSearchHistory === 'function') addToSearchHistory(query);
-  
+
   const results = [];
   if (DbService.db) {
     const sqlResults = await DbService.search(query.toLowerCase());
     results.push(...sqlResults);
   }
-  
+
   if (notes && notes.length > 0) {
     notes.forEach(note => {
-      if (note.title.toLowerCase().includes(query.toLowerCase()) || 
-          note.content.toLowerCase().includes(query.toLowerCase())) {
+      if (note.title.toLowerCase().includes(query.toLowerCase()) ||
+        note.content.toLowerCase().includes(query.toLowerCase())) {
         results.push({ name: note.title, path: ['Notes'], isFolder: false, isNote: true, noteId: note.id, url: null });
       }
     });
   }
-  
+
   if (flashcardDecks && flashcardDecks.length > 0) {
     flashcardDecks.forEach(deck => {
       if (deck.name.toLowerCase().includes(query.toLowerCase())) {
@@ -684,7 +739,7 @@ async function performSearch(e) {
       });
     });
   }
-  
+
   if (studySessions && studySessions.length > 0) {
     studySessions.forEach(session => {
       if (session.subject.toLowerCase().includes(query.toLowerCase())) {
@@ -692,7 +747,7 @@ async function performSearch(e) {
       }
     });
   }
-  
+
   if (searchResults) {
     if (results.length === 0) {
       searchResults.innerHTML = '<div style="padding: 1rem; text-align: center; color: var(--text-secondary);">No results found</div>';
@@ -702,21 +757,21 @@ async function performSearch(e) {
         if (r.isNote) icon = 'fa-sticky-note';
         if (r.isFlashcard) icon = 'fa-layer-group';
         if (r.isSession) icon = 'fa-calendar-alt';
-        
+
         let onclickHandler = '';
         if (r.isNote) onclickHandler = `navigateToNote('${r.noteId}')`;
         else if (r.isFlashcard) onclickHandler = `navigateToFlashcard('${r.deckId}')`;
         else if (r.isSession) onclickHandler = `navigateToSession('${r.sessionId}')`;
         else onclickHandler = `navigateToSearchResult(${JSON.stringify(r.path).replace(/"/g, '&quot;')}, '${r.url || ''}')`;
-        
+
         return `
-          <div class="search-result-item" onclick="${onclickHandler}">
-            <i class="fas ${icon}"></i>
-            <div class="search-result-info">
-              <span class="search-result-name">${escapeHtml(r.name)}</span>
-              <span class="search-result-path">${r.path.join(' > ')}</span>
-            </div>
-          </div>
+        <div class="search-result-item" onclick="${onclickHandler}">
+        <i class="fas ${icon}"></i>
+        <div class="search-result-info">
+        <span class="search-result-name">${escapeHtml(r.name)}</span>
+        <span class="search-result-path">${r.path.join(' > ')}</span>
+        </div>
+        </div>
         `;
       }).join('');
     }
@@ -727,19 +782,19 @@ async function performSearch(e) {
 async function navigateToSearchResult(pathArray, url) {
   const searchResults = document.getElementById('searchResults');
   if (searchResults) searchResults.style.display = 'none';
-  
+
   document.getElementById('globalSearch').value = '';
-  
+
   showView('home');
   setActiveNav('homeNav');
-  
+
   if (url && url !== '#' && url !== '') {
     path = pathArray.slice(0, -1);
     updateBreadcrumb();
-    
+
     const title = pathArray[pathArray.length - 1];
     addToRecent(title, pathArray, url);
-    
+
     setTimeout(() => { showPDF(url); }, 100);
   } else {
     path = [...pathArray];
@@ -768,7 +823,7 @@ function setActiveNav(navId) {
 }
 
 function loadDocuments() { console.log('loadDocuments called'); }
-function trackDailyAccess() { 
+function trackDailyAccess() {
   console.log('trackDailyAccess called');
   const today = new Date().toISOString().split('T')[0];
   const accessData = JSON.parse(localStorage.getItem('questionary-daily-access') || '{}');
@@ -789,7 +844,7 @@ async function restoreLastLocation() {
   if (settings.rememberLocation !== false) {
     const lastView = localStorage.getItem('questionary-last-view');
     const lastPath = JSON.parse(localStorage.getItem('questionary-last-path') || '[]');
-    
+
     if (lastView && lastView !== 'home') {
       showView(lastView);
       const navMap = {
@@ -817,56 +872,56 @@ async function getCurrentDocumentsLevel() {
 function renderTilesFromDb(items) {
   const container = document.getElementById('tilesContainer');
   if (!container) return;
-  
+
   const importedSection = document.getElementById('importedSection');
   if (importedSection) {
     importedSection.style.display = path.length === 0 ? 'block' : 'none';
   }
   if (path.length === 0) showHomeTagsPanels();
   else hideHomeTagsPanels();
-  
+
   container.innerHTML = '';
-  
+
   if (!items || items.length === 0) {
     container.innerHTML = '<p style="text-align: center; color: var(--text-secondary); padding: 2rem;">No documents available.</p>';
     return;
   }
-  
+
   const sortOrder = localStorage.getItem('questionary-sort-order') || 'asc';
   items.sort((a, b) => sortOrder === 'asc' ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name));
-  
+
   items.forEach(item => {
     const key = item.name;
     const isFolder = item.is_folder === 1;
     const value = item.file_path;
-    
+
     const tile = document.createElement('div');
     tile.className = 'tile';
-    
+
     const isMissingPdf = !isFolder && (!value || value === '#' || value === '');
     const isImportedPdf = !isFolder && typeof value === 'string' && value.startsWith('blob-id:');
     const isCustomItem = false;
-    
+
     const itemPath = [...path, key];
     const itemPathJson = JSON.stringify(itemPath).replace(/"/g, '&quot;');
     const itemId = isFolder ? `folder_${itemPath.join('/')}` : `doc_${itemPath.join('/')}`;
-    
+
     tile.innerHTML = `
-      <div class="tile-top-bar">
-        <button onclick="event.stopPropagation(); openTagItemModal('${escapeHtml(itemId)}', '${escapeHtml(key)}', '${isFolder ? 'folder' : 'document'}')" title="Tags"><i class="fas fa-tag"></i></button>
-        ${isFolder ? `<button onclick="event.stopPropagation(); addFolderToQuickLinks('${escapeHtml(key)}', ${itemPathJson})" title="Quick Link"><i class="fas fa-link"></i></button>` : ''}
-        ${!isFolder && !isMissingPdf ? `<button onclick="event.stopPropagation(); toggleFavorite('${escapeHtml(key)}', ${itemPathJson}, '${escapeHtml(value)}')" title="Favorite"><i class="fas fa-star"></i></button>` : ''}
-        ${isImportedPdf || (isFolder && isCustomItem) ? `<button onclick="event.stopPropagation(); moveDocumentItemToLibrary('${escapeHtml(key)}')" title="Move to Library"><i class="fas fa-book-open"></i></button>` : ''}
-      </div>
-      <div class="tile-icon">
-        <i class="fas ${isFolder ? 'fa-folder' : (key.endsWith('.png') ? 'fa-image' : 'fa-file-pdf')}"></i>
-      </div>
-      <div class="tile-text">${escapeHtml(key)}</div>
-      ${isMissingPdf ? `<div class="pdf-missing-badge"><i class="fas fa-exclamation-triangle"></i> Not Available</div>` : ''}
+    <div class="tile-top-bar">
+    <button onclick="event.stopPropagation(); openTagItemModal('${escapeHtml(itemId)}', '${escapeHtml(key)}', '${isFolder ? 'folder' : 'document'}')" title="Tags"><i class="fas fa-tag"></i></button>
+    ${isFolder ? `<button onclick="event.stopPropagation(); addFolderToQuickLinks('${escapeHtml(key)}', ${itemPathJson})" title="Quick Link"><i class="fas fa-link"></i></button>` : ''}
+    ${!isFolder && !isMissingPdf ? `<button onclick="event.stopPropagation(); toggleFavorite('${escapeHtml(key)}', ${itemPathJson}, '${escapeHtml(value)}')" title="Favorite"><i class="fas fa-star"></i></button>` : ''}
+    ${isImportedPdf || (isFolder && isCustomItem) ? `<button onclick="event.stopPropagation(); moveDocumentItemToLibrary('${escapeHtml(key)}')" title="Move to Library"><i class="fas fa-book-open"></i></button>` : ''}
+    </div>
+    <div class="tile-icon">
+    <i class="fas ${isFolder ? 'fa-folder' : (key.endsWith('.png') ? 'fa-image' : 'fa-file-pdf')}"></i>
+    </div>
+    <div class="tile-text">${escapeHtml(key)}</div>
+    ${isMissingPdf ? `<div class="pdf-missing-badge"><i class="fas fa-exclamation-triangle"></i> Not Available</div>` : ''}
     `;
-    
+
     if (isMissingPdf) tile.classList.add('pdf-missing');
-    
+
     tile.onclick = async () => {
       if (isFolder) {
         path.push(key);
@@ -881,17 +936,17 @@ function renderTilesFromDb(items) {
         showPDF(value);
       }
     };
-    
+
     container.appendChild(tile);
   });
-  
+
   updateDashboardStats();
 }
 
 window.renderTiles = async function(ignoredDocs) {
-   if (!DbService.db) return;
-   const nodes = await DbService.getChildren(path);
-   renderTilesFromDb(nodes);
+  if (!DbService.db) return;
+  const nodes = await DbService.getChildren(path);
+  renderTilesFromDb(nodes);
 };
 
 async function checkPdfExists(pdfPath) {
@@ -911,52 +966,52 @@ async function checkPdfExists(pdfPath) {
 function updateBreadcrumb() {
   const breadcrumb = document.getElementById('breadcrumb');
   const backBtn = document.getElementById('backBtn');
-  
+
   if (!breadcrumb) return;
   breadcrumb.innerHTML = '';
-  
+
   const homeSpan = document.createElement('span');
   homeSpan.className = 'breadcrumb-item';
   homeSpan.textContent = 'Home';
   homeSpan.onclick = function() { navigateToPath([]); };
   breadcrumb.appendChild(homeSpan);
-  
+
   let currentPath = [];
   path.forEach((segment) => {
     currentPath.push(segment);
     const pathCopy = [...currentPath];
-    
+
     const separator = document.createElement('i');
     separator.className = 'fas fa-chevron-right';
     separator.style.cssText = 'font-size: 0.7rem; opacity: 0.5; margin: 0 0.5rem;';
     breadcrumb.appendChild(separator);
-    
+
     const segmentSpan = document.createElement('span');
     segmentSpan.className = 'breadcrumb-item';
     segmentSpan.textContent = segment;
     segmentSpan.onclick = function() { navigateToPath(pathCopy); };
     breadcrumb.appendChild(segmentSpan);
   });
-  
+
   if (backBtn) backBtn.style.display = path.length > 0 ? 'flex' : 'none';
 }
 
 async function navigateToPath(newPath) {
   if (!Array.isArray(newPath)) newPath = [];
   newPath = newPath.filter(segment => segment && segment.trim() !== '');
-  
+
   const pdfViewer = document.getElementById('pdfViewer');
   if (pdfViewer) { pdfViewer.classList.remove('active'); pdfViewer.src = ''; }
   const pdfViewerContainer = document.getElementById('pdfViewerContainer');
   if (pdfViewerContainer) pdfViewerContainer.style.display = 'none';
   const bookmarksPanel = document.getElementById('pdfBookmarksPanel');
   if (bookmarksPanel) bookmarksPanel.style.display = 'none';
-  
+
   const tilesContainer = document.getElementById('tilesContainer');
   const sectionHeader = document.querySelector('#tilesSection .section-header');
   const dashboardHeader = document.querySelector('.dashboard-header');
   const tilesSection = document.getElementById('tilesSection');
-  
+
   if (tilesSection) tilesSection.style.display = 'block';
   if (tilesContainer) {
     const isListView = tilesContainer.classList.contains('list-view');
@@ -964,9 +1019,9 @@ async function navigateToPath(newPath) {
   }
   if (sectionHeader) sectionHeader.style.display = 'flex';
   if (dashboardHeader) dashboardHeader.style.display = newPath.length === 0 ? 'flex' : 'none';
-  
+
   if (typeof hideTimerCompletely === 'function') hideTimerCompletely();
-  
+
   path = newPath;
   const nodes = await DbService.getChildren(path);
   renderTilesFromDb(nodes);
@@ -983,19 +1038,19 @@ async function updateDashboardStats() {
   const totalDocs = await DbService.countDocuments();
   const totalDocsEl = document.getElementById('totalDocuments');
   if (totalDocsEl) totalDocsEl.textContent = totalDocs;
-  
+
   const favoriteCountEl = document.getElementById('favoriteCount');
   if (favoriteCountEl) favoriteCountEl.textContent = favorites.length;
-  
+
   const recent = JSON.parse(localStorage.getItem('questionary-recent') || '[]');
   const recentCountEl = document.getElementById('recentCount');
   if (recentCountEl) recentCountEl.textContent = recent.length;
-  
+
   const streakEl = document.getElementById('dashboardStreak');
   if (streakEl) streakEl.textContent = studyStats.streak || 0;
 }
 
-function showPDF(url) { 
+function showPDF(url) {
   if (!url || url === '' || url === '#') return;
   if (typeof url === 'string' && url.startsWith('blob-id:')) {
     const blobId = url.replace('blob-id:', '');
@@ -1009,7 +1064,7 @@ function showPDF(url) {
     }
     return;
   }
-  
+
   const pdfViewer = document.getElementById('pdfViewer');
   const pdfViewerContainer = document.getElementById('pdfViewerContainer');
   const tilesContainer = document.getElementById('tilesContainer');
@@ -1017,10 +1072,10 @@ function showPDF(url) {
   const dashboardHeader = document.querySelector('.dashboard-header');
   const breadcrumbContainer = document.querySelector('.breadcrumb-container');
   const tilesSection = document.getElementById('tilesSection');
-  
+
   const filename = url.split('/').pop().replace('.pdf', '').replace(/%20/g, ' ');
   window.setCurrentPDF && window.setCurrentPDF(url, filename);
-  
+
   if (pdfViewer) {
     const absoluteUrl = new URL(url, window.location.href).href;
     pdfViewer.src = 'pdfviewer.html?file=' + encodeURIComponent(absoluteUrl);
@@ -1030,7 +1085,7 @@ function showPDF(url) {
       pdfViewer.onload = null;
     };
   }
-  
+
   if (tilesSection) tilesSection.style.display = 'block';
   if (tilesContainer) tilesContainer.style.display = 'none';
   if (sectionHeader) sectionHeader.style.display = 'none';
@@ -1038,20 +1093,20 @@ function showPDF(url) {
   const importedSection = document.getElementById('importedSection');
   if (importedSection) importedSection.style.display = 'none';
   if (typeof hideHomeTagsPanels === 'function') hideHomeTagsPanels();
-  
+
   if (pdfViewerContainer) {
     pdfViewerContainer.style.display = 'block';
     const pdfNameEl = document.getElementById('currentPdfName');
     if (pdfNameEl) pdfNameEl.textContent = filename;
-    
+
     if (typeof renderPdfBookmarks === 'function') renderPdfBookmarks(url);
     if (typeof window.setCurrentPdfForBookmarks === 'function') window.setCurrentPdfForBookmarks(url);
     else window.currentPdfUrlForBookmarks = url;
   }
-  
+
   if (breadcrumbContainer) breadcrumbContainer.style.display = 'flex';
   updateBreadcrumb();
-  
+
   const timerPanel = document.getElementById('timerPanel');
   if (timerPanel) timerPanel.style.display = 'flex';
   if (typeof initializeTimer === 'function') initializeTimer();
@@ -1064,32 +1119,32 @@ function closePDF() {
   const tilesContainer = document.getElementById('tilesContainer');
   const sectionHeader = document.querySelector('#tilesSection .section-header');
   const dashboardHeader = document.querySelector('.dashboard-header');
-  
+
   window.clearCurrentPDF && window.clearCurrentPDF();
-  
+
   if (pdfViewer) {
     pdfViewer.classList.remove('active');
     pdfViewer.src = '';
   }
-  
+
   if (pdfViewerContainer) pdfViewerContainer.style.display = 'none';
   const bookmarksPanel = document.getElementById('pdfBookmarksPanel');
   if (bookmarksPanel) bookmarksPanel.style.display = 'none';
   window.currentPdfUrlForBookmarks = null;
-  
+
   if (tilesContainer) {
     const isListView = tilesContainer.classList.contains('list-view');
     tilesContainer.style.display = isListView ? 'flex' : 'grid';
   }
   if (sectionHeader) sectionHeader.style.display = 'flex';
-  
+
   if (path.length === 0) {
     if (dashboardHeader) dashboardHeader.style.display = 'flex';
     const importedSection = document.getElementById('importedSection');
     if (importedSection) importedSection.style.display = 'block';
     if (typeof showHomeTagsPanels === 'function') showHomeTagsPanels();
   }
-  
+
   if (typeof hideTimerCompletely === 'function') hideTimerCompletely();
   if (typeof trackPdfViewEnd === 'function') trackPdfViewEnd(path.join('/'));
 }
@@ -1166,90 +1221,90 @@ function renderAnalytics() {
   const accessData = JSON.parse(localStorage.getItem('questionary-daily-access') || '{}');
   const recent = JSON.parse(localStorage.getItem('questionary-recent') || '[]');
   const subjectAccess = JSON.parse(localStorage.getItem('questionary-subject-access') || '{}');
-  
+
   const totalSessions = Object.values(accessData).reduce((sum, count) => sum + count, 0);
   const totalDocsViewed = recent.length;
   const daysActive = Object.keys(accessData).length;
   const avgSessionsPerDay = daysActive > 0 ? (totalSessions / daysActive).toFixed(1) : 0;
-  
+
   const totalSessionsEl = document.getElementById('totalSessions');
   const totalDocsViewedEl = document.getElementById('totalDocsViewed');
   const daysActiveEl = document.getElementById('daysActive');
   const avgSessionsEl = document.getElementById('avgSessions');
-  
+
   if (totalSessionsEl) totalSessionsEl.textContent = totalSessions;
   if (totalDocsViewedEl) totalDocsViewedEl.textContent = totalDocsViewed;
   if (daysActiveEl) daysActiveEl.textContent = daysActive;
   if (avgSessionsEl) avgSessionsEl.textContent = avgSessionsPerDay;
-  
+
   renderAccessChart(accessData);
   renderSubjectChart(subjectAccess);
   renderRecentActivity(recent);
 }
 
-function renderCalendar() { 
+function renderCalendar() {
   const calendarGrid = document.getElementById('calendarDays') || document.getElementById('calendarGrid');
   const currentMonthEl = document.getElementById('currentMonth');
   if (!calendarGrid) return;
-  
+
   const year = currentCalendarDate.getFullYear();
   const month = currentCalendarDate.getMonth();
-  
+
   if (currentMonthEl) {
     currentMonthEl.textContent = new Date(year, month).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
   }
-  
+
   const firstDay = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const today = new Date();
-  
+
   let html = '';
   for (let i = 0; i < firstDay; i++) {
     html += '<div class="calendar-day empty"></div>';
   }
-  
+
   for (let day = 1; day <= daysInMonth; day++) {
     const date = new Date(year, month, day);
     const isToday = date.toDateString() === today.toDateString();
     const dateStr = date.toISOString().split('T')[0];
     const sessionsOnDay = studySessions.filter(s => s.date === dateStr);
-    
+
     html += `
-      <div class="calendar-day ${isToday ? 'today' : ''} ${sessionsOnDay.length > 0 ? 'has-session' : ''}" 
-           onclick="showDaySessions('${dateStr}')">
-        <span class="day-number">${day}</span>
-        ${sessionsOnDay.length > 0 ? `<span class="session-dot">${sessionsOnDay.length}</span>` : ''}
-      </div>
+    <div class="calendar-day ${isToday ? 'today' : ''} ${sessionsOnDay.length > 0 ? 'has-session' : ''}"
+    onclick="showDaySessions('${dateStr}')">
+    <span class="day-number">${day}</span>
+    ${sessionsOnDay.length > 0 ? `<span class="session-dot">${sessionsOnDay.length}</span>` : ''}
+    </div>
     `;
   }
-  
+
   calendarGrid.innerHTML = html;
 }
 
-function renderSessions() { 
+function renderSessions() {
   const container = document.getElementById('sessionsList') || document.getElementById('sessionsContainer');
   if (!container) return;
-  
+
   if (studySessions.length === 0) {
     container.innerHTML = '<p style="text-align: center; color: var(--text-secondary); padding: 2rem;">No study sessions scheduled.</p>';
     return;
   }
-  
+
   const sorted = [...studySessions].sort((a, b) => new Date(a.date) - new Date(b.date));
   container.innerHTML = sorted.map(session => `
-    <div class="session-item">
-      <div class="session-info">
-        <strong>${escapeHtml(session.subject)}</strong>
-        <span>${session.date} at ${session.time}</span>
-      </div>
-      <button class="btn-icon" onclick="deleteSession('${session.id}')" title="Delete session">
-        <i class="fas fa-trash"></i>
-      </button>
-    </div>
+  <div class="session-item">
+  <div class="session-info">
+  <strong>${escapeHtml(session.subject)}</strong>
+  <span>${session.date} at ${session.time}</span>
+  </div>
+  <button class="btn-icon" onclick="deleteSession('${session.id}')" title="Delete session">
+  <i class="fas fa-trash"></i>
+  </button>
+  </div>
   `).join('');
 }
 
-function renderFlashcardDecks() { 
+function renderFlashcardDecks() {
   const container = document.getElementById('flashcardsGrid');
   if (!container) return;
   if (flashcardDecks.length === 0) {
@@ -1257,30 +1312,30 @@ function renderFlashcardDecks() {
     return;
   }
   container.innerHTML = flashcardDecks.map(deck => `
-    <div class="deck-card">
-      <h4>${escapeHtml(deck.name)}</h4>
-      <p>${deck.cards.length} cards</p>
-      <div class="deck-actions">
-        <button class="btn-icon tag" onclick="event.stopPropagation(); openTagItemModal('deck_${deck.id}', '${escapeHtml(deck.name)}', 'flashcard')" title="Add Tags">
-          <i class="fas fa-tag"></i>
-        </button>
-        <button class="btn-icon delete" onclick="event.stopPropagation(); deleteDeck('${deck.id}')" title="Delete deck">
-          <i class="fas fa-trash"></i>
-        </button>
-      </div>
-      <div style="display: flex; gap: 0.5rem; margin-top: 1rem;">
-        <button class="btn btn-primary btn-sm" onclick="startStudyDeck('${deck.id}')" style="flex: 1;">
-          <i class="fas fa-play"></i> Study
-        </button>
-        <button class="btn btn-secondary btn-sm" onclick="startQuiz && startQuiz('${deck.id}')" style="flex: 1;">
-          <i class="fas fa-question-circle"></i> Quiz
-        </button>
-      </div>
-    </div>
+  <div class="deck-card">
+  <h4>${escapeHtml(deck.name)}</h4>
+  <p>${deck.cards.length} cards</p>
+  <div class="deck-actions">
+  <button class="btn-icon tag" onclick="event.stopPropagation(); openTagItemModal('deck_${deck.id}', '${escapeHtml(deck.name)}', 'flashcard')" title="Add Tags">
+  <i class="fas fa-tag"></i>
+  </button>
+  <button class="btn-icon delete" onclick="event.stopPropagation(); deleteDeck('${deck.id}')" title="Delete deck">
+  <i class="fas fa-trash"></i>
+  </button>
+  </div>
+  <div style="display: flex; gap: 0.5rem; margin-top: 1rem;">
+  <button class="btn btn-primary btn-sm" onclick="startStudyDeck('${deck.id}')" style="flex: 1;">
+  <i class="fas fa-play"></i> Study
+  </button>
+  <button class="btn btn-secondary btn-sm" onclick="startQuiz && startQuiz('${deck.id}')" style="flex: 1;">
+  <i class="fas fa-question-circle"></i> Quiz
+  </button>
+  </div>
+  </div>
   `).join('');
 }
 
-function renderNotes() { 
+function renderNotes() {
   const container = document.getElementById('notesGrid');
   if (!container) return;
   if (notes.length === 0) {
@@ -1288,19 +1343,19 @@ function renderNotes() {
     return;
   }
   container.innerHTML = notes.map(note => `
-    <div class="note-card" onclick="editNote('${note.id}')">
-      <h4>${escapeHtml(note.title)}</h4>
-      <p>${escapeHtml(note.content.substring(0, 100))}${note.content.length > 100 ? '...' : ''}</p>
-      <small>${new Date(note.updatedAt).toLocaleDateString()}</small>
-      <div class="note-actions">
-        <button class="btn-icon tag" onclick="event.stopPropagation(); openTagItemModal('note_${note.id}', '${escapeHtml(note.title)}', 'note')" title="Add Tags">
-          <i class="fas fa-tag"></i>
-        </button>
-        <button class="btn-icon delete" onclick="event.stopPropagation(); deleteNote('${note.id}')" title="Delete note">
-          <i class="fas fa-trash"></i>
-        </button>
-      </div>
-    </div>
+  <div class="note-card" onclick="editNote('${note.id}')">
+  <h4>${escapeHtml(note.title)}</h4>
+  <p>${escapeHtml(note.content.substring(0, 100))}${note.content.length > 100 ? '...' : ''}</p>
+  <small>${new Date(note.updatedAt).toLocaleDateString()}</small>
+  <div class="note-actions">
+  <button class="btn-icon tag" onclick="event.stopPropagation(); openTagItemModal('note_${note.id}', '${escapeHtml(note.title)}', 'note')" title="Add Tags">
+  <i class="fas fa-tag"></i>
+  </button>
+  <button class="btn-icon delete" onclick="event.stopPropagation(); deleteNote('${note.id}')" title="Delete note">
+  <i class="fas fa-trash"></i>
+  </button>
+  </div>
+  </div>
   `).join('');
 }
 
@@ -1310,33 +1365,33 @@ function renderQuickLinks() {
   const container = document.getElementById('quickLinksList');
   if (!container) return;
   quickLinks = quickLinks.filter(ql => ql && ql.pathArray && Array.isArray(ql.pathArray));
-  
+
   if (quickLinks.length === 0) {
     container.innerHTML = `
-      <div class="quick-links-empty">
-        <i class="fas fa-link"></i>
-        <p>No quick links yet</p>
-        <span>Navigate to a folder or file and click "Add Current Location"</span>
-      </div>
+    <div class="quick-links-empty">
+    <i class="fas fa-link"></i>
+    <p>No quick links yet</p>
+    <span>Navigate to a folder or file and click "Add Current Location"</span>
+    </div>
     `;
     return;
   }
-  
+
   container.innerHTML = quickLinks.map(ql => {
     const isFile = ql.isFile || false;
     const icon = isFile ? 'fa-file-pdf' : 'fa-folder';
     const iconColor = isFile ? 'style="color: #ef4444;"' : '';
     return `
     <div class="quick-link-item" data-id="${ql.id}" data-path="${ql.pathArray.join('|')}" data-is-file="${isFile}" data-url="${ql.url || ''}">
-      <i class="fas ${icon}" ${iconColor}></i>
-      <span class="quick-link-name">${ql.name || ql.pathArray[ql.pathArray.length - 1] || 'Unknown'}</span>
-      <button class="quick-link-delete" title="Remove" onclick="event.stopPropagation(); removeQuickLink('${ql.id}')">
-        <i class="fas fa-times"></i>
-      </button>
+    <i class="fas ${icon}" ${iconColor}></i>
+    <span class="quick-link-name">${ql.name || ql.pathArray[ql.pathArray.length - 1] || 'Unknown'}</span>
+    <button class="quick-link-delete" title="Remove" onclick="event.stopPropagation(); removeQuickLink('${ql.id}')">
+    <i class="fas fa-times"></i>
+    </button>
     </div>
-  `;
+    `;
   }).join('');
-  
+
   container.querySelectorAll('.quick-link-item').forEach(item => {
     item.addEventListener('click', async (e) => {
       if (e.target.closest('.quick-link-delete')) return;
@@ -1344,7 +1399,7 @@ function renderQuickLinks() {
       const pathArray = pathStr.split('|');
       const isFile = item.dataset.isFile === 'true';
       const url = item.dataset.url;
-      
+
       if (isFile && url) {
         const parentPath = pathArray.slice(0, -1);
         await navigateToPath(parentPath);
@@ -1417,49 +1472,49 @@ function addCurrentPdfToQuickLinks() {
 function showQuickLinkChoiceDialog() {
   const existing = document.getElementById('quickLinkChoiceDialog');
   if (existing) existing.remove();
-  
+
   const folderName = path.length > 0 ? path[path.length - 1] : 'Home';
   const pdfName = currentOpenPDF ? currentOpenPDF.name : '';
-  
+
   const dialog = document.createElement('div');
   dialog.id = 'quickLinkChoiceDialog';
   dialog.className = 'quicklink-choice-dialog-overlay';
   dialog.innerHTML = `
-    <div class="quicklink-choice-dialog">
-      <h3><i class="fas fa-link"></i> Add Quick Link</h3>
-      <p>What would you like to add?</p>
-      <div class="quicklink-choice-options">
-        <button class="quicklink-choice-btn" id="addPdfQuickLink">
-          <i class="fas fa-file-pdf"></i>
-          <span>Current PDF</span>
-          <small>${pdfName}</small>
-        </button>
-        ${path.length > 0 ? `
-        <button class="quicklink-choice-btn" id="addFolderQuickLink">
-          <i class="fas fa-folder"></i>
-          <span>Current Folder</span>
-          <small>${folderName}</small>
-        </button>
-        ` : ''}
-      </div>
-      <button class="quicklink-choice-cancel" id="cancelQuickLinkChoice">Cancel</button>
+  <div class="quicklink-choice-dialog">
+  <h3><i class="fas fa-link"></i> Add Quick Link</h3>
+  <p>What would you like to add?</p>
+  <div class="quicklink-choice-options">
+  <button class="quicklink-choice-btn" id="addPdfQuickLink">
+  <i class="fas fa-file-pdf"></i>
+  <span>Current PDF</span>
+  <small>${pdfName}</small>
+  </button>
+  ${path.length > 0 ? `
+    <button class="quicklink-choice-btn" id="addFolderQuickLink">
+    <i class="fas fa-folder"></i>
+    <span>Current Folder</span>
+    <small>${folderName}</small>
+    </button>
+    ` : ''}
     </div>
-  `;
-  document.body.appendChild(dialog);
-  
-  document.getElementById('addPdfQuickLink').onclick = () => { addCurrentPdfToQuickLinks(); dialog.remove(); };
-  const folderBtn = document.getElementById('addFolderQuickLink');
-  if (folderBtn) folderBtn.onclick = () => { addCurrentFolderToQuickLinks(); dialog.remove(); };
-  document.getElementById('cancelQuickLinkChoice').onclick = () => dialog.remove();
-  dialog.onclick = (e) => { if (e.target === dialog) dialog.remove(); };
+    <button class="quicklink-choice-cancel" id="cancelQuickLinkChoice">Cancel</button>
+    </div>
+    `;
+    document.body.appendChild(dialog);
+
+    document.getElementById('addPdfQuickLink').onclick = () => { addCurrentPdfToQuickLinks(); dialog.remove(); };
+    const folderBtn = document.getElementById('addFolderQuickLink');
+    if (folderBtn) folderBtn.onclick = () => { addCurrentFolderToQuickLinks(); dialog.remove(); };
+    document.getElementById('cancelQuickLinkChoice').onclick = () => dialog.remove();
+    dialog.onclick = (e) => { if (e.target === dialog) dialog.remove(); };
 }
 
-function trackStudyTime(minutes) { 
+function trackStudyTime(minutes) {
   studyStats.totalTime = (studyStats.totalTime || 0) + minutes;
   localStorage.setItem('questionary-study-stats', JSON.stringify(studyStats));
 }
 
-function updateDocProgress(docPath, progress) { 
+function updateDocProgress(docPath, progress) {
   documentProgress[docPath] = { progress, lastAccessed: Date.now() };
   localStorage.setItem('questionary-doc-progress', JSON.stringify(documentProgress));
 }
@@ -1485,16 +1540,16 @@ function renderAccessChart(accessData) {
   }
   const maxCount = Math.max(...days.map(d => d.count), 5);
   container.innerHTML = `
-    <div style="display: flex; align-items: flex-end; justify-content: space-between; height: 140px; gap: 8px; padding: 10px 0;">
-      ${days.map(d => `
-        <div style="display: flex; flex-direction: column; align-items: center; flex: 1;">
-          <div style="width: 100%; max-width: 40px; height: ${Math.max((d.count / maxCount) * 100, 8)}px; background: ${d.count > 0 ? 'var(--primary-color)' : 'var(--border)'}; border-radius: 4px 4px 0 0; transition: height 0.3s ease;" title="${d.count} sessions"></div>
-          <span style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 6px;">${d.day}</span>
-          <span style="font-size: 0.7rem; color: var(--text-primary); font-weight: 600;">${d.count}</span>
-        </div>
-      `).join('')}
+  <div style="display: flex; align-items: flex-end; justify-content: space-between; height: 140px; gap: 8px; padding: 10px 0;">
+  ${days.map(d => `
+    <div style="display: flex; flex-direction: column; align-items: center; flex: 1;">
+    <div style="width: 100%; max-width: 40px; height: ${Math.max((d.count / maxCount) * 100, 8)}px; background: ${d.count > 0 ? 'var(--primary-color)' : 'var(--border)'}; border-radius: 4px 4px 0 0; transition: height 0.3s ease;" title="${d.count} sessions"></div>
+    <span style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 6px;">${d.day}</span>
+    <span style="font-size: 0.7rem; color: var(--text-primary); font-weight: 600;">${d.count}</span>
     </div>
-  `;
+    `).join('')}
+    </div>
+    `;
 }
 
 function renderSubjectChart(subjectAccess) {
@@ -1508,16 +1563,16 @@ function renderSubjectChart(subjectAccess) {
   const maxCount = subjects[0][1];
   const colors = ['#f97316', '#3b82f6', '#22c55e', '#a855f7', '#f59e0b'];
   container.innerHTML = `<div style="display: flex; flex-direction: column; gap: 12px;">${subjects.map(([name, count], i) => `
-        <div>
-          <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
-            <span style="font-size: 0.85rem; font-weight: 500; color: var(--text-primary);">${escapeHtml(name)}</span>
-            <span style="font-size: 0.8rem; color: var(--text-secondary);">${count} views</span>
-          </div>
-          <div style="height: 8px; background: var(--border); border-radius: 4px; overflow: hidden;">
-            <div style="width: ${(count / maxCount) * 100}%; height: 100%; background: ${colors[i % colors.length]}; border-radius: 4px;"></div>
-          </div>
-        </div>
-      `).join('')}</div>`;
+    <div>
+    <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+    <span style="font-size: 0.85rem; font-weight: 500; color: var(--text-primary);">${escapeHtml(name)}</span>
+    <span style="font-size: 0.8rem; color: var(--text-secondary);">${count} views</span>
+    </div>
+    <div style="height: 8px; background: var(--border); border-radius: 4px; overflow: hidden;">
+    <div style="width: ${(count / maxCount) * 100}%; height: 100%; background: ${colors[i % colors.length]}; border-radius: 4px;"></div>
+    </div>
+    </div>
+    `).join('')}</div>`;
 }
 
 function renderRecentActivity(recent) {
@@ -1529,14 +1584,14 @@ function renderRecentActivity(recent) {
     return;
   }
   container.innerHTML = recentItems.map(item => `
-      <div style="display: flex; align-items: center; gap: 12px; padding: 10px; border-radius: 8px; background: var(--surface-hover); margin-bottom: 8px;">
-        <i class="fas fa-file-pdf" style="color: var(--primary-color); font-size: 1.1rem;"></i>
-        <div style="flex: 1; min-width: 0;">
-          <div style="font-weight: 500; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(item.title)}</div>
-          <div style="font-size: 0.75rem; color: var(--text-secondary);">${getTimeAgo(item.timestamp)}</div>
-        </div>
-      </div>
-    `).join('');
+  <div style="display: flex; align-items: center; gap: 12px; padding: 10px; border-radius: 8px; background: var(--surface-hover); margin-bottom: 8px;">
+  <i class="fas fa-file-pdf" style="color: var(--primary-color); font-size: 1.1rem;"></i>
+  <div style="flex: 1; min-width: 0;">
+  <div style="font-weight: 500; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(item.title)}</div>
+  <div style="font-size: 0.75rem; color: var(--text-secondary);">${getTimeAgo(item.timestamp)}</div>
+  </div>
+  </div>
+  `).join('');
 }
 
 function getTimeAgo(timestamp) {
@@ -1616,7 +1671,7 @@ function saveNote() {
   const content = document.getElementById('noteContent')?.value.trim();
   const modal = document.getElementById('noteModal');
   if (!title) { showNotification('Please enter a title', 'error'); return; }
-  
+
   if (currentEditingNote) {
     currentEditingNote.title = title;
     currentEditingNote.content = content;
@@ -1677,9 +1732,9 @@ function addCardEditor(front = '', back = '') {
   cardDiv.className = 'card-editor';
   cardDiv.style.cssText = 'display:flex;gap:8px;margin-bottom:8px;align-items:center;';
   cardDiv.innerHTML = `
-    <input type="text" class="card-front form-input" placeholder="Front (question)" value="${escapeHtml(front)}" style="flex:1;">
-    <input type="text" class="card-back form-input" placeholder="Back (answer)" value="${escapeHtml(back)}" style="flex:1;">
-    <button type="button" class="btn btn-secondary" onclick="this.parentElement.remove()" style="padding:8px 12px;"><i class="fas fa-times"></i></button>
+  <input type="text" class="card-front form-input" placeholder="Front (question)" value="${escapeHtml(front)}" style="flex:1;">
+  <input type="text" class="card-back form-input" placeholder="Back (answer)" value="${escapeHtml(back)}" style="flex:1;">
+  <button type="button" class="btn btn-secondary" onclick="this.parentElement.remove()" style="padding:8px 12px;"><i class="fas fa-times"></i></button>
   `;
   container.appendChild(cardDiv);
 }
@@ -1696,16 +1751,16 @@ function saveDeck() {
   const modal = document.getElementById('flashcardModal');
   const name = nameInput?.value.trim();
   if (!name) { showNotification('Please enter a deck name', 'error'); return; }
-  
+
   const cards = [];
   document.querySelectorAll('.card-editor').forEach(editor => {
     const front = editor.querySelector('.card-front')?.value.trim();
     const back = editor.querySelector('.card-back')?.value.trim();
     if (front && back) cards.push({ front, back });
   });
-  
+
   if (cards.length === 0) { showNotification('Please add at least one valid card', 'error'); return; }
-  
+
   if (currentEditingDeck) {
     currentEditingDeck.name = name;
     currentEditingDeck.cards = cards;
@@ -1768,7 +1823,7 @@ function saveSession() {
   const date = document.getElementById('sessionDate')?.value;
   const time = document.getElementById('sessionTime')?.value;
   if (!subject || !date) { showNotification('Subject and date are required', 'error'); return; }
-  
+
   const session = { id: Date.now().toString(), subject, date, time: time || '09:00' };
   studySessions.push(session);
   scheduleSessionNotification(session);
@@ -1831,7 +1886,8 @@ window.showDaySessions = showDaySessions;
 
 async function initializeApp() {
   console.log('[App] Starting initialization...');
-  
+  preventAccidentalSelection();
+
   if (window.__TAURI__ && window.__TAURI__.window) {
     try {
       const currentWindow = window.__TAURI__.window.getCurrentWindow();
@@ -1842,18 +1898,18 @@ async function initializeApp() {
       console.log('Could not show window:', e);
     }
   }
-  
+
   await initializeFavorites();
-  
+
   // Initialize SQLite Database Engine
   await DbService.init();
 
   applyAccessibilitySettings();
-  
+
   if (typeof initializeNewFeatures === 'function') {
     initializeNewFeatures();
   }
-  
+
   const themeToggle = document.getElementById('themeToggle');
   let savedTheme = localStorage.getItem('theme');
   if (!savedTheme) {
@@ -1865,7 +1921,7 @@ async function initializeApp() {
   }
   document.documentElement.setAttribute('data-theme', savedTheme);
   updateThemeIcon(savedTheme);
-  
+
   if (window.matchMedia) {
     window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
       if (!localStorage.getItem('theme')) {
@@ -1875,7 +1931,7 @@ async function initializeApp() {
       }
     });
   }
-  
+
   if (themeToggle) {
     themeToggle.addEventListener('click', () => {
       const currentTheme = document.documentElement.getAttribute('data-theme') || 'light';
@@ -1889,7 +1945,7 @@ async function initializeApp() {
       }
     });
   }
-  
+
   const accessibilityToggle = document.getElementById('accessibilityToggle');
   const accessibilityPanel = document.getElementById('accessibilityPanel');
   if (accessibilityToggle && accessibilityPanel) {
@@ -1897,21 +1953,21 @@ async function initializeApp() {
       e.stopPropagation();
       accessibilityPanel.classList.toggle('active');
     });
-    
+
     document.addEventListener('click', (e) => {
       if (!e.target.closest('#accessibilityPanel') && !e.target.closest('#accessibilityToggle')) {
         accessibilityPanel.classList.remove('active');
       }
     });
   }
-  
+
   const loginForm = document.getElementById('loginForm');
   if (loginForm) {
     loginForm.addEventListener('submit', handleLogin);
   }
-  
+
   checkSavedLogin();
-  
+
   document.addEventListener('click', e => {
     e.target.closest('.btn') && createRipple(e);
   });
@@ -1922,15 +1978,15 @@ async function initializeApp() {
   initializeKeyboardNavigation();
   loadDocuments();
   trackDailyAccess();
-  
+
   setTimeout(() => {
     restoreLastLocation();
   }, 100);
-  
+
   if (window.contentUpdateSystem && typeof window.contentUpdateSystem.init === 'function') {
     window.contentUpdateSystem.init();
   }
-  
+
   window.addEventListener('beforeunload', () => {
     saveUserPreferences();
   });
@@ -1938,19 +1994,19 @@ async function initializeApp() {
   window.addEventListener('error', e => {
     console.error('Application error:', e.error);
   });
-  
+
   window.renderTiles = renderTiles;
   window.getCurrentDocumentsLevel = getCurrentDocumentsLevel;
-  
+
   if (typeof window.loadCustomDocuments === 'function') {
     window.loadCustomDocuments();
   }
-  
+
   if (DbService.db) {
     const nodes = await DbService.getChildren(path);
     renderTilesFromDb(nodes);
   }
-  
+
   console.log('Questionary application initialized successfully');
 }
 
@@ -1975,30 +2031,30 @@ function handleLogin(e) {
   const usernameEl = document.getElementById('username');
   const passwordEl = document.getElementById('password');
   const rememberMeEl = document.getElementById('rememberMe');
-  
+
   if (!usernameEl || !passwordEl) {
     showNotification('Login form elements not found', 'error');
     return;
   }
-  
+
   const username = usernameEl.value.trim();
   const password = passwordEl.value;
   const rememberMe = rememberMeEl ? rememberMeEl.checked : false;
-  
+
   if (!username || !password) {
     showNotification('Please enter both username and password', 'warning');
     return;
   }
-  
+
   if (users[username] && users[username].password === password) {
     currentUser = { username, role: users[username].role };
     if (rememberMe) {
       localStorage.setItem('revamp-dpsnt-remember', JSON.stringify({ username, role: users[username].role }));
     }
     sessionStorage.setItem('revamp-dpsnt-session', JSON.stringify({ username, role: users[username].role }));
-    
+
     showNotification(`Welcome, ${username}!`, 'success');
-    
+
     setTimeout(() => {
       showApp();
       initializeAppAfterLogin();
@@ -2010,7 +2066,7 @@ function handleLogin(e) {
 
 function checkSavedLogin() {
   const loadingOverlay = document.getElementById('loadingOverlay');
-  
+
   const savedLogin = localStorage.getItem('revamp-dpsnt-remember');
   if (savedLogin) {
     try {
@@ -2023,7 +2079,7 @@ function checkSavedLogin() {
       localStorage.removeItem('revamp-dpsnt-remember');
     }
   }
-  
+
   const previousLogin = sessionStorage.getItem('revamp-dpsnt-session');
   if (previousLogin) {
     try {
@@ -2035,7 +2091,7 @@ function checkSavedLogin() {
       sessionStorage.removeItem('revamp-dpsnt-session');
     }
   }
-  
+
   if (loadingOverlay) loadingOverlay.classList.remove('active');
   return false;
 }
@@ -2054,9 +2110,9 @@ function initializeNavigation() {
   const mobileMenuToggle = document.getElementById('mobileMenuToggle');
   const navLinks = document.getElementById('navLinks');
   const backBtn = document.getElementById('backBtn');
-  
+
   if (backBtn) backBtn.addEventListener('click', handleBackButton);
-  
+
   mobileMenuToggle && mobileMenuToggle.addEventListener('click', () => {
     navLinks && navLinks.classList.toggle('active');
     const icon = mobileMenuToggle.querySelector('i');
@@ -2065,7 +2121,7 @@ function initializeNavigation() {
       icon.classList.toggle('fa-times');
     }
   });
-  
+
   document.addEventListener('click', (e) => {
     if (navLinks && navLinks.classList.contains('active')) {
       if (!e.target.closest('.nav-links') && !e.target.closest('.mobile-menu-toggle')) {
@@ -2078,7 +2134,7 @@ function initializeNavigation() {
       }
     }
   });
-  
+
   const closeMenuOnClick = () => {
     if (navLinks && window.innerWidth <= 768) {
       navLinks.classList.remove('active');
@@ -2090,7 +2146,7 @@ function initializeNavigation() {
     }
     if (document.body.classList.contains('vertical-navbar-mode')) closeSidebar();
   };
-  
+
   homeNav && homeNav.addEventListener('click', async () => {
     showView('home');
     path = [];
@@ -2098,44 +2154,44 @@ function initializeNavigation() {
     setActiveNav('homeNav');
     closeMenuOnClick();
   });
-  
+
   favoritesNav && favoritesNav.addEventListener('click', () => {
     showView('favorites');
     setActiveNav('favoritesNav');
     closeMenuOnClick();
   });
-  
+
   recentNav && recentNav.addEventListener('click', () => {
     showView('recent');
     setActiveNav('recentNav');
     closeMenuOnClick();
   });
-  
+
   analyticsNav && analyticsNav.addEventListener('click', () => {
     showView('analytics');
     setActiveNav('analyticsNav');
     closeMenuOnClick();
   });
-  
+
   studyPlannerNav && studyPlannerNav.addEventListener('click', () => {
     showView('planner');
     setActiveNav('studyPlannerNav');
     closeMenuOnClick();
   });
-  
+
   flashcardsNav && flashcardsNav.addEventListener('click', () => {
     showView('flashcards');
     setActiveNav('flashcardsNav');
     closeMenuOnClick();
   });
-  
+
   notesNav && notesNav.addEventListener('click', () => {
     showView('notes');
     setActiveNav('notesNav');
     closeMenuOnClick();
     if (typeof renderVoiceNotesGrid === 'function') renderVoiceNotesGrid();
   });
-  
+
   const tagsNav = document.getElementById('tagsNav');
   tagsNav && tagsNav.addEventListener('click', () => {
     showView('tags');
@@ -2144,7 +2200,7 @@ function initializeNavigation() {
     if (typeof renderTagsMain === 'function') renderTagsMain();
     if (typeof renderTaggedItems === 'function') renderTaggedItems();
   });
-  
+
   progressNav && progressNav.addEventListener('click', () => {
     showView('progress');
     setActiveNav('progressNav');
@@ -2174,12 +2230,12 @@ function initializeNavigation() {
 function initializeGlobalSearch() {
   const searchInput = document.getElementById('globalSearch');
   const searchResults = document.getElementById('searchResults');
-  
+
   searchInput && searchInput.addEventListener('input', performSearch);
   searchInput && searchInput.addEventListener('focus', () => {
     if (searchInput.value.trim()) performSearch();
   });
-  
+
   document.addEventListener('click', (e) => {
     if (searchResults && !e.target.closest('.search-container')) {
       searchResults.style.display = 'none';
@@ -2200,12 +2256,12 @@ function setupAccessibilityToggle(toggleId, settingKey, className) {
   const toggle = document.getElementById(toggleId);
   if (!toggle) return;
   const switchEl = toggle.querySelector('.accessibility-switch');
-  
+
   if (accessibilitySettings[settingKey]) {
     toggle.classList.add('active');
     if (switchEl) switchEl.classList.add('active');
   }
-  
+
   toggle.addEventListener('click', (e) => {
     e.stopPropagation();
     accessibilitySettings[settingKey] = !accessibilitySettings[settingKey];
@@ -2224,7 +2280,7 @@ function updateAccessibilityToggleStates() {
     { id: 'reducedMotionToggle', key: 'reducedMotion' },
     { id: 'enhancedFocusToggle', key: 'enhancedFocus' }
   ];
-  
+
   toggleMappings.forEach(({ id, key }) => {
     const toggle = document.getElementById(id);
     if (toggle && accessibilitySettings[key]) toggle.classList.add('active');
@@ -2234,31 +2290,31 @@ function updateAccessibilityToggleStates() {
 function initializeKeyboardNavigation() {
   document.addEventListener('keydown', async (e) => {
     const isInputFocused = e.target.closest('input, textarea, [contenteditable]');
-    
+
     if (e.key === 'Escape') {
       const searchResults = document.getElementById('searchResults');
       if (searchResults && searchResults.style.display !== 'none') {
         searchResults.style.display = 'none';
         return;
       }
-      
+
       const accessibilityPanel = document.getElementById('accessibilityPanel');
       if (accessibilityPanel && accessibilityPanel.classList.contains('active')) {
         accessibilityPanel.classList.remove('active');
         return;
       }
-      
+
       const pdfViewerContainer = document.getElementById('pdfViewerContainer');
       if (pdfViewerContainer && pdfViewerContainer.style.display !== 'none') {
         closePDF();
         return;
       }
-      
+
       if (path.length > 0) {
         await handleBackButton();
         return;
       }
-      
+
       if (currentView !== 'home') {
         showView('home');
         path = [];
@@ -2267,16 +2323,16 @@ function initializeKeyboardNavigation() {
         return;
       }
     }
-    
+
     if (!isInputFocused && keybindMatches(e, 'focusSearch')) {
       e.preventDefault();
       document.getElementById('globalSearch')?.focus();
     }
-    
+
     if (!isInputFocused && keybindMatches(e, 'goBack') && path.length > 0) {
       await handleBackButton();
     }
-    
+
     if (!isInputFocused && keybindMatches(e, 'navBack')) {
       e.preventDefault();
       const pdfViewerContainer = document.getElementById('pdfViewerContainer');
@@ -2291,7 +2347,7 @@ function initializeKeyboardNavigation() {
         setActiveNav('homeNav');
       }
     }
-    
+
     if (!isInputFocused && keybindMatches(e, 'goHome')) {
       e.preventDefault();
       const pdfViewerContainer = document.getElementById('pdfViewerContainer');
@@ -2334,12 +2390,12 @@ function renderHomeTagsList() {
   if (!container) return;
   const tags = JSON.parse(localStorage.getItem('questionary-tags') || '[]');
   const itemTags = JSON.parse(localStorage.getItem('questionary-item-tags') || '{}');
-  
+
   if (tags.length === 0) {
     container.innerHTML = '<span class="empty-hint">No tags created yet</span>';
     return;
   }
-  
+
   container.innerHTML = tags.map(tag => {
     const count = Object.values(itemTags).filter(arr => arr.includes(tag.id)).length;
     return `<span style="display: inline-flex; align-items: center; gap: 4px; padding: 8px 14px; border-radius: 20px; font-size: 13px; font-weight: 600; cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.15); background: ${tag.color}; color: white;" onclick="filterByTagHome('${tag.id}')">${escapeHtml(tag.name)} <small style="opacity: 0.85;">(${count})</small></span>`;
@@ -2349,30 +2405,30 @@ function renderHomeTagsList() {
 function renderHomeTaggedItemsList() {
   const container = document.getElementById('homeTaggedItemsList');
   if (!container) return;
-  
+
   const tags = JSON.parse(localStorage.getItem('questionary-tags') || '[]');
   const itemTags = JSON.parse(localStorage.getItem('questionary-item-tags') || '{}');
-  
+
   const items = Object.entries(itemTags)
-    .filter(([_, tagIds]) => tagIds.length > 0 && tagIds.some(tid => tags.find(t => t.id === tid)))
-    .slice(0, 8);
-  
+  .filter(([_, tagIds]) => tagIds.length > 0 && tagIds.some(tid => tags.find(t => t.id === tid)))
+  .slice(0, 8);
+
   if (items.length === 0) {
     container.innerHTML = '<span class="empty-hint">No tagged items yet</span>';
     return;
   }
-  
+
   container.innerHTML = items.map(([itemId, tagIds]) => {
     const tagBadges = tagIds.slice(0, 2).map(tid => {
       const tag = tags.find(t => t.id === tid);
       return tag ? `<span class="tag-mini" style="background: ${tag.color}">${escapeHtml(tag.name)}</span>` : '';
     }).join(' ');
-    
+
     const isFolder = itemId.startsWith('folder_');
     const isDoc = itemId.startsWith('doc_');
     let displayName = itemId;
     let icon = 'fa-file';
-    
+
     if (isFolder) {
       displayName = itemId.replace('folder_', '').split('/').pop();
       icon = 'fa-folder';
@@ -2380,7 +2436,7 @@ function renderHomeTaggedItemsList() {
       displayName = itemId.replace('doc_', '').split('/').pop();
       icon = 'fa-file-pdf';
     }
-    
+
     return `<div class="home-tagged-item" onclick="navigateToTaggedItem('${escapeHtml(itemId)}')" style="cursor:pointer;"><span><i class="fas ${icon}" style="color: var(--primary-color); margin-right: 0.4rem;"></i>${escapeHtml(displayName)}</span><span>${tagBadges}</span></div>`;
   }).join('');
 }
@@ -2399,12 +2455,12 @@ window.showView = showView;
 function showView(viewName) {
   currentView = viewName;
   saveUserPreferences();
-  
+
   const pdfViewerContainer = document.getElementById('pdfViewerContainer');
   if (pdfViewerContainer && pdfViewerContainer.style.display !== 'none') {
     if (typeof closePDF === 'function') closePDF();
   }
-  
+
   const tilesSection = document.getElementById('tilesSection');
   const favoritesSection = document.getElementById('favoritesSection');
   const recentSection = document.getElementById('recentSection');
@@ -2423,10 +2479,10 @@ function showView(viewName) {
   const breadcrumb = document.getElementById('breadcrumb');
   const backBtn = document.getElementById('backBtn');
   const pdfViewer = document.getElementById('pdfViewer');
-  
-  const allSections = [tilesSection, favoritesSection, recentSection, analyticsSection, 
-                       plannerSection, flashcardsSection, notesSection, progressSection,
-                       remindersSection, settingsSection, tagsSection, importedSection, studyRoomSection];
+
+  const allSections = [tilesSection, favoritesSection, recentSection, analyticsSection,
+  plannerSection, flashcardsSection, notesSection, progressSection,
+  remindersSection, settingsSection, tagsSection, importedSection, studyRoomSection];
   allSections.forEach(section => {
     if (section) section.style.display = 'none';
   });
@@ -2434,7 +2490,7 @@ function showView(viewName) {
   if (pdfViewerContainer) pdfViewerContainer.style.display = 'none';
   if (pdfViewer) { pdfViewer.classList.remove('active'); pdfViewer.src = ''; }
   hideHomeTagsPanels();
-  
+
   switch(viewName) {
     case 'home':
       if (tilesSection) tilesSection.style.display = 'block';
@@ -2445,7 +2501,7 @@ function showView(viewName) {
       }
       const sh = document.querySelector('#tilesSection .section-header');
       if (sh) sh.style.display = 'flex';
-      
+
       if (importedSection) importedSection.style.display = 'block';
       if (dashboardHeader) dashboardHeader.style.display = 'flex';
       if (breadcrumb) breadcrumb.style.display = 'flex';
@@ -2549,9 +2605,9 @@ function addToRecent(title, docPath, url) {
   if (existing > -1) recent.splice(existing, 1);
   recent.unshift({ title, path: docPath, url, timestamp: Date.now() });
   const updatedRecent = recent.slice(0, 20);
-  
+
   saveRecentToStorage(updatedRecent);
-  
+
   if (docPath && docPath.length > 0) {
     trackSubjectAccess(docPath[0]);
     if (docPath.length > 1) {
@@ -2570,7 +2626,7 @@ function toggleFavorite(title, docPath, url) {
     favorites.push({ title, path: docPath, url });
     showNotification('Added to favorites', 'success');
   }
-  
+
   saveFavorites();
   updateDashboardStats();
 }
@@ -2629,25 +2685,25 @@ function initializeViewControls() {
   const listViewBtn = document.getElementById('listView');
   const sortToggleBtn = document.getElementById('sortToggle');
   const tilesContainer = document.getElementById('tilesContainer');
-  
+
   if (!tilesContainer) return;
-  
+
   let currentSortOrder = localStorage.getItem('questionary-sort-order') || 'asc';
-  
+
   gridViewBtn && gridViewBtn.addEventListener('click', () => {
     tilesContainer.classList.remove('list-view');
     gridViewBtn.classList.add('active');
     listViewBtn && listViewBtn.classList.remove('active');
     localStorage.setItem('questionary-view-mode', 'grid');
   });
-  
+
   listViewBtn && listViewBtn.addEventListener('click', () => {
     tilesContainer.classList.add('list-view');
     listViewBtn.classList.add('active');
     gridViewBtn && gridViewBtn.classList.remove('active');
     localStorage.setItem('questionary-view-mode', 'list');
   });
-  
+
   sortToggleBtn && sortToggleBtn.addEventListener('click', async () => {
     currentSortOrder = currentSortOrder === 'asc' ? 'desc' : 'asc';
     localStorage.setItem('questionary-sort-order', currentSortOrder);
@@ -2668,13 +2724,13 @@ async function handleBackButton() {
     if (pdfViewerContainer) pdfViewerContainer.style.display = 'none';
     const bookmarksPanel = document.getElementById('pdfBookmarksPanel');
     if (bookmarksPanel) bookmarksPanel.style.display = 'none';
-    
+
     const tilesContainer = document.getElementById('tilesContainer');
     if (tilesContainer) {
       const isListView = tilesContainer.classList.contains('list-view');
       tilesContainer.style.display = isListView ? 'flex' : 'grid';
     }
-    
+
     const nodes = await DbService.getChildren(path);
     renderTilesFromDb(nodes);
     updateBreadcrumb();
@@ -2714,7 +2770,7 @@ function initializeTimer() {
     if (!durationAttr) return;
     const duration = parseInt(durationAttr, 10);
     if (!duration || isNaN(duration) || duration <= 0) return;
-    
+
     btn.dataset.initialized = 'true';
     const newBtn = btn.cloneNode(true);
     btn.parentNode.replaceChild(newBtn, btn);
@@ -2774,13 +2830,13 @@ function initializeTimerDrag() {
   const timerPanel = document.getElementById('timerPanel');
   const dragHandle = document.getElementById('timerDragHandle');
   if (!timerPanel || !dragHandle) return;
-  
+
   let isDragging = false;
   let startX, startY, initialLeft, initialTop;
-  
+
   dragHandle.addEventListener('mousedown', startDrag);
   dragHandle.addEventListener('touchstart', startDrag, { passive: false });
-  
+
   function startDrag(e) {
     if (e.target.closest('button')) return;
     isDragging = true;
@@ -2788,7 +2844,7 @@ function initializeTimerDrag() {
     const rect = timerPanel.getBoundingClientRect();
     initialLeft = rect.left;
     initialTop = rect.top;
-    
+
     if (e.type === 'touchstart') {
       startX = e.touches[0].clientX;
       startY = e.touches[0].clientY;
@@ -2796,19 +2852,19 @@ function initializeTimerDrag() {
       startX = e.clientX;
       startY = e.clientY;
     }
-    
+
     timerPanel.style.bottom = 'auto';
     timerPanel.style.right = 'auto';
     timerPanel.style.left = initialLeft + 'px';
     timerPanel.style.top = initialTop + 'px';
-    
+
     document.addEventListener('mousemove', drag);
     document.addEventListener('mouseup', stopDrag);
     document.addEventListener('touchmove', drag, { passive: false });
     document.addEventListener('touchend', stopDrag);
     e.preventDefault();
   }
-  
+
   function drag(e) {
     if (!isDragging) return;
     let currentX, currentY;
@@ -2821,22 +2877,22 @@ function initializeTimerDrag() {
     }
     const deltaX = currentX - startX;
     const deltaY = currentY - startY;
-    
+
     let newLeft = initialLeft + deltaX;
     let newTop = initialTop + deltaY;
-    
+
     const panelRect = timerPanel.getBoundingClientRect();
     const maxLeft = window.innerWidth - panelRect.width;
     const maxTop = window.innerHeight - panelRect.height;
-    
+
     newLeft = Math.max(0, Math.min(newLeft, maxLeft));
     newTop = Math.max(0, Math.min(newTop, maxTop));
-    
+
     timerPanel.style.left = newLeft + 'px';
     timerPanel.style.top = newTop + 'px';
     e.preventDefault();
   }
-  
+
   function stopDrag() {
     isDragging = false;
     timerPanel.style.transition = '';
@@ -2851,20 +2907,20 @@ function initializeTimerResize() {
   const timerPanel = document.getElementById('timerPanel');
   const resizeHandle = document.getElementById('timerResizeHandle');
   if (!timerPanel || !resizeHandle) return;
-  
+
   let isResizing = false;
   let startX, startY, startWidth, startHeight;
-  
+
   resizeHandle.addEventListener('mousedown', startResize);
   resizeHandle.addEventListener('touchstart', startResize, { passive: false });
-  
+
   function startResize(e) {
     isResizing = true;
     timerPanel.style.transition = 'none';
     const rect = timerPanel.getBoundingClientRect();
     startWidth = rect.width;
     startHeight = rect.height;
-    
+
     if (e.type === 'touchstart') {
       startX = e.touches[0].clientX;
       startY = e.touches[0].clientY;
@@ -2872,7 +2928,7 @@ function initializeTimerResize() {
       startX = e.clientX;
       startY = e.clientY;
     }
-    
+
     document.addEventListener('mousemove', resize);
     document.addEventListener('mouseup', stopResize);
     document.addEventListener('touchmove', resize, { passive: false });
@@ -2880,7 +2936,7 @@ function initializeTimerResize() {
     e.preventDefault();
     e.stopPropagation();
   }
-  
+
   function resize(e) {
     if (!isResizing) return;
     let currentX, currentY;
@@ -2893,15 +2949,15 @@ function initializeTimerResize() {
     }
     const deltaX = currentX - startX;
     const deltaY = currentY - startY;
-    
+
     const newWidth = Math.max(280, Math.min(window.innerWidth - 20, startWidth + deltaX));
     const newHeight = Math.max(200, Math.min(window.innerHeight - 20, startHeight + deltaY));
-    
+
     timerPanel.style.width = newWidth + 'px';
     timerPanel.style.height = newHeight + 'px';
     e.preventDefault();
   }
-  
+
   function stopResize() {
     isResizing = false;
     timerPanel.style.transition = '';
@@ -2917,14 +2973,14 @@ function toggleTimerMinimize() {
   const minimizeBtn = document.getElementById('timerMinimize');
   const timerControls = document.getElementById('timerControls');
   if (!timerPanel) return;
-  
+
   timerPanel.classList.toggle('minimized');
   const isMinimized = timerPanel.classList.contains('minimized');
-  
+
   if (timerControls && isMinimized) {
     timerControls.style.display = 'flex';
   }
-  
+
   if (minimizeBtn) {
     const icon = minimizeBtn.querySelector('i');
     if (icon) {
@@ -2941,56 +2997,56 @@ function toggleTimerMinimize() {
 
 function selectTimerPreset(btn, duration) {
   if (!duration || isNaN(duration) || duration <= 0) return;
-  
+
   document.querySelectorAll('.timer-preset-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
-  
+
   timerState.duration = duration;
   timerState.remaining = duration;
-  
+
   updateTimerDisplay();
-  
+
   const timerControls = document.getElementById('timerControls');
   timerControls && (timerControls.style.display = 'flex');
-  
+
   const startBtn = document.getElementById('timerStart');
   const pauseBtn = document.getElementById('timerPause');
   const resumeBtn = document.getElementById('timerResume');
-  
+
   if (startBtn) startBtn.style.display = 'flex';
   if (pauseBtn) pauseBtn.style.display = 'none';
   if (resumeBtn) resumeBtn.style.display = 'none';
-  
+
   updateTimerStatus('Ready to start');
-  
+
   const progressBar = document.getElementById('timerProgressBar');
   progressBar && (progressBar.style.width = '100%');
   progressBar && progressBar.classList.remove('warning', 'danger');
-  
+
   const timerDisplay = document.getElementById('timerDisplay');
   timerDisplay && timerDisplay.classList.remove('warning', 'danger');
 }
 
 function startTimer() {
   if (timerState.duration === 0) return;
-  
+
   timerState.isRunning = true;
   timerState.isPaused = false;
   timerState.lastLapTime = timerState.duration;
-  
+
   document.getElementById('timerStart').style.display = 'none';
   document.getElementById('timerPause').style.display = 'flex';
   document.getElementById('timerResume').style.display = 'none';
   document.getElementById('timerLap').style.display = 'flex';
-  
+
   const miniLap = document.getElementById('timerMiniLap');
   if (miniLap) {
     miniLap.disabled = false;
     miniLap.style.opacity = '1';
   }
-  
+
   updateTimerStatus('Timer running', 'active');
-  
+
   timerState.interval = setInterval(() => {
     if (timerState.remaining > 0) {
       timerState.remaining--;
@@ -3006,7 +3062,7 @@ function pauseTimer() {
   timerState.isRunning = false;
   timerState.isPaused = true;
   clearInterval(timerState.interval);
-  
+
   document.getElementById('timerPause').style.display = 'none';
   document.getElementById('timerResume').style.display = 'flex';
   updateTimerStatus('Timer paused', 'paused');
@@ -3015,11 +3071,11 @@ function pauseTimer() {
 function resumeTimer() {
   timerState.isRunning = true;
   timerState.isPaused = false;
-  
+
   document.getElementById('timerPause').style.display = 'flex';
   document.getElementById('timerResume').style.display = 'none';
   updateTimerStatus('Timer running', 'active');
-  
+
   timerState.interval = setInterval(() => {
     if (timerState.remaining > 0) {
       timerState.remaining--;
@@ -3038,30 +3094,30 @@ function resetTimer() {
   timerState.remaining = timerState.duration;
   timerState.laps = [];
   timerState.lastLapTime = timerState.duration;
-  
+
   document.getElementById('timerStart').style.display = 'flex';
   document.getElementById('timerPause').style.display = 'none';
   document.getElementById('timerResume').style.display = 'none';
   document.getElementById('timerLap').style.display = 'none';
-  
+
   const miniLap = document.getElementById('timerMiniLap');
   if (miniLap) {
     miniLap.disabled = true;
     miniLap.style.opacity = '0.5';
   }
-  
+
   updateTimerDisplay();
   renderLaps();
-  
+
   const progressBar = document.getElementById('timerProgressBar');
   if (progressBar) {
     progressBar.style.width = '100%';
     progressBar.classList.remove('warning', 'danger');
   }
-  
+
   const timerDisplay = document.getElementById('timerDisplay');
   if (timerDisplay) timerDisplay.classList.remove('warning', 'danger');
-  
+
   updateTimerStatus('Timer reset');
 }
 
@@ -3069,24 +3125,24 @@ function timerFinished() {
   clearInterval(timerState.interval);
   timerState.isRunning = false;
   timerState.isPaused = false;
-  
+
   if (typeof window.playAlarmSound === 'function') {
     window.playAlarmSound();
   }
-  
+
   showNotification('⏰ Timer Complete! Time\'s up!', 'success');
-  
+
   document.getElementById('timerStart').style.display = 'flex';
   document.getElementById('timerPause').style.display = 'none';
   document.getElementById('timerResume').style.display = 'none';
   document.getElementById('timerLap').style.display = 'none';
-  
+
   const timerDisplay = document.getElementById('timerDisplay');
   if (timerDisplay) {
     timerDisplay.textContent = '00:00:00';
     timerDisplay.classList.add('danger');
   }
-  
+
   updateTimerStatus('Timer complete!', 'complete');
 }
 
@@ -3094,24 +3150,24 @@ function updateTimerDisplay() {
   const display = document.getElementById('timerDisplay');
   const timerTitle = document.querySelector('.timer-title');
   if (!display) return;
-  
+
   const remaining = timerState.remaining || 0;
-  const duration = timerState.duration || 1; 
-  
+  const duration = timerState.duration || 1;
+
   const hours = Math.floor(remaining / 3600);
   const minutes = Math.floor((remaining % 3600) / 60);
   const seconds = remaining % 60;
-  
+
   const timeStr = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
   display.textContent = timeStr;
-  
+
   if (timerTitle) {
     timerTitle.setAttribute('data-time', timeStr);
   }
-  
+
   const percentRemaining = (remaining / duration) * 100;
   display.classList.remove('warning', 'danger');
-  
+
   if (percentRemaining <= 10) {
     display.classList.add('danger');
   } else if (percentRemaining <= 25) {
@@ -3122,10 +3178,10 @@ function updateTimerDisplay() {
 function updateTimerProgress() {
   const progressBar = document.getElementById('timerProgressBar');
   if (!progressBar) return;
-  
+
   const percentRemaining = (timerState.remaining / timerState.duration) * 100;
   progressBar.style.width = `${percentRemaining}%`;
-  
+
   progressBar.classList.remove('warning', 'danger');
   if (percentRemaining <= 10) {
     progressBar.classList.add('danger');
@@ -3155,10 +3211,10 @@ function hideTimer() {
   const timerPanel = document.getElementById('timerPanel');
   const reopenBtn = document.getElementById('timerReopenBtn');
   if (timerPanel) timerPanel.style.display = 'none';
-  
+
   const pdfViewer = document.getElementById('pdfViewer');
   const isPdfVisible = pdfViewer && (pdfViewer.classList.contains('active') || (pdfViewer.src && pdfViewer.src !== '' && pdfViewer.src !== 'about:blank'));
-  
+
   if (reopenBtn && isPdfVisible) {
     reopenBtn.style.display = 'flex';
     if (timerState.isRunning) {
@@ -3186,7 +3242,7 @@ function playTimerAlert() {
     const audioContext = new (window.AudioContext || window.webkitAudioContext)();
     const beepDuration = 0.2;
     const beepCount = 3;
-    
+
     for (let i = 0; i < beepCount; i++) {
       const oscillator = audioContext.createOscillator();
       const gainNode = audioContext.createGain();
@@ -3208,13 +3264,13 @@ function addLap() {
   if (!timerState.isRunning || timerState.remaining <= 0) return;
   const lapTime = timerState.remaining;
   const elapsed = timerState.lastLapTime - lapTime;
-  
+
   timerState.laps.push({
     number: timerState.laps.length + 1,
     time: lapTime,
     elapsed: elapsed
   });
-  
+
   timerState.lastLapTime = lapTime;
   renderLaps();
   showNotification(`Lap ${timerState.laps.length} recorded`, 'success');
@@ -3249,33 +3305,33 @@ function renderLaps() {
     lapsContainer.innerHTML = '';
     return;
   }
-  
+
   let html = `
-    <div class="timer-laps-header">
-      <span class="timer-laps-title">Laps (${timerState.laps.length})</span>
-      <button class="timer-laps-clear" onclick="clearAllLaps()" title="Clear all laps">
-        <i class="fas fa-trash"></i> Clear All
-      </button>
-    </div>
+  <div class="timer-laps-header">
+  <span class="timer-laps-title">Laps (${timerState.laps.length})</span>
+  <button class="timer-laps-clear" onclick="clearAllLaps()" title="Clear all laps">
+  <i class="fas fa-trash"></i> Clear All
+  </button>
+  </div>
   `;
-  
+
   const reversedLaps = [...timerState.laps].reverse();
   reversedLaps.forEach((lap, i) => {
     const actualIndex = timerState.laps.length - 1 - i;
     html += `
-      <div class="timer-lap-item">
-        <div class="timer-lap-info">
-          <span class="timer-lap-number">#${lap.number}</span>
-          <span class="timer-lap-time">${formatLapTime(lap.time)}</span>
-          <span class="timer-lap-elapsed">+${formatLapTime(lap.elapsed)}</span>
-        </div>
-        <button class="timer-lap-delete" onclick="deleteLap(${actualIndex})" title="Delete lap">
-          <i class="fas fa-times"></i>
-        </button>
-      </div>
+    <div class="timer-lap-item">
+    <div class="timer-lap-info">
+    <span class="timer-lap-number">#${lap.number}</span>
+    <span class="timer-lap-time">${formatLapTime(lap.time)}</span>
+    <span class="timer-lap-elapsed">+${formatLapTime(lap.elapsed)}</span>
+    </div>
+    <button class="timer-lap-delete" onclick="deleteLap(${actualIndex})" title="Delete lap">
+    <i class="fas fa-times"></i>
+    </button>
+    </div>
     `;
   });
-  
+
   lapsContainer.innerHTML = html;
 }
 
@@ -3285,223 +3341,223 @@ window.addEventListener('contextmenu', e => {
 });
 
 let updateState = {
-    available: false,
-    version: null,
-    update: null,
-    downloading: false,
-    downloadProgress: 0,
-    downloadedBytes: 0,
-    totalBytes: 0
+  available: false,
+  version: null,
+  update: null,
+  downloading: false,
+  downloadProgress: 0,
+  downloadedBytes: 0,
+  totalBytes: 0
 };
 
 async function checkForUpdatesManual() {
-    const btn = document.getElementById('checkUpdatesBtn');
-    if (updateState.downloading) {
-        showUpdateProgressNotification();
-        return;
-    }
-    if (updateState.available && updateState.update) {
-        await downloadAndInstallUpdate();
-        return;
-    }
-    if (btn) {
-        btn.classList.add('checking');
-        btn.disabled = true;
-    }
-    try {
-        if (window.__TAURI__) {
-            showNotification('Checking for updates...', 'info');
-            const updater = window.__TAURI__.updater;
-            if (!updater) throw new Error('Updater plugin not available');
-            
-            const update = await updater.check();
-            if (update) {
-                updateState.available = true;
-                updateState.version = update.version;
-                updateState.update = update;
-                showNotification(`Update ${update.version} available! Click update button again to download.`, 'success');
-                updateButtonToDownloadMode(update.version);
-            } else {
-                showNotification('You are on the latest version!', 'success');
-                resetUpdateButton();
-            }
-        } else {
-            showNotification('Update checking is only available in the desktop app.', 'info');
-        }
-    } catch (error) {
-        console.error('Update check error:', error);
-        showNotification('Could not check for updates. Please try again later.', 'warning');
+  const btn = document.getElementById('checkUpdatesBtn');
+  if (updateState.downloading) {
+    showUpdateProgressNotification();
+    return;
+  }
+  if (updateState.available && updateState.update) {
+    await downloadAndInstallUpdate();
+    return;
+  }
+  if (btn) {
+    btn.classList.add('checking');
+    btn.disabled = true;
+  }
+  try {
+    if (window.__TAURI__) {
+      showNotification('Checking for updates...', 'info');
+      const updater = window.__TAURI__.updater;
+      if (!updater) throw new Error('Updater plugin not available');
+
+      const update = await updater.check();
+      if (update) {
+        updateState.available = true;
+        updateState.version = update.version;
+        updateState.update = update;
+        showNotification(`Update ${update.version} available! Click update button again to download.`, 'success');
+        updateButtonToDownloadMode(update.version);
+      } else {
+        showNotification('You are on the latest version!', 'success');
         resetUpdateButton();
-    } finally {
-        if (btn) {
-            btn.classList.remove('checking');
-            btn.disabled = false;
-        }
+      }
+    } else {
+      showNotification('Update checking is only available in the desktop app.', 'info');
     }
+  } catch (error) {
+    console.error('Update check error:', error);
+    showNotification('Could not check for updates. Please try again later.', 'warning');
+    resetUpdateButton();
+  } finally {
+    if (btn) {
+      btn.classList.remove('checking');
+      btn.disabled = false;
+    }
+  }
 }
 
 async function downloadAndInstallUpdate() {
-    if (!updateState.update) return;
-    updateState.downloading = true;
-    updateState.downloadProgress = 0;
-    updateState.downloadedBytes = 0;
-    try {
-        updateButtonToProgressMode();
-        showNotification('Downloading update...', 'info');
-        await updateState.update.downloadAndInstall((event) => {
-            switch (event.event) {
-                case 'Started':
-                    updateState.totalBytes = event.data.contentLength || 0;
-                    break;
-                case 'Progress':
-                    updateState.downloadedBytes += event.data.chunkLength || 0;
-                    if (updateState.totalBytes > 0) {
-                        updateState.downloadProgress = Math.round((updateState.downloadedBytes / updateState.totalBytes) * 100);
-                    }
-                    updateProgressButton();
-                    break;
-                case 'Finished':
-                    updateState.downloadProgress = 100;
-                    updateProgressButton();
-                    break;
-            }
-        });
-        showNotification('Update installed! Restarting app...', 'success');
-        updateButtonToRestartMode();
-        setTimeout(async () => {
-            if (window.__TAURI__ && window.__TAURI__.process) {
-                await window.__TAURI__.process.relaunch();
-            }
-        }, 2000);
-    } catch (error) {
-        console.error('Download error:', error);
-        showNotification('Failed to download update.', 'error');
-        resetUpdateButton();
-        updateState.downloading = false;
-    }
+  if (!updateState.update) return;
+  updateState.downloading = true;
+  updateState.downloadProgress = 0;
+  updateState.downloadedBytes = 0;
+  try {
+    updateButtonToProgressMode();
+    showNotification('Downloading update...', 'info');
+    await updateState.update.downloadAndInstall((event) => {
+      switch (event.event) {
+        case 'Started':
+          updateState.totalBytes = event.data.contentLength || 0;
+          break;
+        case 'Progress':
+          updateState.downloadedBytes += event.data.chunkLength || 0;
+          if (updateState.totalBytes > 0) {
+            updateState.downloadProgress = Math.round((updateState.downloadedBytes / updateState.totalBytes) * 100);
+          }
+          updateProgressButton();
+          break;
+        case 'Finished':
+          updateState.downloadProgress = 100;
+          updateProgressButton();
+          break;
+      }
+    });
+    showNotification('Update installed! Restarting app...', 'success');
+    updateButtonToRestartMode();
+    setTimeout(async () => {
+      if (window.__TAURI__ && window.__TAURI__.process) {
+        await window.__TAURI__.process.relaunch();
+      }
+    }, 2000);
+  } catch (error) {
+    console.error('Download error:', error);
+    showNotification('Failed to download update.', 'error');
+    resetUpdateButton();
+    updateState.downloading = false;
+  }
 }
 
 function updateButtonToDownloadMode(version) {
-    const btn = document.getElementById('checkUpdatesBtn');
-    if (btn) {
-        btn.innerHTML = `<i class="fas fa-download"></i>`;
-        btn.title = `Download update ${version}`;
-        btn.classList.add('update-available');
-    }
+  const btn = document.getElementById('checkUpdatesBtn');
+  if (btn) {
+    btn.innerHTML = `<i class="fas fa-download"></i>`;
+    btn.title = `Download update ${version}`;
+    btn.classList.add('update-available');
+  }
 }
 
 function updateButtonToProgressMode() {
-    const btn = document.getElementById('checkUpdatesBtn');
-    if (btn) {
-        btn.innerHTML = `<i class="fas fa-download"></i>`;
-        btn.title = 'Downloading...';
-        btn.classList.add('downloading');
-        btn.classList.remove('update-available');
-    }
-    showDownloadProgressBar();
+  const btn = document.getElementById('checkUpdatesBtn');
+  if (btn) {
+    btn.innerHTML = `<i class="fas fa-download"></i>`;
+    btn.title = 'Downloading...';
+    btn.classList.add('downloading');
+    btn.classList.remove('update-available');
+  }
+  showDownloadProgressBar();
 }
 
 function updateProgressButton() {
-    const progressFill = document.getElementById('downloadProgressFill');
-    const progressPercent = document.getElementById('downloadProgressPercent');
-    const progressText = document.getElementById('downloadProgressText');
-    if (progressFill) progressFill.style.width = `${updateState.downloadProgress}%`;
-    if (progressPercent) progressPercent.textContent = `${updateState.downloadProgress}%`;
-    if (progressText) progressText.textContent = `${formatBytes(updateState.downloadedBytes)} / ${formatBytes(updateState.totalBytes)}`;
+  const progressFill = document.getElementById('downloadProgressFill');
+  const progressPercent = document.getElementById('downloadProgressPercent');
+  const progressText = document.getElementById('downloadProgressText');
+  if (progressFill) progressFill.style.width = `${updateState.downloadProgress}%`;
+  if (progressPercent) progressPercent.textContent = `${updateState.downloadProgress}%`;
+  if (progressText) progressText.textContent = `${formatBytes(updateState.downloadedBytes)} / ${formatBytes(updateState.totalBytes)}`;
 }
 
 function showDownloadProgressBar() {
-    const progressBar = document.getElementById('downloadProgressBar');
-    if (progressBar) progressBar.style.display = 'block';
+  const progressBar = document.getElementById('downloadProgressBar');
+  if (progressBar) progressBar.style.display = 'block';
 }
 
 function hideDownloadProgressBar() {
-    const progressBar = document.getElementById('downloadProgressBar');
-    if (progressBar) progressBar.style.display = 'none';
-    const progressFill = document.getElementById('downloadProgressFill');
-    if (progressFill) progressFill.style.width = '0%';
+  const progressBar = document.getElementById('downloadProgressBar');
+  if (progressBar) progressBar.style.display = 'none';
+  const progressFill = document.getElementById('downloadProgressFill');
+  if (progressFill) progressFill.style.width = '0%';
 }
 
 function updateButtonToRestartMode() {
-    const btn = document.getElementById('checkUpdatesBtn');
-    if (btn) {
-        btn.innerHTML = `<i class="fas fa-redo"></i>`;
-        btn.title = 'Restarting...';
-        btn.classList.remove('downloading');
-        btn.classList.add('restarting');
-    }
-    hideDownloadProgressBar();
+  const btn = document.getElementById('checkUpdatesBtn');
+  if (btn) {
+    btn.innerHTML = `<i class="fas fa-redo"></i>`;
+    btn.title = 'Restarting...';
+    btn.classList.remove('downloading');
+    btn.classList.add('restarting');
+  }
+  hideDownloadProgressBar();
 }
 
 function resetUpdateButton() {
-    const btn = document.getElementById('checkUpdatesBtn');
-    if (btn) {
-        btn.innerHTML = `<i class="fas fa-sync-alt"></i>`;
-        btn.title = 'Check for Updates';
-        btn.classList.remove('update-available', 'downloading', 'restarting');
-    }
-    hideDownloadProgressBar();
-    updateState.available = false;
-    updateState.update = null;
-    updateState.downloading = false;
+  const btn = document.getElementById('checkUpdatesBtn');
+  if (btn) {
+    btn.innerHTML = `<i class="fas fa-sync-alt"></i>`;
+    btn.title = 'Check for Updates';
+    btn.classList.remove('update-available', 'downloading', 'restarting');
+  }
+  hideDownloadProgressBar();
+  updateState.available = false;
+  updateState.update = null;
+  updateState.downloading = false;
 }
 
 function showUpdateProgressNotification() {
-    const progress = updateState.downloadProgress;
-    const downloaded = formatBytes(updateState.downloadedBytes);
-    const total = formatBytes(updateState.totalBytes);
-    showNotification(`Downloading: ${progress}% (${downloaded} / ${total})`, 'info');
+  const progress = updateState.downloadProgress;
+  const downloaded = formatBytes(updateState.downloadedBytes);
+  const total = formatBytes(updateState.totalBytes);
+  showNotification(`Downloading: ${progress}% (${downloaded} / ${total})`, 'info');
 }
 
 function formatBytes(bytes) {
-    if (bytes === 0) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+  if (bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
 }
 
 (function initUpdateButton() {
-    function setupButton() {
-        const btn = document.getElementById('checkUpdatesBtn');
-        if (btn && !btn.dataset.initialized) {
-            btn.dataset.initialized = 'true';
-            btn.addEventListener('click', checkForUpdatesManual);
-        }
+  function setupButton() {
+    const btn = document.getElementById('checkUpdatesBtn');
+    if (btn && !btn.dataset.initialized) {
+      btn.dataset.initialized = 'true';
+      btn.addEventListener('click', checkForUpdatesManual);
     }
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', setupButton);
-    } else {
-        setupButton();
-    }
-    setTimeout(setupButton, 1000);
-    setTimeout(setupButton, 3000);
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', setupButton);
+  } else {
+    setupButton();
+  }
+  setTimeout(setupButton, 1000);
+  setTimeout(setupButton, 3000);
 })();
 
 async function checkForUpdatesOnStartup() {
-    await new Promise(resolve => setTimeout(resolve, 5000));
-    try {
-        if (window.__TAURI__) {
-            const updater = window.__TAURI__.updater;
-            if (!updater) return;
-            const update = await updater.check();
-            if (update) {
-                updateState.available = true;
-                updateState.version = update.version;
-                updateState.update = update;
-                showNotification(`Update ${update.version} is available!`, 'info');
-                updateButtonToDownloadMode(update.version);
-            }
-        }
-    } catch (error) {
-        console.log('Auto-update check failed:', error.message);
+  await new Promise(resolve => setTimeout(resolve, 5000));
+  try {
+    if (window.__TAURI__) {
+      const updater = window.__TAURI__.updater;
+      if (!updater) return;
+      const update = await updater.check();
+      if (update) {
+        updateState.available = true;
+        updateState.version = update.version;
+        updateState.update = update;
+        showNotification(`Update ${update.version} is available!`, 'info');
+        updateButtonToDownloadMode(update.version);
+      }
     }
+  } catch (error) {
+    console.log('Auto-update check failed:', error.message);
+  }
 }
 
 if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', checkForUpdatesOnStartup);
+  document.addEventListener('DOMContentLoaded', checkForUpdatesOnStartup);
 } else {
-    checkForUpdatesOnStartup();
+  checkForUpdatesOnStartup();
 }
 
 function initializeNewFeatures() {
@@ -3511,44 +3567,44 @@ function initializeNewFeatures() {
   try { if (typeof loadDocumentProgress === 'function') loadDocumentProgress(); } catch(e){}
   try { if (typeof loadQuickLinks === 'function') loadQuickLinks(); } catch(e){}
   try { if (typeof loadStudyStats === 'function') loadStudyStats(); } catch(e){}
-  
+
   const createNoteBtn = document.getElementById('createNoteBtn');
   const closeNoteModal = document.getElementById('closeNoteModal');
   const cancelNoteBtn = document.getElementById('cancelNoteBtn');
   const saveNoteBtn = document.getElementById('saveNoteBtn');
   const noteModal = document.getElementById('noteModal');
-  
+
   if (createNoteBtn && typeof openNoteModal === 'function') createNoteBtn.onclick = () => openNoteModal();
   if (closeNoteModal && noteModal) closeNoteModal.onclick = () => noteModal.classList.remove('active');
   if (cancelNoteBtn && noteModal) cancelNoteBtn.onclick = () => noteModal.classList.remove('active');
   if (saveNoteBtn && typeof saveNote === 'function') saveNoteBtn.onclick = saveNote;
-  
+
   const createDeckBtn = document.getElementById('createDeckBtn');
   const closeFlashcardModal = document.getElementById('closeFlashcardModal');
   const cancelFlashcardBtn = document.getElementById('cancelFlashcardBtn');
   const saveDeckBtn = document.getElementById('saveDeckBtn');
   const addCardBtn = document.getElementById('addCardBtn');
   const flashcardModal = document.getElementById('flashcardModal');
-  
+
   if (createDeckBtn && typeof openFlashcardModal === 'function') createDeckBtn.onclick = () => openFlashcardModal();
   if (closeFlashcardModal && flashcardModal) closeFlashcardModal.onclick = () => flashcardModal.classList.remove('active');
   if (cancelFlashcardBtn && flashcardModal) cancelFlashcardBtn.onclick = () => flashcardModal.classList.remove('active');
   if (saveDeckBtn && typeof saveDeck === 'function') saveDeckBtn.onclick = saveDeck;
   if (addCardBtn && typeof addCardEditor === 'function') addCardBtn.onclick = () => addCardEditor();
-  
+
   const closeStudyModal = document.getElementById('closeStudyModal');
   const flipCardBtn = document.getElementById('flipCardBtn');
   const nextCardBtn = document.getElementById('nextCardBtn');
   const prevCardBtn = document.getElementById('prevCardBtn');
   const activeFlashcard = document.getElementById('activeFlashcard');
   const studyModal = document.getElementById('studyModal');
-  
+
   if (closeStudyModal && studyModal) closeStudyModal.onclick = () => studyModal.classList.remove('active');
   if (flipCardBtn && typeof flipCard === 'function') flipCardBtn.onclick = flipCard;
   if (nextCardBtn && typeof nextCard === 'function') nextCardBtn.onclick = nextCard;
   if (prevCardBtn && typeof prevCard === 'function') prevCardBtn.onclick = prevCard;
   if (activeFlashcard && typeof flipCard === 'function') activeFlashcard.onclick = flipCard;
-  
+
   const addStudySessionBtn = document.getElementById('addStudySessionBtn');
   const closeSessionModal = document.getElementById('closeSessionModal');
   const cancelSessionBtn = document.getElementById('cancelSessionBtn');
@@ -3556,26 +3612,26 @@ function initializeNewFeatures() {
   const prevMonth = document.getElementById('prevMonth');
   const nextMonth = document.getElementById('nextMonth');
   const sessionModal = document.getElementById('sessionModal');
-  
+
   if (addStudySessionBtn && typeof openSessionModal === 'function') addStudySessionBtn.onclick = () => openSessionModal();
   if (closeSessionModal && sessionModal) closeSessionModal.onclick = () => sessionModal.classList.remove('active');
   if (cancelSessionBtn && sessionModal) cancelSessionBtn.onclick = () => sessionModal.classList.remove('active');
   if (saveSessionBtn && typeof saveSession === 'function') saveSessionBtn.onclick = saveSession;
-  
+
   if (prevMonth && typeof renderCalendar === 'function') {
     prevMonth.onclick = () => {
       currentCalendarDate.setMonth(currentCalendarDate.getMonth() - 1);
       renderCalendar();
     };
   }
-  
+
   if (nextMonth && typeof renderCalendar === 'function') {
     nextMonth.onclick = () => {
       currentCalendarDate.setMonth(currentCalendarDate.getMonth() + 1);
       renderCalendar();
     };
   }
-  
+
   document.querySelectorAll('.progress-filter').forEach(btn => {
     btn.onclick = () => {
       document.querySelectorAll('.progress-filter').forEach(b => b.classList.remove('active'));
@@ -3583,20 +3639,20 @@ function initializeNewFeatures() {
       filterProgress(btn.dataset.filter);
     };
   });
-  
+
   const quickLinksToggle = document.getElementById('quickLinksToggle');
   const quickLinksPanel = document.getElementById('quickLinksPanel');
   const quickLinksClose = document.getElementById('quickLinksClose');
   const addQuickLinkBtn = document.getElementById('addQuickLinkBtn');
-  
+
   if (quickLinksToggle && quickLinksPanel) {
     quickLinksToggle.onclick = () => quickLinksPanel.classList.toggle('active');
   }
-  
+
   if (quickLinksClose && quickLinksPanel) {
     quickLinksClose.onclick = () => quickLinksPanel.classList.remove('active');
   }
-  
+
   document.addEventListener('click', (e) => {
     if (quickLinksPanel && quickLinksPanel.classList.contains('active')) {
       if (!e.target.closest('.quick-links-panel') && !e.target.closest('.quick-links-toggle')) {
@@ -3604,7 +3660,7 @@ function initializeNewFeatures() {
       }
     }
   });
-  
+
   if (addQuickLinkBtn) {
     addQuickLinkBtn.onclick = (e) => {
       e.stopPropagation();
@@ -3619,7 +3675,7 @@ function initializeNewFeatures() {
       addCurrentFolderToQuickLinks();
     };
   }
-  
+
   if (typeof renderQuickLinks === 'function') renderQuickLinks();
 }
 
@@ -3652,7 +3708,7 @@ function addToSearchHistory(query) {
 function initSearchHistory() {
   const searchInput = document.getElementById('globalSearch');
   if (!searchInput) return;
-  
+
   const container = searchInput.parentElement;
   let dropdown = document.getElementById('searchHistoryDropdown');
   if (!dropdown) {
@@ -3661,12 +3717,12 @@ function initSearchHistory() {
     dropdown.className = 'search-history-dropdown';
     container.appendChild(dropdown);
   }
-  
+
   searchInput.addEventListener('focus', showSearchHistory);
   searchInput.addEventListener('input', (e) => {
     if (e.target.value === '') showSearchHistory();
   });
-  
+
   document.addEventListener('click', (e) => {
     if (!e.target.closest('.search-container')) {
       dropdown.classList.remove('active');
@@ -3678,20 +3734,20 @@ function showSearchHistory() {
   const dropdown = document.getElementById('searchHistoryDropdown');
   const searchInput = document.getElementById('globalSearch');
   if (!dropdown || searchHistory.length === 0 || searchInput.value) return;
-  
+
   dropdown.innerHTML = `
-    <div class="search-history-header">
-      <span>Recent Searches</span>
-      <button onclick="clearSearchHistory()" class="clear-history-btn">Clear</button>
+  <div class="search-history-header">
+  <span>Recent Searches</span>
+  <button onclick="clearSearchHistory()" class="clear-history-btn">Clear</button>
+  </div>
+  ${searchHistory.map(q => `
+    <div class="search-history-item" onclick="useSearchHistory('${escapeHtml(q)}')">
+    <i class="fas fa-history"></i>
+    <span>${escapeHtml(q)}</span>
     </div>
-    ${searchHistory.map(q => `
-      <div class="search-history-item" onclick="useSearchHistory('${escapeHtml(q)}')">
-        <i class="fas fa-history"></i>
-        <span>${escapeHtml(q)}</span>
-      </div>
     `).join('')}
-  `;
-  dropdown.classList.add('active');
+    `;
+    dropdown.classList.add('active');
 }
 
 function useSearchHistory(query) {
@@ -3722,13 +3778,13 @@ function initCustomPresets() {
     return duration && duration > 0;
   });
   saveCustomPresets();
-  
+
   renderTimerPresets();
   addCustomPresetButton();
-  
+
   const display = document.getElementById('timerDisplay');
   if (display) display.textContent = '00:00:00';
-  
+
   timerState.duration = 0;
   timerState.remaining = 0;
 }
@@ -3736,35 +3792,35 @@ function initCustomPresets() {
 function renderTimerPresets() {
   const container = document.getElementById('timerPresets');
   if (!container) return;
-  
+
   container.querySelectorAll('[data-preset-id]').forEach(el => el.remove());
-  
+
   customTimerPresets.forEach(preset => {
     const duration = parseInt(preset.duration, 10);
     if (!duration || duration <= 0) return;
-    
+
     const btn = document.createElement('button');
     btn.className = 'timer-preset-btn custom-preset';
     btn.dataset.duration = duration.toString();
     btn.dataset.presetId = preset.id;
     btn.title = `${preset.label} (${formatPresetTime(duration)}) - Right-click to delete`;
     btn.innerHTML = `
-      <span>${preset.label}</span>
-      <small>${formatPresetTime(duration)}</small>
+    <span>${preset.label}</span>
+    <small>${formatPresetTime(duration)}</small>
     `;
-    
+
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       selectTimerPreset(btn, duration);
     });
-    
+
     btn.addEventListener('contextmenu', async (e) => {
       e.preventDefault();
       e.stopPropagation();
       const ok = await showConfirm(`Delete "${preset.label}" preset?`, { title: 'Delete Preset', type: 'danger', confirmText: 'Delete' });
       if (ok) removeCustomPreset(preset.id);
     });
-    
+
     const addBtn = document.getElementById('addPresetBtn');
     if (addBtn) {
       container.insertBefore(btn, addBtn);
@@ -3777,7 +3833,7 @@ function renderTimerPresets() {
 function addCustomPresetButton() {
   const container = document.getElementById('timerPresets');
   if (!container || document.getElementById('addPresetBtn')) return;
-  
+
   const addBtn = document.createElement('button');
   addBtn.id = 'addPresetBtn';
   addBtn.className = 'timer-preset-btn add-custom';
@@ -3796,29 +3852,29 @@ function showAddPresetForm() {
     existingForm.remove();
     return;
   }
-  
+
   const overlay = document.createElement('div');
   overlay.id = 'addPresetForm';
   overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:10001;';
-  
+
   overlay.innerHTML = `
-    <div style="background:var(--card-bg, #fff);padding:20px;border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,0.2);min-width:280px;">
-      <h3 style="margin:0 0 15px 0;font-size:1.1rem;"><i class="fas fa-clock"></i> Add Custom Timer</h3>
-      <div style="display:flex;flex-direction:column;gap:10px;">
-        <input type="text" id="presetLabel" placeholder="Label (e.g., Quiz)" maxlength="15" style="padding:10px;border:1px solid var(--border-color, #ddd);border-radius:6px;font-size:1rem;">
-        <input type="number" id="presetMinutes" placeholder="Duration (minutes)" min="1" max="480" style="padding:10px;border:1px solid var(--border-color, #ddd);border-radius:6px;font-size:1rem;">
-        <div style="display:flex;gap:10px;margin-top:10px;">
-          <button onclick="document.getElementById('addPresetForm').remove()" style="flex:1;padding:10px;border:1px solid var(--border-color, #ddd);border-radius:6px;background:transparent;cursor:pointer;">Cancel</button>
-          <button onclick="addCustomPreset()" style="flex:1;padding:10px;border:none;border-radius:6px;background:#f97316;color:white;cursor:pointer;font-weight:600;">Add</button>
-        </div>
-      </div>
-    </div>
+  <div style="background:var(--card-bg, #fff);padding:20px;border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,0.2);min-width:280px;">
+  <h3 style="margin:0 0 15px 0;font-size:1.1rem;"><i class="fas fa-clock"></i> Add Custom Timer</h3>
+  <div style="display:flex;flex-direction:column;gap:10px;">
+  <input type="text" id="presetLabel" placeholder="Label (e.g., Quiz)" maxlength="15" style="padding:10px;border:1px solid var(--border-color, #ddd);border-radius:6px;font-size:1rem;">
+  <input type="number" id="presetMinutes" placeholder="Duration (minutes)" min="1" max="480" style="padding:10px;border:1px solid var(--border-color, #ddd);border-radius:6px;font-size:1rem;">
+  <div style="display:flex;gap:10px;margin-top:10px;">
+  <button onclick="document.getElementById('addPresetForm').remove()" style="flex:1;padding:10px;border:1px solid var(--border-color, #ddd);border-radius:6px;background:transparent;cursor:pointer;">Cancel</button>
+  <button onclick="addCustomPreset()" style="flex:1;padding:10px;border:none;border-radius:6px;background:#f97316;color:white;cursor:pointer;font-weight:600;">Add</button>
+  </div>
+  </div>
+  </div>
   `;
-  
+
   overlay.addEventListener('click', (e) => {
     if (e.target === overlay) overlay.remove();
   });
-  
+
   document.body.appendChild(overlay);
   document.getElementById('presetLabel').focus();
 }
@@ -3827,23 +3883,23 @@ function addCustomPreset() {
   const label = document.getElementById('presetLabel')?.value.trim();
   const minutesInput = document.getElementById('presetMinutes')?.value;
   const minutes = parseInt(minutesInput, 10);
-  
+
   if (!label) {
     showNotification('Please enter a label', 'error');
     return;
   }
-  
+
   if (!minutes || isNaN(minutes) || minutes < 1) {
     showNotification('Please enter a valid duration (minutes)', 'error');
     return;
   }
-  
+
   const durationInSeconds = minutes * 60;
   const preset = { id: Date.now().toString(), label: label, duration: durationInSeconds };
-  
+
   customTimerPresets.push(preset);
   saveCustomPresets();
-  
+
   document.getElementById('addPresetForm')?.remove();
   renderTimerPresets();
   showNotification(`Timer preset "${label}" added (${minutes} min)`, 'success');
@@ -3880,7 +3936,7 @@ function checkDarkModeSchedule() {
   const hour = new Date().getHours();
   const shouldBeDark = (hour >= darkModeSchedule.darkStart || hour < darkModeSchedule.darkEnd);
   const isDark = document.body.classList.contains('dark-theme');
-  
+
   if (shouldBeDark !== isDark) {
     document.body.classList.toggle('dark-theme', shouldBeDark);
     const icon = document.getElementById('themeIcon');
@@ -3903,20 +3959,20 @@ function addPageBookmark(docPath, pageNumber, label = '') {
   if (!pageBookmarks[docPath]) {
     pageBookmarks[docPath] = [];
   }
-  
+
   const existing = pageBookmarks[docPath].find(b => b.page === pageNumber);
   if (existing) {
     showNotification('Page already bookmarked', 'info');
     return;
   }
-  
+
   pageBookmarks[docPath].push({
     id: Date.now().toString(),
     page: pageNumber,
     label: label || `Page ${pageNumber}`,
     createdAt: Date.now()
   });
-  
+
   savePageBookmarks();
   showNotification(`Bookmarked page ${pageNumber}`, 'success');
   renderPageBookmarks(docPath);
@@ -3932,22 +3988,22 @@ function removePageBookmark(docPath, bookmarkId) {
 function renderPageBookmarks(docPath) {
   const container = document.getElementById('pageBookmarksList');
   if (!container) return;
-  
+
   const bookmarks = pageBookmarks[docPath] || [];
-  
+
   if (bookmarks.length === 0) {
     container.innerHTML = '<p style="color: var(--text-secondary); font-size: 0.85rem; text-align: center; padding: 1rem;">No page bookmarks yet</p>';
     return;
   }
-  
+
   container.innerHTML = bookmarks.map(b => `
-    <div class="page-bookmark-item" onclick="goToPage(${b.page})">
-      <i class="fas fa-bookmark"></i>
-      <span>${escapeHtml(b.label)}</span>
-      <button class="note-action-btn delete" onclick="event.stopPropagation(); removePageBookmark('${docPath}', '${b.id}')">
-        <i class="fas fa-times"></i>
-      </button>
-    </div>
+  <div class="page-bookmark-item" onclick="goToPage(${b.page})">
+  <i class="fas fa-bookmark"></i>
+  <span>${escapeHtml(b.label)}</span>
+  <button class="note-action-btn delete" onclick="event.stopPropagation(); removePageBookmark('${docPath}', '${b.id}')">
+  <i class="fas fa-times"></i>
+  </button>
+  </div>
   `).join('');
 }
 
@@ -4047,11 +4103,11 @@ function renderPrintQueue() {
     return;
   }
   container.innerHTML = printQueue.map(doc => `
-    <div class="print-queue-item">
-      <i class="fas fa-file-pdf"></i>
-      <span>${escapeHtml(doc.name)}</span>
-      <button onclick="removeFromPrintQueue('${doc.url}')" title="Remove"><i class="fas fa-times"></i></button>
-    </div>
+  <div class="print-queue-item">
+  <i class="fas fa-file-pdf"></i>
+  <span>${escapeHtml(doc.name)}</span>
+  <button onclick="removeFromPrintQueue('${doc.url}')" title="Remove"><i class="fas fa-times"></i></button>
+  </div>
   `).join('');
 }
 
@@ -4062,8 +4118,8 @@ window.clearPrintQueue = clearPrintQueue;
 function registerServiceWorker() {
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js')
-      .then(reg => console.log('Service Worker registered'))
-      .catch(err => console.log('Service Worker registration failed:', err));
+    .then(reg => console.log('Service Worker registered'))
+    .catch(err => console.log('Service Worker registration failed:', err));
   }
 }
 
@@ -4091,7 +4147,7 @@ window.trackPdfViewEnd = trackPdfViewEnd;
 
 document.addEventListener('keydown', (e) => {
   const isInputFocused = e.target.closest('input, textarea, [contenteditable]');
-  
+
   if (typeof window.isWhiteboardActive === 'function' && window.isWhiteboardActive()) {
     if (keybindMatches(e, 'wbUndo')) { e.preventDefault(); if (typeof window.wbUndo === 'function') window.wbUndo(); return; }
     if (keybindMatches(e, 'wbRedo')) { e.preventDefault(); if (typeof window.wbRedo === 'function') window.wbRedo(); return; }
@@ -4101,9 +4157,9 @@ document.addEventListener('keydown', (e) => {
       if (keybindMatches(e, 'wbHighlighter')) { e.preventDefault(); if (typeof window.wbSelectTool === 'function') window.wbSelectTool('highlighter'); return; }
     }
   }
-  
+
   if (isInputFocused) return;
-  
+
   if (keybindMatches(e, 'newNote')) {
     if (typeof openNoteModal === 'function') { e.preventDefault(); openNoteModal(); }
   }
@@ -4130,27 +4186,27 @@ document.addEventListener('keydown', (e) => {
 function initSettingsDropdown() {
   const userBadge = document.getElementById('userBadge');
   const userDropdown = document.getElementById('userDropdownMenu');
-  
+
   if (!userBadge || !userDropdown) return;
-  
+
   userBadge.addEventListener('click', (e) => {
     if (e.target.closest('#userDropdownMenu')) return;
     e.stopPropagation();
     userBadge.classList.toggle('active');
-    
+
     const usernameDisplay = document.getElementById('username-display');
     const dropdownUsername = document.getElementById('dropdownUsername');
     if (usernameDisplay && dropdownUsername) {
       dropdownUsername.textContent = usernameDisplay.textContent;
     }
   });
-  
+
   document.addEventListener('click', (e) => {
     if (!e.target.closest('.user-badge')) {
       userBadge.classList.remove('active');
     }
   });
-  
+
   loadSettingsState();
   setupSettingsToggles();
   setupSettingsActions();
@@ -4158,34 +4214,34 @@ function initSettingsDropdown() {
 
 function loadSettingsState() {
   const settings = JSON.parse(localStorage.getItem('questionary-settings') || '{}');
-  
+
   const verticalNavToggle = document.getElementById('verticalNavbarToggle');
   if (verticalNavToggle) {
     verticalNavToggle.checked = settings.verticalNavbar || false;
     if (settings.verticalNavbar) document.body.classList.add('vertical-navbar-mode');
   }
-  
+
   const compactToggle = document.getElementById('compactModeToggle');
   if (compactToggle) {
     compactToggle.checked = settings.compactMode || false;
     if (settings.compactMode) document.body.classList.add('compact-mode');
   }
-  
+
   const animationsToggle = document.getElementById('animationsToggle');
   if (animationsToggle) {
     animationsToggle.checked = settings.animations !== false;
     if (settings.animations === false) document.body.classList.add('reduced-animations');
   }
-  
+
   const autoPlayToggle = document.getElementById('autoPlayToggle');
   if (autoPlayToggle) autoPlayToggle.checked = settings.autoOpenPdfs || false;
-  
+
   const focusModeToggle = document.getElementById('focusModeToggle');
   if (focusModeToggle) {
     focusModeToggle.checked = settings.focusMode || false;
     if (settings.focusMode) document.body.classList.add('focus-mode');
   }
-  
+
   const rememberLocationToggle = document.getElementById('rememberLocationToggle');
   if (rememberLocationToggle) rememberLocationToggle.checked = settings.rememberLocation !== false;
 }
@@ -4207,13 +4263,13 @@ function setupSettingsToggles() {
     const toggle = document.getElementById(toggleId);
     if (!toggle) return;
     const toggleItem = toggle.closest('.toggle-item');
-    
+
     toggle.addEventListener('change', (e) => {
       e.stopPropagation();
       onToggle(toggle.checked);
       saveSettingsState();
     });
-    
+
     if (toggleItem) {
       toggleItem.style.cursor = 'pointer';
       toggleItem.addEventListener('click', (e) => {
@@ -4226,7 +4282,7 @@ function setupSettingsToggles() {
       });
     }
   }
-  
+
   setupToggleRow('verticalNavbarToggle', (checked) => {
     if (checked) {
       document.body.classList.add('vertical-navbar-mode');
@@ -4237,26 +4293,26 @@ function setupSettingsToggles() {
       showNotification('Horizontal navbar restored', 'info');
     }
   });
-  
+
   setupToggleRow('compactModeToggle', (checked) => {
     document.body.classList.toggle('compact-mode', checked);
     showNotification(checked ? 'Compact mode enabled' : 'Compact mode disabled', 'info');
   });
-  
+
   setupToggleRow('animationsToggle', (checked) => {
     document.body.classList.toggle('reduced-animations', !checked);
     showNotification(checked ? 'Animations enabled' : 'Animations reduced', 'info');
   });
-  
+
   setupToggleRow('autoPlayToggle', (checked) => {
     showNotification(checked ? 'PDFs will auto-open on click' : 'PDF preview mode', 'info');
   });
-  
+
   setupToggleRow('focusModeToggle', (checked) => {
     document.body.classList.toggle('focus-mode', checked);
     showNotification(checked ? 'Focus mode enabled' : 'Focus mode disabled', 'info');
   });
-  
+
   setupToggleRow('rememberLocationToggle', (checked) => {
     showNotification(checked ? 'Will remember your last location' : 'Will start at home on launch', 'info');
   });
@@ -4285,7 +4341,7 @@ function setupSettingsActions() {
       );
     });
   }
-  
+
   const exportDataBtn = document.getElementById('exportDataBtn');
   if (exportDataBtn) {
     exportDataBtn.addEventListener('click', (e) => {
@@ -4295,7 +4351,7 @@ function setupSettingsActions() {
       Object.keys(localStorage).filter(k => k.startsWith('questionary-')).forEach(key => {
         exportData[key] = localStorage.getItem(key);
       });
-      
+
       const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -4303,12 +4359,12 @@ function setupSettingsActions() {
       a.download = `questionary-backup-${new Date().toISOString().split('T')[0]}.json`;
       a.click();
       URL.revokeObjectURL(url);
-      
+
       showNotification('Data exported successfully', 'success');
       document.getElementById('userBadge')?.classList.remove('active');
     });
   }
-  
+
   const importDataBtn = document.getElementById('importDataBtn');
   if (importDataBtn) {
     importDataBtn.addEventListener('click', (e) => {
@@ -4320,7 +4376,7 @@ function setupSettingsActions() {
       input.onchange = (event) => {
         const file = event.target.files[0];
         if (!file) return;
-        
+
         const reader = new FileReader();
         reader.onload = (e) => {
           try {
@@ -4342,7 +4398,7 @@ function setupSettingsActions() {
       document.getElementById('userBadge')?.classList.remove('active');
     });
   }
-  
+
   const logoutBtn = document.getElementById('logoutBtn');
   if (logoutBtn) {
     logoutBtn.addEventListener('click', (e) => {
@@ -4359,7 +4415,7 @@ function setupSettingsActions() {
       );
     });
   }
-  
+
   const openSettingsBtn = document.getElementById('openSettingsBtn');
   if (openSettingsBtn) {
     openSettingsBtn.addEventListener('click', (e) => {
@@ -4377,8 +4433,8 @@ function getKeyboardShortcuts() {
 }
 
 /* ================================================================
-   KEYBINDS SYSTEM — Configurable keyboard shortcuts
-   ================================================================ */
+ *   KEYBINDS SYSTEM — Configurable keyboard shortcuts
+ *   ================================================================ */
 const DEFAULT_KEYBINDS = {
   focusSearch:   { key: '/', ctrl: false, alt: false, shift: false, label: 'Focus Search' },
   newNote:       { key: 'n', ctrl: false, alt: false, shift: false, label: 'New Note' },
@@ -4465,8 +4521,8 @@ function renderKeybindsSettings() {
       const b = binds[id];
       if (!b) continue;
       html += `<div class="kb-row">
-        <span class="kb-action">${b.label}</span>
-        <button class="kb-key-btn" data-bind-id="${id}" title="Click to change">${formatKeybindDisplay(b)}</button>
+      <span class="kb-action">${b.label}</span>
+      <button class="kb-key-btn" data-bind-id="${id}" title="Click to change">${formatKeybindDisplay(b)}</button>
       </div>`;
     }
   }
@@ -4523,10 +4579,10 @@ window.initStudyRoomMediaSettings = async function() {
 
   try {
     try {
-        const tempStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
-        tempStream.getTracks().forEach(t => t.stop());
+      const tempStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+      tempStream.getTracks().forEach(t => t.stop());
     } catch (e) {
-        console.warn("Media permissions not granted upfront.", e);
+      console.warn("Media permissions not granted upfront.", e);
     }
 
     const devices = await navigator.mediaDevices.enumerateDevices();
@@ -4567,8 +4623,8 @@ window.initStudyRoomMediaSettings = async function() {
 
     audioSelect.onchange = (e) => localStorage.setItem('questionary-audio-id', e.target.value);
     if (audioOutSelect) audioOutSelect.onchange = (e) => {
-        localStorage.setItem('questionary-audio-out-id', e.target.value);
-        if (typeof window.srUpdateAudioOutput === 'function') window.srUpdateAudioOutput(e.target.value);
+      localStorage.setItem('questionary-audio-out-id', e.target.value);
+      if (typeof window.srUpdateAudioOutput === 'function') window.srUpdateAudioOutput(e.target.value);
     };
     videoSelect.onchange = (e) => localStorage.setItem('questionary-video-id', e.target.value);
   } catch (err) {
@@ -4577,85 +4633,85 @@ window.initStudyRoomMediaSettings = async function() {
 };
 
 window.testSpeaker = function() {
-    const audioId = document.getElementById('audioOutputSelect')?.value;
-    const audio = new Audio('assets/sounds/bell.mp3');
-    if (audioId && typeof audio.setSinkId === 'function') {
-        audio.setSinkId(audioId).catch(console.error);
-    }
-    audio.play().catch(console.error);
+  const audioId = document.getElementById('audioOutputSelect')?.value;
+  const audio = new Audio('assets/sounds/bell.mp3');
+  if (audioId && typeof audio.setSinkId === 'function') {
+    audio.setSinkId(audioId).catch(console.error);
+  }
+  audio.play().catch(console.error);
 };
 
 let _testMicStream = null;
 let _testMicAudioCtx = null;
 let _testMicInterval = null;
 window.testMicrophone = async function() {
-    const btn = document.getElementById('testMicBtn');
-    const row = document.getElementById('micTestVolumeRow');
-    const bar = document.getElementById('micTestVolumeBar');
-    if (_testMicStream) {
-        _testMicStream.getTracks().forEach(t => t.stop());
-        _testMicStream = null;
-        if (_testMicAudioCtx) _testMicAudioCtx.close();
-        clearInterval(_testMicInterval);
-        btn.innerHTML = '<i class="fas fa-microphone"></i> Test';
-        row.style.display = 'none';
-        return;
-    }
-    
-    try {
-        const audioId = document.getElementById('audioInputSelect')?.value;
-        const constraints = { audio: audioId ? { deviceId: { exact: audioId } } : true };
-        _testMicStream = await navigator.mediaDevices.getUserMedia(constraints);
-        
-        btn.innerHTML = '<i class="fas fa-stop"></i> Stop';
-        row.style.display = 'flex';
-        
-        _testMicAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        const source = _testMicAudioCtx.createMediaStreamSource(_testMicStream);
-        const analyser = _testMicAudioCtx.createAnalyser();
-        analyser.fftSize = 256;
-        source.connect(analyser);
-        const dataArray = new Uint8Array(analyser.frequencyBinCount);
-        
-        _testMicInterval = setInterval(() => {
-            analyser.getByteFrequencyData(dataArray);
-            let sum = 0;
-            for(let i=0; i<dataArray.length; i++) sum += dataArray[i];
-            let avg = sum / dataArray.length;
-            let percent = Math.min(100, Math.round((avg / 128) * 100));
-            if (bar) bar.style.width = percent + '%';
-        }, 50);
-    } catch (e) {
-        console.error(e);
-        if (typeof showNotification === 'function') showNotification('Mic access denied during test', 'error');
-    }
+  const btn = document.getElementById('testMicBtn');
+  const row = document.getElementById('micTestVolumeRow');
+  const bar = document.getElementById('micTestVolumeBar');
+  if (_testMicStream) {
+    _testMicStream.getTracks().forEach(t => t.stop());
+    _testMicStream = null;
+    if (_testMicAudioCtx) _testMicAudioCtx.close();
+    clearInterval(_testMicInterval);
+    btn.innerHTML = '<i class="fas fa-microphone"></i> Test';
+    row.style.display = 'none';
+    return;
+  }
+
+  try {
+    const audioId = document.getElementById('audioInputSelect')?.value;
+    const constraints = { audio: audioId ? { deviceId: { exact: audioId } } : true };
+    _testMicStream = await navigator.mediaDevices.getUserMedia(constraints);
+
+    btn.innerHTML = '<i class="fas fa-stop"></i> Stop';
+    row.style.display = 'flex';
+
+    _testMicAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const source = _testMicAudioCtx.createMediaStreamSource(_testMicStream);
+    const analyser = _testMicAudioCtx.createAnalyser();
+    analyser.fftSize = 256;
+    source.connect(analyser);
+    const dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+    _testMicInterval = setInterval(() => {
+      analyser.getByteFrequencyData(dataArray);
+      let sum = 0;
+      for(let i=0; i<dataArray.length; i++) sum += dataArray[i];
+      let avg = sum / dataArray.length;
+      let percent = Math.min(100, Math.round((avg / 128) * 100));
+      if (bar) bar.style.width = percent + '%';
+    }, 50);
+  } catch (e) {
+    console.error(e);
+    if (typeof showNotification === 'function') showNotification('Mic access denied during test', 'error');
+  }
 };
 
 let _testCamStream = null;
 window.testCamera = async function() {
-    const btn = document.getElementById('testCamBtn');
-    const container = document.getElementById('camTestContainer');
-    const video = document.getElementById('camTestVideo');
-    if (_testCamStream) {
-        _testCamStream.getTracks().forEach(t => t.stop());
-        _testCamStream = null;
-        video.srcObject = null;
-        container.style.display = 'none';
-        btn.innerHTML = '<i class="fas fa-video"></i> Test';
-        return;
-    }
-    
-    try {
-        const videoId = document.getElementById('videoInputSelect')?.value;
-        const constraints = { video: videoId ? { deviceId: { exact: videoId } } : true };
-        _testCamStream = await navigator.mediaDevices.getUserMedia(constraints);
-        video.srcObject = _testCamStream;
-        container.style.display = 'block';
-        btn.innerHTML = '<i class="fas fa-stop"></i> Stop';
-    } catch (e) {
-        console.error(e);
-        if (typeof showNotification === 'function') showNotification('Camera access denied during test', 'error');
-    }
+  const btn = document.getElementById('testCamBtn');
+  const container = document.getElementById('camTestContainer');
+  const video = document.getElementById('camTestVideo');
+  if (_testCamStream) {
+    _testCamStream.getTracks().forEach(t => t.stop());
+    _testCamStream = null;
+    video.srcObject = null;
+    container.style.display = 'none';
+    btn.innerHTML = '<i class="fas fa-video"></i> Test';
+    return;
+  }
+
+  try {
+    const videoId = document.getElementById('videoInputSelect')?.value;
+    const constraints = { video: videoId ? { deviceId: { exact: videoId } } : true };
+    _testCamStream = await navigator.mediaDevices.getUserMedia(constraints);
+    video.srcObject = _testCamStream;
+    container.style.display = 'block';
+    btn.innerHTML = '<i class="fas fa-stop"></i> Stop';
+  } catch (e) {
+    console.error(e);
+    if (typeof showNotification === 'function') showNotification('Camera access denied during test', 'error');
+  }
 };
 
 let _pttIsPressed = false;
@@ -4695,7 +4751,7 @@ function initHamburgerMenu() {
   const navLinks = document.getElementById('navLinks');
   const sidebarOverlay = document.getElementById('sidebarOverlay');
   const sidebarClose = document.getElementById('sidebarClose');
-  
+
   if (hamburgerBtn && navLinks) {
     hamburgerBtn.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -4703,20 +4759,20 @@ function initHamburgerMenu() {
       sidebarOverlay?.classList.toggle('active');
     });
   }
-  
+
   if (navLinks) {
     navLinks.addEventListener('click', (e) => {
       e.stopPropagation();
     });
   }
-  
+
   if (sidebarOverlay) {
     sidebarOverlay.addEventListener('click', (e) => {
       e.stopPropagation();
       closeSidebar();
     });
   }
-  
+
   if (sidebarClose) {
     sidebarClose.addEventListener('click', (e) => {
       e.stopPropagation();

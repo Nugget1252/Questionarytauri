@@ -1574,3 +1574,69 @@ body.focus-mode::after {
 }
 .dialog-btn-confirm:hover { filter: brightness(1.1); transform: translateY(-1px); box-shadow: 0 4px 12px rgba(99,102,241,0.35); }
 .dialog-btn-confirm:active { transform: translateY(0); }
+/* ============================================================
+   PREVENT ACCIDENTAL UI TEXT SELECTION
+   Disables dragging/highlighting on UI components, lobby cards,
+   headers, and backgrounds while preserving text selection in 
+   inputs, notes, flashcards, chat, and PDFs.
+   ============================================================ */
+
+/* Disable selection across general UI chrome and backgrounds */
+body,
+header,
+.header,
+.logo,
+.nav-links,
+.user-badge,
+.user-dropdown-menu,
+.dashboard-header,
+.stat-card,
+.breadcrumb-container,
+.section-header,
+.tile,
+.btn,
+.btn-sm,
+.modal-header,
+.modal-footer,
+.timer-panel,
+.quick-links-panel,
+.accessibility-panel,
+.sr-lobby,
+.sr-lobby-header,
+.sr-lobby-card,
+.sr-feature-item,
+.sr-session-bar,
+.sr-sidebar,
+.sr-sidebar-tabs,
+.sr-ctrl-btn,
+.sr-wb-toolbar,
+.sr-exp-badge,
+.alarm-notification,
+.login-screen,
+.login-card {
+    -webkit-user-select: none !important;
+    -moz-user-select: none !important;
+    -ms-user-select: none !important;
+    user-select: none !important;
+}
+
+/* Explicitly re-enable text selection for actual readable/editable content */
+input,
+textarea,
+select,
+code,
+pre,
+[contenteditable="true"],
+.note-card-content,
+.note-card-title,
+.flashcard-front,
+.flashcard-back,
+.quiz-question,
+.sr-chat-msg,
+.sr-wb-q-textarea,
+.selectable-text {
+    -webkit-user-select: text !important;
+    -moz-user-select: text !important;
+    -ms-user-select: text !important;
+    user-select: text !important;
+}
