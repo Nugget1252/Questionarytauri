@@ -1,3 +1,4 @@
+--- START OF FILE pdfviewer.html ---
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -55,12 +56,17 @@ html, body { height: 100%; overflow: hidden; background: #474a4d; font-family: -
 #viewerContainer {
     position: absolute; top: 34px; bottom: 0; left: 0; right: 0;
     overflow: auto; padding: 10px 0;
+    text-align: center;
 }
 
 /* Page Rendering Framework */
 .page-wrapper {
-    margin: 0 auto 10px; position: relative;
-    background: white; box-shadow: 0 1px 6px rgba(0,0,0,0.35);
+    margin: 0 auto 10px !important;
+    position: relative !important;
+    background: white;
+    box-shadow: 0 1px 6px rgba(0,0,0,0.35);
+    display: block !important;
+    text-align: left;
 }
 .page-wrapper canvas { display: block; }
 
@@ -129,7 +135,7 @@ html, body { height: 100%; overflow: hidden; background: #474a4d; font-family: -
 
 <div id="loadingBar"><div id="loadingProgress"></div></div>
 
-<div id="viewerContainer">
+<div id="viewerContainer" class="pdfViewer">
     <div id="loadingMessage">Loading PDF...</div>
     <div id="errorMessage"></div>
 </div>
@@ -256,7 +262,7 @@ html, body { height: 100%; overflow: hidden; background: #474a4d; font-family: -
             const viewport = page.getViewport({ scale: scale });
 
             const wrapper = document.createElement('div');
-            wrapper.className = 'page-wrapper pdfViewer singlePageView';
+            wrapper.className = 'page-wrapper page singlePageView';
             wrapper.dataset.pageNum = i;
             wrapper.style.width = Math.floor(viewport.width) + 'px';
             wrapper.style.height = Math.floor(viewport.height) + 'px';
