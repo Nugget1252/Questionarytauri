@@ -19,14 +19,6 @@
       }
     </script>
     <script src="js/peerjs-patched.js"></script>
-    <script>
-      // Purge hot-updater localStorage cache so old CSS/JS never overrides disk files
-      try {
-        localStorage.removeItem('questionary-code-files');
-        localStorage.removeItem('questionary-code-manifest');
-        console.log('[PURGE] Cleared hotUpdater localStorage cache');
-      } catch(e){}
-    </script>
 </head>
 <body>
 <div class="loading-overlay active" id="loadingOverlay">
@@ -1235,7 +1227,6 @@
         </div>
     </div>
     
-    
     <div class="download-progress-bar" id="downloadProgressBar" style="display: none;">
         <div class="download-progress-info">
             <i class="fas fa-download"></i>
@@ -1246,7 +1237,6 @@
         </div>
         <span class="download-progress-percent" id="downloadProgressPercent">0%</span>
     </div>
-    
 
     <div class="content-progress-bar" id="contentProgressBar" style="display: none;">
         <div class="content-progress-info">
@@ -1262,7 +1252,6 @@
         <i class="fas fa-link"></i>
     </button>
     
-    
     <div class="quick-links-panel" id="quickLinksPanel">
         <div class="quick-links-header">
             <h3><i class="fas fa-link"></i> Quick Links</h3>
@@ -1275,7 +1264,6 @@
             <i class="fas fa-plus"></i> Add Current Location
         </button>
     </div>
-    
     
     <div class="timer-panel" id="timerPanel" style="display:none;">
         <div class="timer-header" id="timerDragHandle">
@@ -1323,18 +1311,15 @@
         <div class="timer-resize-handle" id="timerResizeHandle"></div>
     </div>
     
-    
     <button class="timer-reopen-btn" id="timerReopenBtn" style="display:none;" title="Reopen Timer">
         <i class="fas fa-stopwatch"></i>
     </button>
 </div>
 
-
-<script src="js/hotUpdater.js?v=99"></script>
-<script src="js/contentUpdater.js?v=99"></script>
+<script src="js/hotUpdater.js?v=120"></script>
+<script src="js/contentUpdater.js?v=120"></script>
 <script src="js/features.js?v=114"></script>
 <script src="js/studyRoom.js?v=117"></script>
 <script src="js/app.js?v=115"></script>
 </body>
 </html>
-

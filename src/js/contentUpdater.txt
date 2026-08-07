@@ -1,8 +1,11 @@
 
+// Content Update System for Questionary
+// This module handles incremental content updates without requiring full app reinstall
 
-const CONTENT_MANIFEST_URL = 'https://raw.githubusercontent.com/Nugget1252/Questionarytauri/beta/content-manifest.json';
+const CONTENT_MANIFEST_URL = 'https://raw.githubusercontent.com/Nugget1252/Questionarytauri/main/content-manifest.json';
 const LOCAL_MANIFEST_KEY = 'questionary-local-manifest';
 const DOWNLOADED_DOCS_KEY = 'questionary-downloaded-docs';
+
 
 let contentUpdateState = {
     checking: false,
@@ -18,6 +21,7 @@ let contentUpdateState = {
     downloadedBytes: 0
 };
 
+
 async function getDownloadedDocsPath() {
     if (window.__TAURI__) {
         const { appDataDir, join } = window.__TAURI__.path;
@@ -27,11 +31,14 @@ async function getDownloadedDocsPath() {
     return null;
 }
 
+
 async function ensureDownloadDir() {
     if (!window.__TAURI__) return false;
+    
     try {
         const { mkdir, exists, BaseDirectory } = window.__TAURI__.fs;
         const dirPath = 'downloaded_documents';
+        
         const dirExists = await exists(dirPath, { baseDir: BaseDirectory.AppData });
         if (!dirExists) {
             await mkdir(dirPath, { baseDir: BaseDirectory.AppData, recursive: true });
@@ -43,6 +50,7 @@ async function ensureDownloadDir() {
     }
 }
 
+
 function getLocalManifest() {
     try {
         const data = localStorage.getItem(LOCAL_MANIFEST_KEY);
@@ -52,9 +60,11 @@ function getLocalManifest() {
     }
 }
 
+
 function saveLocalManifest(manifest) {
     localStorage.setItem(LOCAL_MANIFEST_KEY, JSON.stringify(manifest));
 }
+
 
 function getDownloadedDocs() {
     try {
@@ -65,9 +75,11 @@ function getDownloadedDocs() {
     }
 }
 
+
 function saveDownloadedDocs(docs) {
     localStorage.setItem(DOWNLOADED_DOCS_KEY, JSON.stringify(docs));
 }
+
 
 async function fetchRemoteManifest() {
     try {
@@ -76,31 +88,38 @@ async function fetchRemoteManifest() {
                 method: 'GET',
                 headers: { 'Cache-Control': 'no-cache' }
             });
+            
             if (response.ok) {
                 return await response.json();
             }
         } else {
+            
             const response = await fetch(CONTENT_MANIFEST_URL + '?t=' + Date.now());
             if (response.ok) {
                 return await response.json();
             }
         }
     } catch (error) {
-        console.error('Error fetching remote content manifest:', error);
+        console.error('Error fetching remote manifest:', error);
     }
     return null;
 }
+
 
 function findPendingDownloads(localManifest, remoteManifest) {
     const pending = [];
     const localDocs = getDownloadedDocs();
     
+    
     function traverseDocs(remoteDocs, localDocsMap, pathPrefix = '', baseUrl = '') {
         for (const [key, value] of Object.entries(remoteDocs)) {
             if (value && typeof value === 'object') {
                 if (value.file && value.hash !== undefined) {
+                    
                     const docKey = pathPrefix + '/' + key;
                     const localDoc = localDocsMap[docKey];
+                    
+                    
                     if (!localDoc || localDoc.hash !== value.hash) {
                         pending.push({
                             key: docKey,
@@ -111,6 +130,7 @@ function findPendingDownloads(localManifest, remoteManifest) {
                         });
                     }
                 } else {
+                    
                     traverseDocs(value, localDocsMap, pathPrefix + '/' + key, baseUrl);
                 }
             }
@@ -127,6 +147,7 @@ function findPendingDownloads(localManifest, remoteManifest) {
     
     return pending;
 }
+
 
 async function checkForContentUpdates(silent = false) {
     if (contentUpdateState.checking || contentUpdateState.downloading) {
@@ -146,6 +167,9 @@ async function checkForContentUpdates(silent = false) {
         if (!remoteManifest) {
             contentUpdateState.checking = false;
             updateContentUpdateUI('idle');
+            if (!silent) {
+                showNotification('Could not check for content updates', 'warning');
+            }
             return null;
         }
         
@@ -168,7 +192,7 @@ async function checkForContentUpdates(silent = false) {
             updateContentUpdateUI('available', pendingDownloads.length);
         } else {
             if (!silent) {
-                showNotification('All document content is up to date!', 'success');
+                showNotification('All content is up to date!', 'success');
             }
             updateContentUpdateUI('idle');
         }
@@ -180,18 +204,24 @@ async function checkForContentUpdates(silent = false) {
         console.error('Content update check error:', error);
         contentUpdateState.checking = false;
         updateContentUpdateUI('idle');
+        if (!silent) {
+            showNotification('Error checking for content updates', 'error');
+        }
         return null;
     }
 }
 
+
 async function downloadFile(url, filename) {
     if (!window.__TAURI__) {
-        console.log('Downloads run in web/Tauri hybrid compatibility mode');
+        console.log('Downloads only work in Tauri app');
         return null;
     }
     
     try {
         const { writeBinaryFile, BaseDirectory } = window.__TAURI__.fs;
+        
+        
         const response = await window.__TAURI__.http.fetch(url, {
             method: 'GET',
             responseType: 3 
@@ -202,6 +232,8 @@ async function downloadFile(url, filename) {
         }
         
         const data = response.data;
+        
+        
         const filePath = `downloaded_documents/${filename}`;
         await writeBinaryFile(filePath, data, { baseDir: BaseDirectory.AppData });
         
@@ -211,6 +243,7 @@ async function downloadFile(url, filename) {
         throw error;
     }
 }
+
 
 async function downloadContentUpdates() {
     if (contentUpdateState.downloading || contentUpdateState.pendingDownloads.length === 0) {
@@ -224,6 +257,7 @@ async function downloadContentUpdates() {
     updateContentUpdateUI('downloading');
     showNotification('Downloading new content...', 'info');
     
+    
     await ensureDownloadDir();
     
     const downloadedDocs = getDownloadedDocs();
@@ -236,34 +270,94 @@ async function downloadContentUpdates() {
         
         try {
             const savedPath = await downloadFile(item.url, item.file);
+            
             if (savedPath) {
+                
                 downloadedDocs[item.key] = {
                     file: item.file,
                     hash: item.hash,
                     localPath: savedPath,
                     downloadedAt: new Date().toISOString()
                 };
+                
                 contentUpdateState.completedFiles++;
                 contentUpdateState.downloadedBytes += item.size || 0;
                 updateContentDownloadProgress();
             }
         } catch (error) {
             console.error(`Failed to download ${item.file}:`, error);
+            
         }
     }
+    
     
     saveDownloadedDocs(downloadedDocs);
     localManifest.version = contentUpdateState.remoteManifest?.version || localManifest.version;
     localManifest.lastUpdated = new Date().toISOString();
     saveLocalManifest(localManifest);
     
+    
     contentUpdateState.downloading = false;
     contentUpdateState.available = false;
     contentUpdateState.pendingDownloads = [];
     
+    
+    mergeDownloadedDocuments();
+    
+    showNotification(
+        `Downloaded ${contentUpdateState.completedFiles} new document(s)!`,
+        'success'
+    );
     updateContentUpdateUI('idle');
-    showNotification(`Downloaded ${contentUpdateState.completedFiles} new document(s)!`, 'success');
+    
+    
+    if (typeof renderTiles === 'function' && path.length > 0) {
+        let current = documents;
+        for (const p of path) {
+            if (current[p]) current = current[p];
+        }
+        renderTiles(current);
+    }
 }
+
+
+async function mergeDownloadedDocuments() {
+    const downloadedDocs = getDownloadedDocs();
+    
+    
+    let appDataPath = '';
+    if (window.__TAURI__ && window.__TAURI__.path) {
+        try {
+            appDataPath = await window.__TAURI__.path.appDataDir();
+        } catch (e) {
+            console.log('Could not get app data path:', e);
+        }
+    }
+    
+    for (const [key, doc] of Object.entries(downloadedDocs)) {
+        const parts = key.split('/').filter(p => p);
+        
+        if (parts[0] === 'documents' && parts.length >= 5) {
+            
+            const [, year, cls, exam, subject] = parts;
+            
+            
+            if (!documents[year]) documents[year] = {};
+            if (!documents[year][cls]) documents[year][cls] = {};
+            if (!documents[year][cls][exam]) documents[year][cls][exam] = {};
+            
+            
+            if (window.__TAURI__ && window.__TAURI__.core && appDataPath) {
+                const { convertFileSrc } = window.__TAURI__.core;
+                const fullPath = appDataPath + 'downloaded_documents/' + doc.file;
+                documents[year][cls][exam][subject] = convertFileSrc(fullPath);
+            } else {
+                documents[year][cls][exam][subject] = `downloaded_documents/${doc.file}`;
+            }
+        }
+    }
+}
+
 
 function updateContentUpdateUI(state, count = 0) {
     const btn = document.getElementById('contentUpdateBtn');
@@ -298,24 +392,36 @@ function updateContentUpdateUI(state, count = 0) {
 function updateContentDownloadProgress() {
     const progressFill = document.getElementById('contentProgressFill');
     const progressText = document.getElementById('contentProgressText');
+    
     const progress = contentUpdateState.totalFiles > 0 
         ? Math.round((contentUpdateState.completedFiles / contentUpdateState.totalFiles) * 100)
         : 0;
     
-    if (progressFill) progressFill.style.width = `${progress}%`;
-    if (progressText) progressText.textContent = `${contentUpdateState.completedFiles}/${contentUpdateState.totalFiles} files (${contentUpdateState.currentFile})`;
+    if (progressFill) {
+        progressFill.style.width = `${progress}%`;
+    }
+    
+    if (progressText) {
+        progressText.textContent = `${contentUpdateState.completedFiles}/${contentUpdateState.totalFiles} files (${contentUpdateState.currentFile})`;
+    }
 }
 
 function showContentProgressBar() {
     const progressBar = document.getElementById('contentProgressBar');
-    if (progressBar) progressBar.style.display = 'block';
+    if (progressBar) {
+        progressBar.style.display = 'block';
+    }
 }
 
 function hideContentProgressBar() {
     const progressBar = document.getElementById('contentProgressBar');
-    if (progressBar) progressBar.style.display = 'none';
+    if (progressBar) {
+        progressBar.style.display = 'none';
+    }
     const progressFill = document.getElementById('contentProgressFill');
-    if (progressFill) progressFill.style.width = '0%';
+    if (progressFill) {
+        progressFill.style.width = '0%';
+    }
 }
 
 function formatBytesContent(bytes) {
@@ -326,22 +432,129 @@ function formatBytesContent(bytes) {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
 }
 
+
 async function handleContentUpdateClick() {
-    if (window.hotCodeUpdater && typeof window.hotCodeUpdater.check === 'function') {
-        const updates = await window.hotCodeUpdater.check(false);
-        if (updates && updates.length > 0) {
+    
+    if (contentUpdateState.downloading) {
+        const progress = contentUpdateState.totalFiles > 0 
+            ? Math.round((contentUpdateState.completedFiles / contentUpdateState.totalFiles) * 100)
+            : 0;
+        showNotification(
+            `Downloading: ${progress}% (${contentUpdateState.currentFile})`,
+            'info'
+        );
+        return;
+    }
+    
+    
+    if (window.codeUpdateState && window.codeUpdateState.downloading) {
+        showNotification('Downloading code updates...', 'info');
+        return;
+    }
+    
+    
+    if (contentUpdateState.available && contentUpdateState.pendingDownloads.length > 0) {
+        await downloadContentUpdates();
+        return;
+    }
+    
+    
+    if (window.codeUpdateState && window.codeUpdateState.available && 
+        window.codeUpdateState.pendingUpdates && window.codeUpdateState.pendingUpdates.length > 0) {
+        if (window.hotCodeUpdater && typeof window.hotCodeUpdater.download === 'function') {
             await window.hotCodeUpdater.download();
-            return;
+        }
+        return;
+    }
+    
+    
+    await checkForAllUpdates();
+}
+
+
+async function checkForAllUpdates(silent = false) {
+    if (!silent) {
+        showNotification('Checking for updates...', 'info');
+    }
+    updateContentUpdateUI('checking');
+    
+    let totalUpdates = 0;
+    
+    
+    const contentUpdates = await checkForContentUpdates(true);
+    if (contentUpdates && contentUpdates.length > 0) {
+        totalUpdates += contentUpdates.length;
+    }
+    
+    
+    if (window.hotCodeUpdater && typeof window.hotCodeUpdater.check === 'function') {
+        const codeUpdates = await window.hotCodeUpdater.check(true);
+        if (codeUpdates && codeUpdates.length > 0) {
+            totalUpdates += codeUpdates.length;
         }
     }
-    await checkForContentUpdates(false);
+    
+    
+    if (totalUpdates > 0) {
+        showNotification(
+            `${totalUpdates} update(s) available! Click to download.`,
+            'success'
+        );
+        updateContentUpdateUI('available', totalUpdates);
+    } else {
+        if (!silent) {
+            showNotification('Everything is up to date!', 'success');
+        }
+        updateContentUpdateUI('idle');
+    }
+    
+    return totalUpdates;
 }
+
+
+async function initContentUpdateSystem() {
+    // Load any previously downloaded documents
+    await mergeDownloadedDocuments();
+    
+    // Setup button handler
+    const btn = document.getElementById('contentUpdateBtn');
+    if (btn && !btn.dataset.contentInitialized) {
+        btn.dataset.contentInitialized = 'true';
+        btn.addEventListener('click', handleContentUpdateClick);
+    }
+    
+    // Auto-check and auto-download after delay
+    setTimeout(async () => {
+        // Check for content updates
+        const contentPending = await checkForContentUpdates(true);
+        
+        // Auto-download content if available
+        if (contentPending > 0) {
+            console.log(`[ContentUpdater] Auto-downloading ${contentPending} content files...`);
+            if (typeof showNotification === 'function') {
+                showNotification(`Downloading ${contentPending} content update(s)...`, 'info');
+            }
+            await downloadContentUpdates();
+        }
+        
+        // Also check for code updates via hotUpdater
+        if (window.hotCodeUpdater && typeof window.hotCodeUpdater.check === 'function') {
+            const codeUpdates = await window.hotCodeUpdater.check(true);
+            if (codeUpdates && codeUpdates.length > 0) {
+                console.log(`[ContentUpdater] Triggering code updates download...`);
+                await window.hotCodeUpdater.download();
+            }
+        }
+    }, 12000); 
+}
+
 
 window.contentUpdateSystem = {
     check: checkForContentUpdates,
+    checkAll: checkForAllUpdates,
     download: downloadContentUpdates,
     handleClick: handleContentUpdateClick,
-    getState: () => contentUpdateState
+    init: initContentUpdateSystem,
+    getState: () => contentUpdateState,
+    mergeDownloaded: mergeDownloadedDocuments
 };
-
-

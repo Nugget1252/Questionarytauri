@@ -4790,11 +4790,3 @@ document.addEventListener('DOMContentLoaded', () => {
   initSettingsDropdown();
   initHamburgerMenu();
 });
-async function checkForUpdatesManual() {
-  if (window.hotCodeUpdater && typeof window.hotCodeUpdater.check === 'function') {
-    const updates = await window.hotCodeUpdater.check(false);
-    if (updates && updates.length > 0) {
-      await window.hotCodeUpdater.download();
-    }
-  }
-}
