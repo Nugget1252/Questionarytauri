@@ -38,6 +38,15 @@
         pendingFiles: []
     };
 
+    // Helper: Check if app is open and user is logged in before showing notification toasts
+    function canShowNotification() {
+        const appEl = document.getElementById('app');
+        const loginEl = document.getElementById('loginScreen');
+        const isAppVisible = appEl && appEl.style.display !== 'none';
+        const isLoginVisible = loginEl && loginEl.style.display !== 'none';
+        return (isAppVisible || !isLoginVisible) && window.currentUser !== null;
+    }
+
     function getStoredCodeFiles() {
         try {
             const data = localStorage.getItem(CODE_FILES_KEY);
@@ -126,7 +135,7 @@
             const response = await fetch(GITHUB_COMMIT_API + '?t=' + Date.now(), { cache: 'no-cache' });
 
             if (!response.ok) {
-                console.warn('[HotUpdate] Could not reach GitHub API (offline or rate limited).');
+                console.warn('[HotUpdate] Could not reach GitHub API.');
                 window.codeUpdateState.checking = false;
                 updateCodeUpdateUI('idle');
                 return null;
@@ -145,15 +154,15 @@
 
                 updateCodeUpdateUI('available', MANAGED_FILES.length);
 
-                if (!silent && typeof showNotification === 'function') {
-                    showNotification(`New commit (${latestSha.substring(0,7)}) found on beta branch! Auto-downloading updates...`, 'info');
+                if (!silent && canShowNotification() && typeof showNotification === 'function') {
+                    showNotification('New update available! Downloading...', 'info');
                 }
                 
                 window.codeUpdateState.checking = false;
                 return window.codeUpdateState.pendingFiles;
             } else {
-                if (!silent && typeof showNotification === 'function') {
-                    showNotification('Your app files & database are up to date with GitHub!', 'success');
+                if (!silent && canShowNotification() && typeof showNotification === 'function') {
+                    showNotification('Questionary is up to date!', 'success');
                 }
                 updateCodeUpdateUI('idle');
             }
@@ -229,7 +238,7 @@
                     }
                 }
             } catch (error) {
-                console.error(`[HotUpdate] Error downloading ${fileRelPath}:`, error);
+                console.error(`[HotUpdate] Failed to download ${fileRelPath}:`, error);
             }
         }
 
@@ -245,24 +254,26 @@
             window.renderTiles();
         }
 
-        if (successCount > 0) {
+        if (successCount > 0 && canShowNotification()) {
             if (requiresReload) {
                 if (typeof showNotification === 'function') {
-                    showNotification(`Downloaded ${successCount} file(s) permanently. Reload required to activate JS updates.`, 'success');
+                    showNotification('Update downloaded! Reload to apply changes.', 'success');
                 }
                 showReloadPrompt();
             } else {
                 if (typeof showNotification === 'function') {
-                    showNotification(`Updated ${successCount} file(s) live from GitHub beta branch!`, 'success');
+                    showNotification('Updated successfully!', 'success');
                 }
             }
         }
     }
 
     function showReloadPrompt() {
+        if (!canShowNotification()) return;
+
         if (typeof window.showConfirm === 'function') {
-            window.showConfirm('New updates downloaded and saved permanently! Reload now to activate JavaScript changes?', {
-                title: 'Update Downloaded',
+            window.showConfirm('An update was installed! Would you like to reload now to apply changes?', {
+                title: 'Update Ready',
                 confirmText: 'Reload Now',
                 cancelText: 'Later',
                 type: 'info'
@@ -281,7 +292,7 @@
                     <div class="reload-prompt-content">
                         <i class="fas fa-sync-alt reload-icon"></i>
                         <h3>Update Saved</h3>
-                        <p>New updates have been downloaded and saved permanently. Reload the app to apply them.</p>
+                        <p>An update was installed. Reload the app to apply changes.</p>
                         <div class="reload-prompt-buttons">
                             <button class="btn btn-secondary" onclick="document.getElementById('reloadPromptModal').style.display='none'">Later</button>
                             <button class="btn btn-primary" onclick="location.reload()"><i class="fas fa-redo"></i> Reload Now</button>
@@ -295,35 +306,30 @@
     }
 
     function updateCodeUpdateUI(state, count = 0) {
-        const btn = document.getElementById('checkUpdatesBtn') || document.getElementById('contentUpdateBtn');
+        const btn = document.getElementById('checkUpdatesBtn');
         if (!btn) return;
 
-        btn.classList.remove('checking', 'available', 'downloading');
+        btn.classList.remove('checking', 'available', 'downloading', 'update-available');
 
         switch (state) {
             case 'checking':
                 btn.classList.add('checking');
-                btn.title = 'Checking GitHub beta branch for updates...';
+                btn.innerHTML = '<i class="fas fa-sync-alt fa-spin"></i>';
+                btn.title = 'Checking for updates...';
                 break;
             case 'available':
-                btn.classList.add('available');
-                btn.title = `${count} file(s) updated on GitHub - click to download`;
-                let badge = btn.querySelector('.content-badge');
-                if (!badge) {
-                    badge = document.createElement('span');
-                    badge.className = 'content-badge';
-                    btn.appendChild(badge);
-                }
-                badge.textContent = 'UPDATE';
+                btn.classList.add('update-available');
+                btn.innerHTML = '<i class="fas fa-download"></i>';
+                btn.title = `New update available - click to download`;
                 break;
             case 'downloading':
                 btn.classList.add('downloading');
-                btn.title = 'Downloading updates...';
+                btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+                btn.title = 'Downloading update...';
                 break;
             default:
+                btn.innerHTML = '<i class="fas fa-sync-alt"></i>';
                 btn.title = 'Check for updates';
-                const existingBadge = btn.querySelector('.content-badge');
-                if (existingBadge) existingBadge.remove();
         }
     }
 

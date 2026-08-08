@@ -671,6 +671,7 @@ function showInfoDialog(message, opts = {}) {
 window.showInfoDialog = showInfoDialog;
 
 async function initializeAppAfterLogin() {
+  
   const usernameDisplay = document.getElementById('username-display');
   if (usernameDisplay && currentUser) {
     usernameDisplay.textContent = currentUser.username;
@@ -690,6 +691,13 @@ async function initializeAppAfterLogin() {
     renderTilesFromDb(nodes);
     updateBreadcrumb();
     await updateDashboardStats();
+  }
+  if (window.hotCodeUpdater && typeof window.hotCodeUpdater.check === 'function') {
+    window.hotCodeUpdater.check(true).then(updates => {
+      if (updates && updates.length > 0) {
+        window.hotCodeUpdater.download();
+      }
+    });
   }
 }
 

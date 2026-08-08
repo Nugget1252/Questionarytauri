@@ -561,7 +561,53 @@ function initReminders() {
         if (r.enabled) scheduleReminder(r);
     });
 }
+// Add this function inside features.js:
+function initLibraryDragDrop() {
+    const dropZone = document.getElementById('libraryDropZone');
+    const importedSection = document.getElementById('importedSection');
 
+    [dropZone, importedSection].forEach(el => {
+        if (!el) return;
+
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(evt => {
+            el.addEventListener(evt, (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+            }, false);
+        });
+
+        el.addEventListener('dragover', () => el.classList.add('drag-over'), false);
+        el.addEventListener('dragleave', () => el.classList.remove('drag-over'), false);
+        
+        el.addEventListener('drop', async (e) => {
+            el.classList.remove('drag-over');
+            if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) {
+                showNotification(`Importing ${e.dataTransfer.files.length} file(s)...`, 'info');
+                for (const file of e.dataTransfer.files) {
+                    await UserLibraryDbService.importFile(file, UserLibraryDbService.currentFolderId);
+                }
+                await renderLibrary();
+                showNotification('Files imported to Library!', 'success');
+            }
+        }, false);
+    });
+}
+
+// Inside initEnhancedFeatures() in features.js, ensure initLibraryDragDrop() is called:
+async function initEnhancedFeatures() {
+    console.log('[Features] Initializing enhanced features...');
+    await UserLibraryDbService.init();
+    
+    initReminders();
+    initDragDropImport();
+    initLibraryDragDrop(); // <--- ADD THIS LINE
+    initThemeOnLoad();
+    
+    renderVoiceNotesGrid();
+    renderTagsMain();
+    renderTaggedItems();
+    renderLibrary();
+}
 // ============================================
 // 5. THEMES — Light / Dark + Custom Theme Builder
 // ============================================
@@ -1501,8 +1547,13 @@ function initEnhancedFeatures() {
     // Initialize all systems
     initReminders();
     initDragDropImport();
-    initSettingsUI();
+    initLibraryDragDrop(); // <--- ADD THIS LINE
+    initThemeOnLoad();
     
+    renderVoiceNotesGrid();
+    renderTagsMain();
+    renderTaggedItems();
+    renderLibrary();
     // Apply saved theme
     const savedTheme = getCurrentTheme();
     if (savedTheme) {
