@@ -2312,547 +2312,702 @@ function handleCustomSoundUpload(file) {
     reader.readAsDataURL(file);
 }
 
-// ================================================================
-// 13. PDF LIBRARY MANAGEMENT SYSTEM ('userlibrary.db')
-// Stores custom library metadata in 'userlibrary.db'
-// Stores PDF binary files in IndexedDB / AppData 'user_library_files/'
-// Safe from app code updates & questionary.db changes!
-// ================================================================
-
-const UserLibraryFileStore = {
-    async saveFile(blobId, fileOrBlob) {
-        const arrayBuffer = await fileOrBlob.arrayBuffer();
-        const uInt8Array = new Uint8Array(arrayBuffer);
-
-        // 1. Store in IndexedDB
-        await new Promise((resolve, reject) => {
-            const request = indexedDB.open('QuestionaryUserLibraryFiles', 1);
-            request.onupgradeneeded = e => e.target.result.createObjectStore('files_store');
-            request.onsuccess = e => {
-                const idb = e.target.result;
-                const tx = idb.transaction('files_store', 'readwrite');
-                const putReq = tx.objectStore('files_store').put(uInt8Array, blobId);
-                putReq.onsuccess = () => resolve();
-                putReq.onerror = () => reject(putReq.error);
-            };
-            request.onerror = () => reject(request.error);
-        });
-
-        // 2. Save natively if running in Tauri Desktop App
-        if (window.__TAURI__ && window.__TAURI__.fs) {
-            try {
-                const { writeBinaryFile, mkdir, exists, BaseDirectory } = window.__TAURI__.fs;
-                const dirExists = await exists('user_library_files', { baseDir: BaseDirectory.AppData });
-                if (!dirExists) {
-                    await mkdir('user_library_files', { baseDir: BaseDirectory.AppData, recursive: true });
-                }
-                await writeBinaryFile(`user_library_files/${blobId}.bin`, uInt8Array, { baseDir: BaseDirectory.AppData });
-            } catch (e) {
-                console.warn('[UserLibraryFileStore] Tauri file save warning:', e);
-            }
-        }
-    },
-
-    async getFileBlob(blobId) {
-        if (window.__TAURI__ && window.__TAURI__.fs) {
-            try {
-                const { readBinaryFile, BaseDirectory } = window.__TAURI__.fs;
-                const data = await readBinaryFile(`user_library_files/${blobId}.bin`, { baseDir: BaseDirectory.AppData });
-                if (data) return new Blob([data], { type: 'application/pdf' });
-            } catch (e) {}
-        }
-
-        return new Promise(resolve => {
-            const request = indexedDB.open('QuestionaryUserLibraryFiles', 1);
-            request.onupgradeneeded = e => e.target.result.createObjectStore('files_store');
-            request.onsuccess = e => {
-                const idb = e.target.result;
-                const tx = idb.transaction('files_store', 'readonly');
-                const getReq = tx.objectStore('files_store').get(blobId);
-                getReq.onsuccess = () => {
-                    if (getReq.result) resolve(new Blob([getReq.result], { type: 'application/pdf' }));
-                    else resolve(null);
-                };
-                getReq.onerror = () => resolve(null);
-            };
-            request.onerror = () => resolve(null);
-        });
-    },
-
-    async removeFile(blobId) {
-        new Promise(resolve => {
-            const request = indexedDB.open('QuestionaryUserLibraryFiles', 1);
-            request.onsuccess = e => {
-                const idb = e.target.result;
-                const tx = idb.transaction('files_store', 'readwrite');
-                tx.objectStore('files_store').delete(blobId);
-                resolve();
-            };
-            request.onerror = () => resolve();
-        });
-
-        if (window.__TAURI__ && window.__TAURI__.fs) {
-            try {
-                const { removeFile, BaseDirectory } = window.__TAURI__.fs;
-                await removeFile(`user_library_files/${blobId}.bin`, { baseDir: BaseDirectory.AppData });
-            } catch (e) {}
-        }
-    }
-};
-
-const UserLibraryDbService = {
-    db: null,
-    SQL: null,
-    currentFolderId: null, // null = root
-    pathStack: [],
-
-    async init() {
-        try {
-            if (typeof window.initSqlJs === 'undefined') {
-                await new Promise((resolve, reject) => {
-                    const script = document.createElement('script');
-                    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.js';
-                    script.onload = resolve;
-                    script.onerror = reject;
-                    document.head.appendChild(script);
-                });
-            }
-
-            if (!this.SQL) {
-                this.SQL = await window.initSqlJs({
-                    locateFile: file => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/${file}`
-                });
-            }
-
-            const savedDb = await this.loadDbFromIndexedDB();
-            if (savedDb) {
-                this.db = new this.SQL.Database(savedDb);
-            } else {
-                this.db = new this.SQL.Database();
-            }
-
-            this.db.run(`
-                CREATE TABLE IF NOT EXISTS folders (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    parent_id INTEGER DEFAULT NULL,
-                    name TEXT NOT NULL,
-                    color TEXT DEFAULT '#3b82f6',
-                    created_at INTEGER DEFAULT (strftime('%s', 'now'))
-                );
-
-                CREATE TABLE IF NOT EXISTS files (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    folder_id INTEGER DEFAULT NULL,
-                    name TEXT NOT NULL,
-                    file_type TEXT NOT NULL,
-                    blob_id TEXT NOT NULL,
-                    file_size INTEGER DEFAULT 0,
-                    added_at INTEGER DEFAULT (strftime('%s', 'now'))
-                );
-            `);
-
-            await this.saveDbToIndexedDB();
-            console.log('[UserLibraryDB] Initialized userlibrary.db successfully');
-            return true;
-        } catch (err) {
-            console.error('[UserLibraryDB] Critical init error:', err);
-            return false;
-        }
-    },
-
-    async query(sql, params = []) {
-        if (!this.db) return [];
-        const stmt = this.db.prepare(sql);
-        stmt.bind(params);
-        const results = [];
-        while (stmt.step()) {
-            results.push(stmt.getAsObject());
-        }
-        stmt.free();
-        return results;
-    },
-
-    async execute(sql, params = []) {
-        if (!this.db) return;
-        this.db.run(sql, params);
-        await this.saveDbToIndexedDB();
-    },
-
-    async saveDbToIndexedDB() {
-        if (!this.db) return;
-        const data = this.db.export();
-        return new Promise((resolve, reject) => {
-            const request = indexedDB.open('QuestionaryUserLibraryDB', 1);
-            request.onupgradeneeded = e => e.target.result.createObjectStore('db_store');
-            request.onsuccess = e => {
-                const idb = e.target.result;
-                const tx = idb.transaction('db_store', 'readwrite');
-                const putReq = tx.objectStore('db_store').put(data, 'userlibrary.db');
-                putReq.onsuccess = () => resolve();
-                putReq.onerror = () => reject(putReq.error);
-            };
-            request.onerror = () => reject(request.error);
-        });
-    },
-
-    async loadDbFromIndexedDB() {
-        return new Promise(resolve => {
-            const request = indexedDB.open('QuestionaryUserLibraryDB', 1);
-            request.onupgradeneeded = e => e.target.result.createObjectStore('db_store');
-            request.onsuccess = e => {
-                const idb = e.target.result;
-                const tx = idb.transaction('db_store', 'readonly');
-                const getReq = tx.objectStore('db_store').get('userlibrary.db');
-                getReq.onsuccess = () => resolve(getReq.result);
-                getReq.onerror = () => resolve(null);
-            };
-            request.onerror = () => resolve(null);
-        });
-    },
-
-    async getFolders(parentId = null) {
-        const sql = parentId === null
-            ? "SELECT * FROM folders WHERE parent_id IS NULL ORDER BY name ASC"
-            : "SELECT * FROM folders WHERE parent_id = ? ORDER BY name ASC";
-        return await this.query(sql, parentId === null ? [] : [parentId]);
-    },
-
-    async createFolder(name, color = '#3b82f6', parentId = null) {
-        await this.execute("INSERT INTO folders (name, color, parent_id) VALUES (?, ?, ?)", [name, color, parentId]);
-    },
-
-    async deleteFolder(folderId) {
-        const files = await this.query("SELECT * FROM files WHERE folder_id = ?", [folderId]);
-        for (const f of files) await this.deleteFile(f.id);
-        const subfolders = await this.query("SELECT * FROM folders WHERE parent_id = ?", [folderId]);
-        for (const sub of subfolders) await this.deleteFolder(sub.id);
-        await this.execute("DELETE FROM folders WHERE id = ?", [folderId]);
-    },
-
-    async renameFolder(folderId, newName) {
-        await this.execute("UPDATE folders SET name = ? WHERE id = ?", [newName, folderId]);
-    },
-
-    async getFiles(folderId = null) {
-        const sql = folderId === null
-            ? "SELECT * FROM files WHERE folder_id IS NULL ORDER BY name ASC"
-            : "SELECT * FROM files WHERE folder_id = ? ORDER BY name ASC";
-        return await this.query(sql, folderId === null ? [] : [folderId]);
-    },
-
-    async importFile(file, folderId = null) {
-        const blobId = `user_pdf_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
-        const fileType = file.name.endsWith('.png') || file.name.endsWith('.jpg') || file.name.endsWith('.jpeg') || file.name.endsWith('.webp') ? 'image' : 'pdf';
-
-        await UserLibraryFileStore.saveFile(blobId, file);
-        await this.execute("INSERT INTO files (folder_id, name, file_type, blob_id, file_size) VALUES (?, ?, ?, ?, ?)", [folderId, file.name, fileType, blobId, file.size || 0]);
-    },
-
-    async deleteFile(fileId) {
-        const res = await this.query("SELECT * FROM files WHERE id = ?", [fileId]);
-        if (res.length > 0) {
-            await UserLibraryFileStore.removeFile(res[0].blob_id);
-            await this.execute("DELETE FROM files WHERE id = ?", [fileId]);
-        }
-    },
-
-    async renameFile(fileId, newName) {
-        await this.execute("UPDATE files SET name = ? WHERE id = ?", [newName, fileId]);
-    },
-
-    async moveItem(itemId, itemType, targetFolderId) {
-        if (itemType === 'folder') {
-            if (itemId === targetFolderId) return;
-            await this.execute("UPDATE folders SET parent_id = ? WHERE id = ?", [targetFolderId, itemId]);
-        } else {
-            await this.execute("UPDATE files SET folder_id = ? WHERE id = ?", [targetFolderId, itemId]);
-        }
-    }
-};
-
-// Global backward compatibility wrappers
-window.UserLibraryDbService = UserLibraryDbService;
-window.getPdfBlob = async function(blobId) {
-    return await UserLibraryFileStore.getFileBlob(blobId);
-};
-window.savePdfBlob = async function(id, blob) {
-    return await UserLibraryFileStore.saveFile(id, blob);
-};
-window.deletePdfBlob = async function(id) {
-    return await UserLibraryFileStore.removeFile(id);
-};
-
+// ============================================
+// 13. PDF LIBRARY MANAGEMENT SYSTEM
+// ============================================
+let pdfLibrary = JSON.parse(localStorage.getItem('questionary-pdf-library') || '{"folders":[],"pdfs":[]}');
+let currentLibraryPath = []; // Path through folders
+let selectedLibraryFolderColor = '#3b82f6';
+let currentMoveItem = null;
+let selectedMoveDestination = null;
 let libraryEditMode = false;
-let moveItemState = { itemId: null, itemType: null };
+
+// --- IndexedDB for PDF blob storage ---
+const PDF_DB_NAME = 'questionary-pdf-store';
+const PDF_DB_VERSION = 1;
+const PDF_STORE_NAME = 'pdfs';
+
+function openPdfDB() {
+    return new Promise((resolve, reject) => {
+        const request = indexedDB.open(PDF_DB_NAME, PDF_DB_VERSION);
+        request.onupgradeneeded = (e) => {
+            const db = e.target.result;
+            if (!db.objectStoreNames.contains(PDF_STORE_NAME)) {
+                db.createObjectStore(PDF_STORE_NAME);
+            }
+        };
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+    });
+}
+
+async function savePdfBlob(id, blob) {
+    const db = await openPdfDB();
+    return new Promise((resolve, reject) => {
+        const tx = db.transaction(PDF_STORE_NAME, 'readwrite');
+        tx.objectStore(PDF_STORE_NAME).put(blob, id);
+        tx.oncomplete = () => { db.close(); resolve(); };
+        tx.onerror = () => { db.close(); reject(tx.error); };
+    });
+}
+
+async function getPdfBlob(id) {
+    const db = await openPdfDB();
+    return new Promise((resolve, reject) => {
+        const tx = db.transaction(PDF_STORE_NAME, 'readonly');
+        const req = tx.objectStore(PDF_STORE_NAME).get(id);
+        req.onsuccess = () => { db.close(); resolve(req.result); };
+        req.onerror = () => { db.close(); reject(req.error); };
+    });
+}
+
+async function deletePdfBlob(id) {
+    const db = await openPdfDB();
+    return new Promise((resolve, reject) => {
+        const tx = db.transaction(PDF_STORE_NAME, 'readwrite');
+        tx.objectStore(PDF_STORE_NAME).delete(id);
+        tx.oncomplete = () => { db.close(); resolve(); };
+        tx.onerror = () => { db.close(); reject(tx.error); };
+    });
+}
+
+function saveLibrary() {
+    try {
+        localStorage.setItem('questionary-pdf-library', JSON.stringify(pdfLibrary));
+    } catch (e) {
+        console.error('Failed to save library metadata:', e);
+        showNotification('Storage error – try removing some PDFs', 'error');
+    }
+}
 
 function toggleLibraryEditMode() {
     libraryEditMode = !libraryEditMode;
-    const btn = document.getElementById('libraryEditBtn');
-    const controls = document.getElementById('libraryEditControls');
-    if (btn) btn.innerHTML = libraryEditMode ? '<i class="fas fa-check"></i> Done' : '<i class="fas fa-edit"></i> Edit';
-    if (controls) controls.style.display = libraryEditMode ? 'block' : 'none';
+    const editControls = document.getElementById('libraryEditControls');
+    const editBtn = document.getElementById('libraryEditBtn');
+    
+    if (editControls) {
+        editControls.style.display = libraryEditMode ? 'block' : 'none';
+    }
+    if (editBtn) {
+        editBtn.innerHTML = libraryEditMode ? 
+            '<i class="fas fa-check"></i> Done' : 
+            '<i class="fas fa-edit"></i> Edit';
+        editBtn.classList.toggle('btn-primary', libraryEditMode);
+    }
     renderLibrary();
 }
 
-async function renderLibrary() {
+function renderLibrary() {
     const container = document.getElementById('libraryContents');
-    if (!container) return;
-
-    if (!UserLibraryDbService.db) {
-        await UserLibraryDbService.init();
-    }
-
-    const currentFolderId = UserLibraryDbService.currentFolderId;
-    const folders = await UserLibraryDbService.getFolders(currentFolderId);
-    const files = await UserLibraryDbService.getFiles(currentFolderId);
-
-    renderLibraryBreadcrumb();
-
-    container.innerHTML = '';
-    const isEmpty = folders.length === 0 && files.length === 0;
     const emptyState = document.getElementById('libraryEmptyState');
+    const breadcrumb = document.getElementById('libraryBreadcrumb');
+    
+    if (!container) return;
+    
+    // Get current folder contents
+    const currentFolder = getCurrentLibraryFolder();
+    const folders = currentFolder.folders || [];
+    const pdfs = currentFolder.pdfs || [];
+    
+    // Debug log
+    console.log('Library state:', { libraryEditMode, folders: folders.length, pdfs: pdfs.length, currentLibraryPath, pdfLibrary });
+    
+    // Update breadcrumb
+    renderLibraryBreadcrumb();
+    
+    // Determine what will actually be shown - ALWAYS show PDFs in edit mode
+    const isRoot = currentLibraryPath.length === 0;
+    const showPdfs = libraryEditMode === true || !isRoot;
+    const visibleItemsCount = folders.length + (showPdfs ? pdfs.length : 0);
+    const isEmpty = visibleItemsCount === 0;
+    
+    // Show empty state only when no visible items
     if (emptyState) emptyState.style.display = isEmpty ? 'flex' : 'none';
-
-    folders.forEach(folder => {
-        const item = document.createElement('div');
-        item.className = 'library-item library-folder';
-        item.style.borderColor = folder.color || '#3b82f6';
-        item.innerHTML = `
-            <div class="library-item-icon" style="color: ${folder.color || '#3b82f6'}">
-                <i class="fas fa-folder"></i>
-            </div>
-            <div class="library-item-name">${escapeHtml(folder.name)}</div>
-            ${libraryEditMode ? `
-                <div class="library-item-actions">
-                    <button class="lib-action-btn" onclick="event.stopPropagation(); renameLibraryFolder(${folder.id}, '${escapeHtml(folder.name)}')"><i class="fas fa-edit"></i></button>
-                    <button class="lib-action-btn" onclick="event.stopPropagation(); openMoveLibraryItemModal(${folder.id}, 'folder')"><i class="fas fa-arrows-alt"></i></button>
-                    <button class="lib-action-btn danger" onclick="event.stopPropagation(); deleteLibraryFolder(${folder.id}, '${escapeHtml(folder.name)}')"><i class="fas fa-trash"></i></button>
+    // Show breadcrumb only when not at root
+    if (breadcrumb) breadcrumb.style.display = !isRoot ? 'flex' : 'none';
+    // Show container when we have visible items
+    container.style.display = isEmpty ? 'none' : 'grid';
+    
+    if (isEmpty) {
+        container.innerHTML = '';
+        return;
+    }
+    
+    let html = '';
+    
+    // Render folders first
+    folders.forEach((folder, index) => {
+        const folderPath = [...currentLibraryPath, index].join('/');
+        html += `
+            <div class="library-item library-folder" 
+                 onclick="openLibraryFolder(${index})"
+                 ondragover="handleFolderDragOver(event)" 
+                 ondragleave="handleFolderDragLeave(event)" 
+                 ondrop="handleFolderDrop(event, ${index})">
+                <div class="library-item-icon" style="color: ${folder.color || '#3b82f6'}">
+                    <i class="fas fa-folder"></i>
                 </div>
-            ` : ''}
-        `;
-
-        item.onclick = () => {
-            UserLibraryDbService.currentFolderId = folder.id;
-            UserLibraryDbService.pathStack.push({ id: folder.id, name: folder.name });
-            renderLibrary();
-        };
-
-        container.appendChild(item);
-    });
-
-    files.forEach(file => {
-        const item = document.createElement('div');
-        item.className = 'library-item library-pdf';
-        const isImage = file.file_type === 'image';
-        const icon = isImage ? 'fa-image' : 'fa-file-pdf';
-        const iconColor = isImage ? '#22c55e' : '#ef4444';
-
-        item.innerHTML = `
-            <div class="library-item-icon" style="color: ${iconColor}">
-                <i class="fas ${icon}"></i>
-            </div>
-            <div class="library-item-name">${escapeHtml(file.name)}</div>
-            <div class="library-item-meta">${formatBytesContent(file.file_size || 0)}</div>
-            ${libraryEditMode ? `
+                <div class="library-item-name">${escapeHtml(folder.name)}</div>
+                <div class="library-item-meta">${(folder.folders?.length || 0) + (folder.pdfs?.length || 0)} items</div>
+                ${libraryEditMode ? `
                 <div class="library-item-actions">
-                    <button class="lib-action-btn" onclick="event.stopPropagation(); renameLibraryFile(${file.id}, '${escapeHtml(file.name)}')"><i class="fas fa-edit"></i></button>
-                    <button class="lib-action-btn" onclick="event.stopPropagation(); openMoveLibraryItemModal(${file.id}, 'file')"><i class="fas fa-arrows-alt"></i></button>
-                    <button class="lib-action-btn danger" onclick="event.stopPropagation(); deleteLibraryFile(${file.id}, '${escapeHtml(file.name)}')"><i class="fas fa-trash"></i></button>
+                    <button class="lib-action-btn" onclick="event.stopPropagation(); renameLibraryFolder(${index})" title="Rename">
+                        <i class="fas fa-edit"></i>
+                    </button>
+                    <button class="lib-action-btn" onclick="event.stopPropagation(); openMoveItemModal('folder', ${index})" title="Move">
+                        <i class="fas fa-arrows-alt"></i>
+                    </button>
+                    <button class="lib-action-btn" onclick="event.stopPropagation(); moveLibraryFolderToDocuments(${index})" title="Move to Documents">
+                        <i class="fas fa-file-export"></i>
+                    </button>
+                    <button class="lib-action-btn danger" onclick="event.stopPropagation(); deleteLibraryFolder(${index})" title="Delete">
+                        <i class="fas fa-trash"></i>
+                    </button>
                 </div>
-            ` : ''}
+                ` : ''}
+            </div>
         `;
-
-        item.onclick = async () => {
-            const blob = await UserLibraryFileStore.getFileBlob(file.blob_id);
-            if (!blob) {
-                showNotification('File data not found in storage', 'error');
-                return;
-            }
-            const objectUrl = URL.createObjectURL(blob);
-            if (isImage) {
-                if (typeof showImage === 'function') showImage(objectUrl, file.name);
-            } else {
-                if (typeof showPDF === 'function') showPDF(objectUrl);
-            }
-        };
-
-        container.appendChild(item);
     });
+    
+    // Render PDFs only in edit mode or when navigated inside a folder
+    if (showPdfs) {
+        pdfs.forEach((pdf, index) => {
+            html += `
+                <div class="library-item library-pdf" 
+                     draggable="true"
+                     ondragstart="handlePdfDragStart(event, ${index})"
+                     ondragend="handlePdfDragEnd(event)"
+                     onclick="openLibraryPdf(${index})">
+                    <div class="library-item-icon">
+                        <i class="fas fa-file-pdf"></i>
+                    </div>
+                    <div class="library-item-name">${escapeHtml(pdf.name)}</div>
+                    <div class="library-item-meta">${new Date(pdf.importedAt).toLocaleDateString()}</div>
+                    ${libraryEditMode ? `
+                    <div class="library-item-actions">
+                        <button class="lib-action-btn" onclick="event.stopPropagation(); renameLibraryPdf(${index})" title="Rename">
+                            <i class="fas fa-edit"></i>
+                        </button>
+                        <button class="lib-action-btn" onclick="event.stopPropagation(); openMoveItemModal('pdf', ${index})" title="Move">
+                            <i class="fas fa-arrows-alt"></i>
+                        </button>
+                        <button class="lib-action-btn danger" onclick="event.stopPropagation(); deleteLibraryPdf(${index})" title="Delete">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                    ` : ''}
+                </div>
+            `;
+        });
+    }
+    
+    container.innerHTML = html;
 }
 
 function renderLibraryBreadcrumb() {
-    const breadcrumb = document.getElementById('libraryBreadcrumb');
-    if (!breadcrumb) return;
-
-    if (UserLibraryDbService.pathStack.length === 0) {
-        breadcrumb.style.display = 'none';
-        return;
-    }
-
-    breadcrumb.style.display = 'flex';
-    breadcrumb.innerHTML = `
-        <button class="breadcrumb-item" onclick="navigateToLibraryRoot()">
-            <i class="fas fa-home"></i> Library
-        </button>
-    `;
-
-    UserLibraryDbService.pathStack.forEach((crumb, index) => {
-        breadcrumb.innerHTML += `
-            <span class="breadcrumb-separator"><i class="fas fa-chevron-right"></i></span>
-            <button class="breadcrumb-item ${index === UserLibraryDbService.pathStack.length - 1 ? 'active' : ''}" onclick="navigateToLibraryStackIndex(${index})">
-                ${escapeHtml(crumb.name)}
+    const container = document.getElementById('libraryBreadcrumb');
+    if (!container) return;
+    
+    let html = `<button class="breadcrumb-item ${currentLibraryPath.length === 0 ? 'active' : ''}" onclick="navigateToLibraryRoot()">
+        <i class="fas fa-home"></i> Library
+    </button>`;
+    
+    let folder = pdfLibrary;
+    currentLibraryPath.forEach((index, i) => {
+        folder = folder.folders[index];
+        const pathToHere = currentLibraryPath.slice(0, i + 1);
+        const isLast = i === currentLibraryPath.length - 1;
+        html += `
+            <i class="fas fa-chevron-right breadcrumb-separator"></i>
+            <button class="breadcrumb-item ${isLast ? 'active' : ''}" onclick="navigateToLibraryPath([${pathToHere.join(',')}])">
+                ${escapeHtml(folder.name)}
             </button>
         `;
     });
+    
+    container.innerHTML = html;
+}
+
+function getCurrentLibraryFolder() {
+    let folder = pdfLibrary;
+    for (const index of currentLibraryPath) {
+        if (folder.folders && folder.folders[index]) {
+            folder = folder.folders[index];
+        } else {
+            currentLibraryPath = [];
+            return pdfLibrary;
+        }
+    }
+    return folder;
 }
 
 function navigateToLibraryRoot() {
-    UserLibraryDbService.currentFolderId = null;
-    UserLibraryDbService.pathStack = [];
+    currentLibraryPath = [];
     renderLibrary();
 }
 
-function navigateToLibraryStackIndex(index) {
-    UserLibraryDbService.pathStack = UserLibraryDbService.pathStack.slice(0, index + 1);
-    const current = UserLibraryDbService.pathStack[UserLibraryDbService.pathStack.length - 1];
-    UserLibraryDbService.currentFolderId = current ? current.id : null;
+function navigateToLibraryPath(path) {
+    currentLibraryPath = path;
     renderLibrary();
 }
 
+function openLibraryFolder(index) {
+    currentLibraryPath.push(index);
+    renderLibrary();
+}
+
+function goBackInLibrary() {
+    if (currentLibraryPath.length > 0) {
+        currentLibraryPath.pop();
+        renderLibrary();
+    }
+}
+
+// Folder Modal Functions
 function openCreateLibraryFolderModal() {
-    const modal = document.getElementById('libraryFolderModal');
-    const input = document.getElementById('libraryFolderName');
-    if (input) input.value = '';
-    if (modal) modal.classList.add('active');
+    document.getElementById('libraryFolderName').value = '';
+    document.getElementById('libraryFolderModalTitle').innerHTML = '<i class="fas fa-folder-plus"></i> Create Folder';
+    selectedLibraryFolderColor = '#3b82f6';
+    updateFolderColorSelection();
+    document.getElementById('libraryFolderModal').classList.add('active');
 }
 
 function closeLibraryFolderModal() {
-    document.getElementById('libraryFolderModal')?.classList.remove('active');
+    document.getElementById('libraryFolderModal').classList.remove('active');
 }
 
-let selectedFolderColor = '#3b82f6';
 function selectLibraryFolderColor(color) {
-    selectedFolderColor = color;
-    document.querySelectorAll('.color-option').forEach(btn => {
-        btn.classList.toggle('active', btn.dataset.color === color);
+    selectedLibraryFolderColor = color;
+    updateFolderColorSelection();
+}
+
+function updateFolderColorSelection() {
+    document.querySelectorAll('#libraryFolderModal .color-option').forEach(btn => {
+        btn.classList.toggle('selected', btn.dataset.color === selectedLibraryFolderColor);
     });
 }
 
-async function saveLibraryFolder() {
-    const input = document.getElementById('libraryFolderName');
-    const name = input?.value.trim();
+function saveLibraryFolder() {
+    const name = document.getElementById('libraryFolderName').value.trim();
     if (!name) {
-        showNotification('Please enter a folder name', 'error');
+        showNotification('Please enter a folder name', 'warning');
         return;
     }
-
-    await UserLibraryDbService.createFolder(name, selectedFolderColor, UserLibraryDbService.currentFolderId);
+    
+    const currentFolder = getCurrentLibraryFolder();
+    if (!currentFolder.folders) currentFolder.folders = [];
+    
+    currentFolder.folders.push({
+        name: name,
+        color: selectedLibraryFolderColor,
+        folders: [],
+        pdfs: [],
+        createdAt: Date.now()
+    });
+    
+    saveLibrary();
     closeLibraryFolderModal();
-    await renderLibrary();
+    renderLibrary();
     showNotification(`Folder "${name}" created!`, 'success');
 }
 
-async function renameLibraryFolder(folderId, oldName) {
-    const newName = await showPrompt('Enter new folder name:', { defaultValue: oldName, title: 'Rename Folder' });
-    if (newName && newName !== oldName) {
-        await UserLibraryDbService.renameFolder(folderId, newName);
-        await renderLibrary();
+async function renameLibraryFolder(index) {
+    const currentFolder = getCurrentLibraryFolder();
+    const folder = currentFolder.folders[index];
+    const newName = await showPrompt('Enter new folder name:', { title: 'Rename Folder', defaultValue: folder.name, confirmText: 'Rename' });
+    if (newName) {
+        folder.name = newName;
+        saveLibrary();
+        renderLibrary();
         showNotification('Folder renamed', 'success');
     }
 }
 
-async function renameLibraryFile(fileId, oldName) {
-    const newName = await showPrompt('Enter new file name:', { defaultValue: oldName, title: 'Rename File' });
-    if (newName && newName !== oldName) {
-        await UserLibraryDbService.renameFile(fileId, newName);
-        await renderLibrary();
-        showNotification('File renamed', 'success');
-    }
-}
-
-async function deleteLibraryFolder(folderId, name) {
-    const ok = await showConfirm(`Delete folder "${name}" and all its contents?`, { title: 'Delete Folder', type: 'danger' });
+async function deleteLibraryFolder(index) {
+    const currentFolder = getCurrentLibraryFolder();
+    const folder = currentFolder.folders[index];
+    const ok = await showConfirm(`Delete folder "${folder.name}" and all its contents?`, { title: 'Delete Folder', type: 'danger', confirmText: 'Delete' });
     if (ok) {
-        await UserLibraryDbService.deleteFolder(folderId);
-        await renderLibrary();
+        currentFolder.folders.splice(index, 1);
+        saveLibrary();
+        renderLibrary();
         showNotification('Folder deleted', 'info');
     }
 }
 
-async function deleteLibraryFile(fileId, name) {
-    const ok = await showConfirm(`Delete file "${name}" from Library?`, { title: 'Delete File', type: 'danger' });
-    if (ok) {
-        await UserLibraryDbService.deleteFile(fileId);
-        await renderLibrary();
-        showNotification('File deleted', 'info');
+// Move library folder to Documents area
+async function moveLibraryFolderToDocuments(index) {
+    const currentFolder = getCurrentLibraryFolder();
+    const folder = currentFolder.folders[index];
+    
+    if (!folder) {
+        showNotification('Folder not found', 'error');
+        return;
+    }
+    
+    // Convert library folder to documents structure
+    // PDFs stored via IndexedDB get a special blob-id: prefix that showPDF recognises
+    function convertFolderToDocuments(libFolder) {
+        const docFolder = {};
+        
+        // Add subfolders
+        if (libFolder.folders) {
+            libFolder.folders.forEach(subFolder => {
+                docFolder[subFolder.name] = convertFolderToDocuments(subFolder);
+            });
+        }
+        
+        // Add PDFs
+        if (libFolder.pdfs) {
+            libFolder.pdfs.forEach(pdf => {
+                if (pdf.blobId) {
+                    docFolder[pdf.name] = 'blob-id:' + pdf.blobId;
+                } else if (pdf.dataUrl) {
+                    docFolder[pdf.name] = pdf.dataUrl;
+                } else {
+                    docFolder[pdf.name] = pdf.path || '#';
+                }
+            });
+        }
+        
+        return docFolder;
+    }
+    
+    // Get documents from app.js
+    if (typeof window.documents === 'undefined') {
+        showNotification('Cannot access Documents', 'error');
+        return;
+    }
+    
+    // Check if folder already exists
+    if (window.documents[folder.name]) {
+        const merge = await showConfirm(`A folder named "${folder.name}" already exists in Documents. Merge contents?`, { title: 'Merge Folder', type: 'warning', confirmText: 'Merge' });
+        if (!merge) return;
+        // Merge
+        const converted = convertFolderToDocuments(folder);
+        Object.assign(window.documents[folder.name], converted);
+    } else {
+        // Add new folder
+        window.documents[folder.name] = convertFolderToDocuments(folder);
+    }
+    
+    // Save custom document additions so they persist across reloads
+    saveCustomDocuments();
+    
+    // Remove from library (but DON'T delete the blobs — Documents still needs them)
+    currentFolder.folders.splice(index, 1);
+    saveLibrary();
+    renderLibrary();
+    
+    // Re-render documents
+    if (typeof window.renderTiles === 'function') {
+        const getCurrentDocumentsLevel = window.getCurrentDocumentsLevel || (() => window.documents);
+        window.renderTiles(getCurrentDocumentsLevel());
+    }
+    
+    showNotification(`"${folder.name}" moved to Documents`, 'success');
+}
+
+// Persist custom document additions (folders/PDFs moved from library)
+function saveCustomDocuments() {
+    const custom = JSON.parse(localStorage.getItem('questionary-custom-documents') || '{}');
+    // Merge current custom additions into store
+    // We store everything that isn't part of the hardcoded tree
+    // by walking window.documents and saving non-file-path entries
+    function extractCustom(node) {
+        const out = {};
+        for (const [key, value] of Object.entries(node)) {
+            if (typeof value === 'object') {
+                const sub = extractCustom(value);
+                if (Object.keys(sub).length > 0) out[key] = sub;
+            } else if (typeof value === 'string' && value.startsWith('blob-id:')) {
+                out[key] = value;
+            }
+        }
+        return out;
+    }
+    const additions = extractCustom(window.documents || {});
+    localStorage.setItem('questionary-custom-documents', JSON.stringify(additions));
+}
+
+function loadCustomDocuments() {
+    const custom = JSON.parse(localStorage.getItem('questionary-custom-documents') || '{}');
+    if (Object.keys(custom).length === 0) return;
+    
+    // Merge into the live documents tree
+    function mergeInto(target, source) {
+        for (const [key, value] of Object.entries(source)) {
+            if (typeof value === 'object') {
+                if (!target[key] || typeof target[key] !== 'object') {
+                    target[key] = {};
+                }
+                mergeInto(target[key], value);
+            } else {
+                target[key] = value;
+            }
+        }
+    }
+    mergeInto(window.documents, custom);
+}
+window.saveCustomDocuments = saveCustomDocuments;
+window.loadCustomDocuments = loadCustomDocuments;
+
+// Move a document-tree item (folder or PDF at current path) back into Library
+async function moveDocumentItemToLibrary(key) {
+    const docs = window.documents || {};
+    // Navigate to the current level in the documents tree
+    let parent = docs;
+    for (const seg of (window.path || [])) {
+        if (parent[seg] && typeof parent[seg] === 'object') {
+            parent = parent[seg];
+        } else {
+            showNotification('Cannot find item in Documents', 'error');
+            return;
+        }
+    }
+    
+    const value = parent[key];
+    if (value === undefined) {
+        showNotification('Item not found', 'error');
+        return;
+    }
+    
+    const ok = await showConfirm(`Move "${key}" from Documents to PDF Library?`, { title: 'Move to Library', type: 'info', confirmText: 'Move' });
+    if (!ok) return;
+    
+    const currentLibFolder = getCurrentLibraryFolder();
+    
+    if (typeof value === 'object') {
+        // It's a folder — convert recursively
+        function convertDocToLibFolder(name, docNode) {
+            const libFolder = { name, color: '#3b82f6', folders: [], pdfs: [] };
+            for (const [k, v] of Object.entries(docNode)) {
+                if (typeof v === 'object') {
+                    libFolder.folders.push(convertDocToLibFolder(k, v));
+                } else if (typeof v === 'string' && v.startsWith('blob-id:')) {
+                    libFolder.pdfs.push({
+                        name: k,
+                        blobId: v.replace('blob-id:', ''),
+                        importedAt: Date.now(),
+                        size: 0
+                    });
+                }
+                // Skip normal file-path PDFs — those are hardcoded content, not movable
+            }
+            return libFolder;
+        }
+        if (!currentLibFolder.folders) currentLibFolder.folders = [];
+        currentLibFolder.folders.push(convertDocToLibFolder(key, value));
+    } else if (typeof value === 'string' && value.startsWith('blob-id:')) {
+        // It's a single imported PDF
+        if (!currentLibFolder.pdfs) currentLibFolder.pdfs = [];
+        currentLibFolder.pdfs.push({
+            name: key,
+            blobId: value.replace('blob-id:', ''),
+            importedAt: Date.now(),
+            size: 0
+        });
+    } else {
+        showNotification('Only imported items can be moved to Library', 'info');
+        return;
+    }
+    
+    // Remove from documents
+    delete parent[key];
+    saveCustomDocuments();
+    saveLibrary();
+    renderLibrary();
+    
+    // Re-render tiles
+    if (typeof window.renderTiles === 'function') {
+        const getCurrentDocumentsLevel = window.getCurrentDocumentsLevel || (() => window.documents);
+        window.renderTiles(getCurrentDocumentsLevel());
+    }
+    
+    showNotification(`"${key}" moved to Library`, 'success');
+}
+window.moveDocumentItemToLibrary = moveDocumentItemToLibrary;
+
+// PDF Functions
+async function openLibraryPdf(index) {
+    const currentFolder = getCurrentLibraryFolder();
+    const pdf = currentFolder.pdfs[index];
+
+    try {
+        if (pdf.blobId) {
+            // New IndexedDB storage
+            const blob = await getPdfBlob(pdf.blobId);
+            if (blob) {
+                const url = URL.createObjectURL(blob);
+                if (typeof showPDF === 'function') showPDF(url);
+            } else {
+                showNotification('PDF data not found – it may need to be re-imported', 'error');
+            }
+        } else if (pdf.dataUrl) {
+            // Legacy data URL (from old localStorage storage)
+            if (typeof showPDF === 'function') showPDF(pdf.dataUrl);
+        } else if (pdf.path && window.__TAURI__) {
+            const { readFile } = window.__TAURI__.fs;
+            const contents = await readFile(pdf.path);
+            const blob = new Blob([contents], { type: 'application/pdf' });
+            const url = URL.createObjectURL(blob);
+            if (typeof showPDF === 'function') showPDF(url);
+        } else {
+            showNotification('Cannot open this PDF', 'error');
+        }
+    } catch (err) {
+        console.error('Error opening PDF:', err);
+        showNotification('Failed to open PDF', 'error');
     }
 }
 
-async function openMoveLibraryItemModal(itemId, itemType) {
-    moveItemState = { itemId, itemType };
-    const modal = document.getElementById('moveItemModal');
-    const container = document.getElementById('moveDestinationList');
-    if (!modal || !container) return;
-
-    const allFolders = await UserLibraryDbService.query("SELECT * FROM folders ORDER BY name ASC");
-    
-    container.innerHTML = `
-        <div class="move-destination ${UserLibraryDbService.currentFolderId === null ? 'selected' : ''}" onclick="selectMoveDestination(null, this)">
-            <i class="fas fa-home"></i> Root Library
-        </div>
-        ${allFolders.map(f => `
-            <div class="move-destination ${UserLibraryDbService.currentFolderId === f.id ? 'selected' : ''}" onclick="selectMoveDestination(${f.id}, this)">
-                <i class="fas fa-folder" style="color: ${f.color || '#3b82f6'}"></i> ${escapeHtml(f.name)}
-            </div>
-        `).join('')}
-    `;
-
-    modal.classList.add('active');
+async function renameLibraryPdf(index) {
+    const currentFolder = getCurrentLibraryFolder();
+    const pdf = currentFolder.pdfs[index];
+    const newName = await showPrompt('Enter new name:', { title: 'Rename PDF', defaultValue: pdf.name, confirmText: 'Rename' });
+    if (newName) {
+        pdf.name = newName;
+        saveLibrary();
+        renderLibrary();
+        showNotification('PDF renamed', 'success');
+    }
 }
 
-let selectedMoveDestinationId = null;
-function selectMoveDestination(folderId, element) {
-    selectedMoveDestinationId = folderId;
-    document.querySelectorAll('.move-destination').forEach(el => el.classList.remove('selected'));
-    if (element) element.classList.add('selected');
+async function deleteLibraryPdf(index) {
+    const currentFolder = getCurrentLibraryFolder();
+    const pdf = currentFolder.pdfs[index];
+    const ok = await showConfirm(`Delete "${pdf.name}" from library?`, { title: 'Delete PDF', type: 'danger', confirmText: 'Delete' });
+    if (ok) {
+        // Clean up blob from IndexedDB
+        if (pdf.blobId) {
+            deletePdfBlob(pdf.blobId).catch(err => console.warn('Failed to delete PDF blob:', err));
+        }
+        currentFolder.pdfs.splice(index, 1);
+        saveLibrary();
+        renderLibrary();
+        showNotification('PDF removed', 'info');
+    }
+}
+
+// Move Item Functions
+function openMoveItemModal(type, index) {
+    currentMoveItem = { type, index };
+    selectedMoveDestination = null;
+    renderMoveDestinations();
+    document.getElementById('moveItemModal').classList.add('active');
 }
 
 function closeMoveItemModal() {
-    document.getElementById('moveItemModal')?.classList.remove('active');
+    document.getElementById('moveItemModal').classList.remove('active');
+    currentMoveItem = null;
+    selectedMoveDestination = null;
 }
 
-async function confirmMoveItem() {
-    if (moveItemState.itemId !== null) {
-        await UserLibraryDbService.moveItem(moveItemState.itemId, moveItemState.itemType, selectedMoveDestinationId);
-        closeMoveItemModal();
-        await renderLibrary();
-        showNotification('Item moved successfully', 'success');
-    }
-}
-
-function openPdfFilePicker() {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = '.pdf,.png,.jpg,.jpeg,.webp';
-    input.multiple = true;
-    input.onchange = async (e) => {
-        if (e.target.files.length) {
-            for (const file of e.target.files) {
-                await importPdfToLibrary(file);
+function renderMoveDestinations() {
+    const container = document.getElementById('moveDestinationList');
+    if (!container) return;
+    
+    let html = `
+        <div class="move-destination ${selectedMoveDestination === null ? 'selected' : ''}" 
+             onclick="selectMoveDestination(null)">
+            <i class="fas fa-home"></i> Library Root
+        </div>
+    `;
+    
+    function renderFolderOptions(folder, path = [], depth = 0) {
+        (folder.folders || []).forEach((f, i) => {
+            const currentPath = [...path, i];
+            const pathStr = JSON.stringify(currentPath);
+            const isSelected = JSON.stringify(selectedMoveDestination) === pathStr;
+            
+            // Don't show current folder or its children as destination
+            const isCurrentItem = currentMoveItem?.type === 'folder' && 
+                JSON.stringify([...currentLibraryPath, currentMoveItem.index]) === pathStr;
+            
+            if (!isCurrentItem) {
+                html += `
+                    <div class="move-destination ${isSelected ? 'selected' : ''}" 
+                         style="padding-left: ${(depth + 1) * 1.5}rem"
+                         onclick="selectMoveDestination(${pathStr})">
+                        <i class="fas fa-folder" style="color: ${f.color || '#3b82f6'}"></i> ${escapeHtml(f.name)}
+                    </div>
+                `;
+                renderFolderOptions(f, currentPath, depth + 1);
             }
+        });
+    }
+    
+    renderFolderOptions(pdfLibrary);
+    container.innerHTML = html;
+}
+
+function selectMoveDestination(path) {
+    selectedMoveDestination = path;
+    renderMoveDestinations();
+}
+
+function confirmMoveItem() {
+    if (!currentMoveItem) return;
+    
+    const sourceFolder = getCurrentLibraryFolder();
+    let destFolder = pdfLibrary;
+    
+    if (selectedMoveDestination) {
+        for (const index of selectedMoveDestination) {
+            destFolder = destFolder.folders[index];
         }
-    };
-    input.click();
+    }
+    
+    // Get the item
+    let item;
+    if (currentMoveItem.type === 'folder') {
+        item = sourceFolder.folders.splice(currentMoveItem.index, 1)[0];
+        if (!destFolder.folders) destFolder.folders = [];
+        destFolder.folders.push(item);
+    } else {
+        item = sourceFolder.pdfs.splice(currentMoveItem.index, 1)[0];
+        if (!destFolder.pdfs) destFolder.pdfs = [];
+        destFolder.pdfs.push(item);
+    }
+    
+    saveLibrary();
+    closeMoveItemModal();
+    renderLibrary();
+    showNotification('Item moved successfully', 'success');
 }
 
-async function importPdfToLibrary(file) {
-    if (!file) return;
-    showNotification(`Importing "${file.name}"...`, 'info');
-    await UserLibraryDbService.importFile(file, UserLibraryDbService.currentFolderId);
-    await renderLibrary();
-    showNotification(`Imported "${file.name}" to Library!`, 'success');
+// Move PDF directly to a folder via drag-drop
+function movePdfToFolder(pdfIndex, targetFolderIndex) {
+    console.log('movePdfToFolder called:', pdfIndex, targetFolderIndex);
+    const currentFolder = getCurrentLibraryFolder();
+    console.log('Current folder:', currentFolder);
+    console.log('PDFs in current folder:', currentFolder.pdfs);
+    const targetFolder = currentFolder.folders[targetFolderIndex];
+    console.log('Target folder:', targetFolder);
+    
+    if (!targetFolder) {
+        console.error('Target folder not found');
+        showNotification('Target folder not found', 'error');
+        return;
+    }
+    
+    if (!currentFolder.pdfs || !currentFolder.pdfs[pdfIndex]) {
+        console.error('PDF not found at index', pdfIndex);
+        showNotification('PDF not found', 'error');
+        return;
+    }
+    
+    // Remove PDF from current location and add to target folder
+    const pdf = currentFolder.pdfs.splice(pdfIndex, 1)[0];
+    if (!targetFolder.pdfs) targetFolder.pdfs = [];
+    targetFolder.pdfs.push(pdf);
+    
+    saveLibrary();
+    renderLibrary();
+    showNotification(`"${pdf.name}" moved to "${targetFolder.name}"`, 'success');
 }
 
+// Drag and Drop
 function handleLibraryDragOver(e) {
     e.preventDefault();
     e.currentTarget.classList.add('drag-over');
@@ -2865,17 +3020,176 @@ function handleLibraryDragLeave(e) {
 async function handleLibraryDrop(e) {
     e.preventDefault();
     e.currentTarget.classList.remove('drag-over');
-    if (e.dataTransfer.files.length) {
-        for (const file of e.dataTransfer.files) {
-            await importPdfToLibrary(file);
-        }
+    
+    const files = Array.from(e.dataTransfer.files).filter(f => f.type === 'application/pdf');
+    
+    if (files.length === 0) {
+        showNotification('Please drop PDF files only', 'warning');
+        return;
+    }
+    
+    for (const file of files) {
+        await importPdfToLibrary(file);
     }
 }
 
-// Backward compatibility aliases
-function renderImportedPdfs() { renderLibrary(); }
-function openLibraryFolder(index) { navigateToLibraryStackIndex(index); }
-function goBackInLibrary() { navigateToLibraryRoot(); }
+// Folder-specific drag drop handlers
+function handleFolderDragOver(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    e.currentTarget.classList.add('folder-drag-over');
+    e.dataTransfer.dropEffect = 'move';
+}
+
+function handleFolderDragLeave(e) {
+    e.stopPropagation();
+    e.currentTarget.classList.remove('folder-drag-over');
+}
+
+// Track dragged PDF
+let draggedPdfIndex = null;
+
+function handlePdfDragStart(e, pdfIndex) {
+    draggedPdfIndex = pdfIndex;
+    e.dataTransfer.setData('text/plain', `pdf:${pdfIndex}`);
+    e.dataTransfer.effectAllowed = 'move';
+    e.currentTarget.style.opacity = '0.5';
+    console.log('Drag started for PDF:', pdfIndex);
+}
+
+function handlePdfDragEnd(e) {
+    e.currentTarget.style.opacity = '1';
+    draggedPdfIndex = null;
+    console.log('Drag ended');
+}
+
+async function handleFolderDrop(e, folderIndex) {
+    e.preventDefault();
+    e.stopPropagation();
+    e.currentTarget.classList.remove('folder-drag-over');
+    
+    console.log('Folder drop triggered on folder:', folderIndex);
+    console.log('draggedPdfIndex:', draggedPdfIndex);
+    
+    // Check if this is a PDF being dragged from the library (use global variable as fallback)
+    const dragData = e.dataTransfer.getData('text/plain');
+    console.log('Drag data:', dragData);
+    
+    let pdfIndex = null;
+    if (dragData && dragData.startsWith('pdf:')) {
+        pdfIndex = parseInt(dragData.split(':')[1]);
+    } else if (draggedPdfIndex !== null) {
+        pdfIndex = draggedPdfIndex;
+    }
+    
+    if (pdfIndex !== null) {
+        console.log('Moving PDF', pdfIndex, 'to folder', folderIndex);
+        movePdfToFolder(pdfIndex, folderIndex);
+        return;
+    }
+    
+    // Otherwise, handle file drop from desktop
+    const files = Array.from(e.dataTransfer.files).filter(f => f.type === 'application/pdf');
+    
+    if (files.length === 0) {
+        showNotification('Please drop PDF files only', 'warning');
+        return;
+    }
+    
+    // Get the target folder
+    const currentFolder = getCurrentLibraryFolder();
+    const targetFolder = currentFolder.folders[folderIndex];
+    
+    if (!targetFolder) {
+        showNotification('Folder not found', 'error');
+        return;
+    }
+    
+    if (!targetFolder.pdfs) targetFolder.pdfs = [];
+    
+    for (const file of files) {
+        const reader = new FileReader();
+        await new Promise((resolve) => {
+            reader.onload = (ev) => {
+                targetFolder.pdfs.push({
+                    name: file.name.replace('.pdf', ''),
+                    dataUrl: ev.target.result,
+                    importedAt: Date.now(),
+                    size: file.size
+                });
+                resolve();
+            };
+            reader.readAsDataURL(file);
+        });
+    }
+    
+    saveLibrary();
+    renderLibrary();
+    showNotification(`${files.length} PDF(s) imported to "${targetFolder.name}"!`, 'success');
+}
+
+async function importPdfToLibrary(file) {
+    try {
+        const id = 'pdf_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+        const blob = new Blob([await file.arrayBuffer()], { type: 'application/pdf' });
+
+        // Store binary data in IndexedDB
+        await savePdfBlob(id, blob);
+
+        // Store only metadata in localStorage
+        const currentFolder = getCurrentLibraryFolder();
+        if (!currentFolder.pdfs) currentFolder.pdfs = [];
+
+        currentFolder.pdfs.push({
+            name: file.name.replace(/\.pdf$/i, ''),
+            blobId: id,
+            importedAt: Date.now(),
+            size: file.size
+        });
+
+        saveLibrary();
+        renderLibrary();
+        showNotification(`"${file.name}" imported!`, 'success');
+    } catch (err) {
+        console.error('Failed to import PDF:', err);
+        showNotification('Failed to import PDF – ' + err.message, 'error');
+    }
+}
+
+// Override existing PDF picker to use new library system
+// Use file input approach which works in both browser and Tauri without special permissions
+window.openPdfFilePicker = function() {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.pdf';
+    input.multiple = true;
+    input.onchange = async (e) => {
+        for (const file of e.target.files) {
+            await importPdfToLibrary(file);
+        }
+    };
+    input.click();
+};
+
+// Backward compatibility: render old imported PDFs into new library
+function migrateOldImportedPdfs() {
+    const oldPdfs = JSON.parse(localStorage.getItem('questionary-imported-pdfs') || '[]');
+    if (oldPdfs.length > 0 && pdfLibrary.pdfs.length === 0) {
+        pdfLibrary.pdfs = oldPdfs.map(p => ({
+            name: p.name,
+            path: p.path,
+            importedAt: p.importedAt || Date.now()
+        }));
+        saveLibrary();
+        localStorage.removeItem('questionary-imported-pdfs');
+    }
+}
+
+// Legacy function for backward compatibility
+function renderImportedPdfs() {
+    renderLibrary();
+}
+
 // ============================================
 // 14. TAGS SECTION & TAGGING ITEMS
 // ============================================
