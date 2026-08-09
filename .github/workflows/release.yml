@@ -156,6 +156,26 @@ jobs:
           ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
           NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/27.0.12077973
 
+      - name: Auto-Sign APKs if no custom keystore was configured
+        run: |
+          if [ ! -f "src-tauri/gen/android/app/questionary.jks" ]; then
+            echo "Custom keystore secret not detected. Generating release signature for APKs..."
+            keytool -genkey -v -keystore ci-release.jks -keyalg RSA -keysize 2048 -validity 10000 \
+              -alias ci-key -storepass password123 -keypass password123 \
+              -dname "CN=Questionary, OU=CI, O=Questionary, L=CI, S=CI, C=US"
+            
+            for apk in $(find src-tauri/gen/android/app/build/outputs/apk -type f -name "*.apk"); do
+              echo "Signing $apk with apksigner..."
+              $ANDROID_SDK_ROOT/build-tools/34.0.0/apksigner sign \
+                --ks ci-release.jks \
+                --ks-pass pass:password123 \
+                --key-pass pass:password123 \
+                --ks-key-alias ci-key \
+                "$apk"
+              $ANDROID_SDK_ROOT/build-tools/34.0.0/apksigner verify "$apk"
+            done
+          fi
+
       - name: Upload Android APKs to Release
         uses: softprops/action-gh-release@v2
         with:

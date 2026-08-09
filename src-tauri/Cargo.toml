@@ -1,9 +1,9 @@
 [package]
 name = "Questionary"
-version = "0.7.0"
+version = "0.8.0"
 description = "Questionary"
 authors = ["Nugget"]
-edition = "2021"
+edition = "2026"
 
 [lib]
 name = "questionary_lib"
