@@ -3368,90 +3368,90 @@ let updateState = {
 async function checkForUpdatesManual() {
   const btn = document.getElementById('checkUpdatesBtn');
   if (updateState.downloading) {
-    showUpdateProgressNotification();
+    showNotification('Download in progress...', 'info');
     return;
   }
-  if (updateState.available && updateState.update) {
-    await downloadAndInstallUpdate();
-    return;
-  }
-  if (btn) {
-    btn.classList.add('checking');
-    btn.disabled = true;
-  }
-  try {
-    if (window.__TAURI__) {
-      showNotification('Checking for updates...', 'info');
-      const updater = window.__TAURI__.updater;
-      if (!updater) throw new Error('Updater plugin not available');
 
-      const update = await updater.check();
+  if (btn) btn.classList.add('checking');
+
+  try {
+    if (window.__TAURI__ && window.__TAURI__.updater) {
+      showNotification('Checking for updates...', 'info');
+      const update = await window.__TAURI__.updater.check();
+
       if (update) {
         updateState.available = true;
         updateState.version = update.version;
         updateState.update = update;
-        showNotification(`Update ${update.version} available! Click update button again to download.`, 'success');
-        updateButtonToDownloadMode(update.version);
+        showNotification(`Update ${update.version} available! Installing...`, 'success');
+        await downloadAndInstallUpdate();
       } else {
         showNotification('You are on the latest version!', 'success');
         resetUpdateButton();
       }
     } else {
-      showNotification('Update checking is only available in the desktop app.', 'info');
+      showNotification('Updater is available in the Desktop app only.', 'info');
     }
   } catch (error) {
-    console.error('Update check error:', error);
-    showNotification('Could not check for updates. Please try again later.', 'warning');
+    console.error('[Updater Error]:', error);
+    showNotification('Update check failed. Check console for details.', 'error');
     resetUpdateButton();
   } finally {
-    if (btn) {
-      btn.classList.remove('checking');
-      btn.disabled = false;
-    }
+    if (btn) btn.classList.remove('checking');
   }
 }
 
 async function downloadAndInstallUpdate() {
   if (!updateState.update) return;
   updateState.downloading = true;
-  updateState.downloadProgress = 0;
-  updateState.downloadedBytes = 0;
+  updateButtonToProgressMode();
+
   try {
-    updateButtonToProgressMode();
-    showNotification('Downloading update...', 'info');
+    showNotification('Downloading & installing update...', 'info');
+
+    // 1. Download & stage binary
     await updateState.update.downloadAndInstall((event) => {
-      switch (event.event) {
-        case 'Started':
-          updateState.totalBytes = event.data.contentLength || 0;
-          break;
-        case 'Progress':
-          updateState.downloadedBytes += event.data.chunkLength || 0;
-          if (updateState.totalBytes > 0) {
-            updateState.downloadProgress = Math.round((updateState.downloadedBytes / updateState.totalBytes) * 100);
-          }
-          updateProgressButton();
-          break;
-        case 'Finished':
-          updateState.downloadProgress = 100;
-          updateProgressButton();
-          break;
+      if (event.event === 'Started') {
+        updateState.totalBytes = event.data.contentLength || 0;
+      } else if (event.event === 'Progress') {
+        updateState.downloadedBytes += event.data.chunkLength || 0;
+        if (updateState.totalBytes > 0) {
+          updateState.downloadProgress = Math.round((updateState.downloadedBytes / updateState.totalBytes) * 100);
+        }
+        updateProgressButton();
+      } else if (event.event === 'Finished') {
+        updateState.downloadProgress = 100;
+        updateProgressButton();
       }
     });
+
     showNotification('Update installed! Restarting app...', 'success');
     updateButtonToRestartMode();
+
+    // 2. Relaunch application to apply update
     setTimeout(async () => {
-      if (window.__TAURI__ && window.__TAURI__.process) {
-        await window.__TAURI__.process.relaunch();
+      try {
+        if (window.__TAURI__?.process?.relaunch) {
+          await window.__TAURI__.process.relaunch();
+        } else if (window.__TAURI__?.core?.invoke) {
+          await window.__TAURI__.core.invoke('plugin:process|relaunch');
+        } else {
+          location.reload();
+        }
+      } catch (e) {
+        console.error('Relaunch failed:', e);
+        location.reload();
       }
-    }, 2000);
+    }, 1500);
+
   } catch (error) {
-    console.error('Download error:', error);
-    showNotification('Failed to download update.', 'error');
+    console.error('[Install Error]:', error);
+    showNotification('Failed to install update: ' + error.message, 'error');
     resetUpdateButton();
+  } finally {
     updateState.downloading = false;
   }
 }
-
 function updateButtonToDownloadMode(version) {
   const btn = document.getElementById('checkUpdatesBtn');
   if (btn) {
