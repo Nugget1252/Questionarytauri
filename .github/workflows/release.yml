@@ -71,6 +71,7 @@ jobs:
       - name: Upload Desktop Assets to Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.ref_name }}
           files: ${{ matrix.artifact-path }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -79,7 +80,6 @@ jobs:
     permissions:
       contents: write
     runs-on: ubuntu-22.04
-    needs: release-desktop
     env:
       ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
 
@@ -148,7 +148,6 @@ jobs:
       - name: Sign and Package Android APKs
         run: |
           mkdir -p release-apks
-          # Extract version directly from Git Tag (e.g. v0.8.0 -> 0.8.0)
           VERSION="${GITHUB_REF_NAME#v}"
 
           KEYSTORE="ci-release.jks"
@@ -191,6 +190,7 @@ jobs:
       - name: Upload Android APKs to Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.ref_name }}
           files: 'release-apks/*.apk'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
