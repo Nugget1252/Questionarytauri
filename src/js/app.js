@@ -787,6 +787,7 @@ async function performSearch(e) {
   }
 }
 
+
 async function navigateToSearchResult(pathArray, url) {
   const searchResults = document.getElementById('searchResults');
   if (searchResults) searchResults.style.display = 'none';
@@ -803,7 +804,13 @@ async function navigateToSearchResult(pathArray, url) {
     const title = pathArray[pathArray.length - 1];
     addToRecent(title, pathArray, url);
 
-    setTimeout(() => { showPDF(url); }, 100);
+    setTimeout(() => {
+      if (typeof window.openAnyDocument === 'function') {
+        window.openAnyDocument(url, title);
+      } else {
+        showPDF(url);
+      }
+    }, 100);
   } else {
     path = [...pathArray];
     await navigateToPath(path);
@@ -4806,3 +4813,25 @@ async function checkForUpdatesManual() {
     }
   }
 }
+
+
+    tile.onclick = async () => {
+      if (isFolder) {
+        path.push(key);
+        await navigateToPath(path);
+      } else if (isMissingPdf) {
+        showNotification('This file is not available', 'warning');
+      } else {
+        addToRecent(key, [...path, key], value);
+        if (typeof window.openAnyDocument === 'function') {
+          window.openAnyDocument(value, key);
+        } else if (key.match(/\.(png|jpg|jpeg|webp|gif|svg)$/i)) {
+          showImage(value, key);
+        } else {
+          showPDF(value);
+        }
+      }
+    };
+
+
+
