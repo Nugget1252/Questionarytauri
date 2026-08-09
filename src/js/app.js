@@ -82,67 +82,74 @@ preventAccidentalSelection();
 // ================================================================
 // SQLITE DATABASE SERVICE (Auto-Fetch, Schema Fallback & Validation Engine)
 // ================================================================
+// ================================================================
+// SQLITE DATABASE SERVICE (Shared WASM Engine & GC-Optimized)
+// ================================================================
 const DbService = {
   db: null,
   SQL: null,
 
   async init() {
     try {
-      // 1. Load SQLite WASM engine
-      if (typeof window.initSqlJs === 'undefined') {
-        await new Promise((resolve, reject) => {
-          const script = document.createElement('script');
-          script.src = 'https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.js';
-          script.onload = resolve;
-          script.onerror = reject;
-          document.head.appendChild(script);
+      // 1. Shared WebAssembly Engine Instance (Prevents double WASM heap allocation)
+      if (!window.SQL_INSTANCE) {
+        if (typeof window.initSqlJs === 'undefined') {
+          await new Promise((resolve, reject) => {
+            const script = document.createElement('script');
+            script.src = 'https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.js';
+            script.onload = resolve;
+            script.onerror = reject;
+            document.head.appendChild(script);
+          });
+        }
+
+        window.SQL_INSTANCE = await window.initSqlJs({
+          locateFile: file => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/${file}`
         });
       }
 
-      this.SQL = await window.initSqlJs({
-        locateFile: file => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/${file}`
-      });
+      this.SQL = window.SQL_INSTANCE;
 
-      // 2. Check IndexedDB Cache
-      const savedDb = await this.loadFromIndexedDB();
+      // 2. Load from IndexedDB with Immediate Garbage Collection
+      let savedDb = await this.loadFromIndexedDB();
       if (savedDb) {
         this.db = new this.SQL.Database(savedDb);
+        savedDb = null; // Free binary buffer for V8/JSC GC
 
-        // VALIDATE: If cached DB is valid, use it!
         if (await this.isValidDatabase()) {
           console.log('[SQLite] Valid DB loaded from local IndexedDB cache');
           return true;
         } else {
-          console.warn('[SQLite] Cached DB is empty or invalid. Clearing cache...');
+          console.warn('[SQLite] Cached DB invalid. Purging...');
           await this.clearIndexedDB();
           this.db = null;
         }
       }
 
-      // 3. Attempt to fetch 'questionary.db' from local folder
-      console.log('[SQLite] Attempting to fetch questionary.db from root directory...');
+      // 3. Fetch questionary.db with Immediate Buffer Cleanup
       try {
-        const response = await fetch('questionary.db?v=' + Date.now()); // Cache bust
+        const response = await fetch('questionary.db?v=' + Date.now());
         if (response.ok) {
-          const arrayBuffer = await response.arrayBuffer();
-          const uInt8Array = new Uint8Array(arrayBuffer);
+          let arrayBuffer = await response.arrayBuffer();
+          let uInt8Array = new Uint8Array(arrayBuffer);
           const tempDb = new this.SQL.Database(uInt8Array);
+          
+          // CRITICAL MEMORY FIX: Release fetch buffers immediately
+          arrayBuffer = null;
+          uInt8Array = null;
 
           this.db = tempDb;
           if (await this.isValidDatabase()) {
             await this.saveToIndexedDB();
-            console.log('[SQLite] Successfully loaded questionary.db from local folder!');
+            console.log('[SQLite] Loaded questionary.db from root directory!');
             return true;
-          } else {
-            console.warn('[SQLite] questionary.db found, but table "nodes" missing/empty.');
-            this.db = null;
           }
         }
       } catch (fetchErr) {
         console.warn('[SQLite] Could not auto-fetch questionary.db:', fetchErr);
       }
 
-      // 4. Fallback for Mobile APK / Environments without asset binary: Auto-initialize default schema
+      // 4. Fresh Schema Fallback
       console.log('[SQLite] Initializing fresh database with default schema...');
       this.db = new this.SQL.Database();
       await this.createDefaultSchema();
@@ -166,6 +173,7 @@ const DbService = {
           file_path TEXT DEFAULT '#'
         );
       `);
+
       const countCheck = await this.query("SELECT COUNT(*) as count FROM nodes");
       if (!countCheck || countCheck.length === 0 || countCheck[0].count === 0) {
         this.db.run(`
@@ -177,7 +185,6 @@ const DbService = {
         `);
       }
       await this.saveToIndexedDB();
-      console.log('[SQLite] Default schema & sample root nodes initialized successfully');
     } catch (e) {
       console.error('[SQLite] Default schema creation error:', e);
     }
@@ -209,7 +216,7 @@ const DbService = {
 
   async saveToIndexedDB() {
     if (!this.db) return;
-    const data = this.db.export();
+    let data = this.db.export(); // Uint8Array
     return new Promise((resolve, reject) => {
       const request = indexedDB.open('QuestionarySQLiteDB', 1);
       request.onupgradeneeded = e => e.target.result.createObjectStore('db_store');
@@ -217,10 +224,19 @@ const DbService = {
         const idb = e.target.result;
         const tx = idb.transaction('db_store', 'readwrite');
         const putReq = tx.objectStore('db_store').put(data, 'questionary.db');
-        putReq.onsuccess = () => resolve();
-        putReq.onerror = () => reject(putReq.error);
+        putReq.onsuccess = () => {
+          data = null; // Trigger GC
+          resolve();
+        };
+        putReq.onerror = () => {
+          data = null;
+          reject(putReq.error);
+        };
       };
-      request.onerror = () => reject(request.error);
+      request.onerror = () => {
+        data = null;
+        reject(request.error);
+      };
     });
   },
 
@@ -246,95 +262,6 @@ const DbService = {
       req.onerror = () => resolve();
       req.onblocked = () => resolve();
     });
-  },
-
-  promptForDbUpload() {
-    const existing = document.getElementById('dbUploadOverlay');
-    if (existing) existing.remove();
-
-    const overlay = document.createElement('div');
-    overlay.id = 'dbUploadOverlay';
-    overlay.style.cssText = `
-    position: fixed; inset: 0; background: var(--bg, #111113); z-index: 100000;
-    display: flex; flex-direction: column; align-items: center; justify-content: center;
-    font-family: inherit; color: var(--fg, #ededef); text-align: center; padding: 2rem;
-    `;
-
-    overlay.innerHTML = `
-    <div id="dbDropZone" style="
-    border: 2px dashed var(--accent, #cf6215); border-radius: 12px; padding: 3rem;
-    background: var(--surface, #18181b); max-width: 520px; width: 100%;
-    transition: all 0.2s ease; cursor: pointer;
-    ">
-    <i class="fas fa-database" style="font-size: 3rem; color: var(--accent, #cf6215); margin-bottom: 1rem;"></i>
-    <h2 style="margin: 0 0 0.5rem; font-size: 1.2rem;">Database Needed</h2>
-    <p style="margin: 0 0 1.5rem; font-size: 0.9rem; color: var(--fg2, #a0a0ab); line-height: 1.5;">
-    No valid database found.<br>
-    Either place <strong>questionary.db</strong> in the app directory and refresh, or drag & drop your <code>.db</code> file here.
-    </p>
-    <button class="btn btn-primary" style="pointer-events: none;">Select .db File</button>
-    </div>
-    <input type="file" id="dbFileInput" accept=".db,.sqlite,.sqlite3" style="display: none;">
-    `;
-
-    document.body.appendChild(overlay);
-
-    const dropZone = document.getElementById('dbDropZone');
-    const fileInput = document.getElementById('dbFileInput');
-
-    dropZone.addEventListener('click', () => fileInput.click());
-
-    ['dragenter', 'dragover'].forEach(evt => {
-      dropZone.addEventListener(evt, e => {
-        e.preventDefault();
-        dropZone.style.background = 'var(--accent-light, rgba(207,98,21,0.1))';
-      });
-    });
-
-    ['dragleave', 'drop'].forEach(evt => {
-      dropZone.addEventListener(evt, e => {
-        e.preventDefault();
-        dropZone.style.background = 'var(--surface, #18181b)';
-      });
-    });
-
-    dropZone.addEventListener('drop', e => {
-      if (e.dataTransfer.files.length) this.loadDatabaseFromFile(e.dataTransfer.files[0], overlay);
-    });
-
-    fileInput.addEventListener('change', e => {
-      if (e.target.files.length) this.loadDatabaseFromFile(e.target.files[0], overlay);
-    });
-  },
-
-  async loadDatabaseFromFile(file, overlay) {
-    overlay.querySelector('h2').textContent = "Verifying database...";
-    try {
-      const arrayBuffer = await file.arrayBuffer();
-      const uInt8Array = new Uint8Array(arrayBuffer);
-      const tempDb = new this.SQL.Database(uInt8Array);
-
-      this.db = tempDb;
-      if (!(await this.isValidDatabase())) {
-        this.db = null;
-        throw new Error("Database is empty or missing 'nodes' table.");
-      }
-
-      await this.saveToIndexedDB();
-      overlay.remove();
-      showNotification('Database imported successfully!', 'success');
-
-      if (currentUser) {
-        initializeAppAfterLogin();
-      } else {
-        const nodes = await this.getChildren([]);
-        renderTilesFromDb(nodes);
-      }
-    } catch (err) {
-      console.error(err);
-      overlay.querySelector('h2').textContent = "Invalid Database";
-      overlay.querySelector('p').innerHTML = "<span style='color: var(--red,#ef4444);'>The selected file is empty or formatted incorrectly. Please choose a valid questionary.db file.</span>";
-    }
   },
 
   async getNodeIdByPath(pathArray) {
@@ -393,7 +320,6 @@ const DbService = {
     return res.length > 0 ? res[0].count : 0;
   }
 };
-
 // Global Reset Function for easy debugging / manual reset
 window.resetDatabase = async function() {
   if (confirm('Reset database cache? This will purge the cached DB and reload from questionary.db or let you select a new file.')) {
