@@ -1,11 +1,9 @@
-
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
-	<link rel="icon" type="image/png" href="assets/logo.png">
+    <link rel="icon" type="image/png" href="assets/logo.png">
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Questionary</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -13,8 +11,117 @@
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <link rel="stylesheet" href="css/styles.css?v=210">
     <link rel="stylesheet" href="css/features.css?v=211">
+    <style>
+        /* Mobile Safe Area & Bottom Nav Responsive Extensions */
+        :root {
+            --safe-top: env(safe-area-inset-top, 0px);
+            --safe-bottom: env(safe-area-inset-bottom, 0px);
+            --safe-left: env(safe-area-inset-left, 0px);
+            --safe-right: env(safe-area-inset-right, 0px);
+        }
+
+        body {
+            padding-top: var(--safe-top);
+            padding-bottom: var(--safe-bottom);
+            padding-left: var(--safe-left);
+            padding-right: var(--safe-right);
+        }
+
+        .header {
+            padding-top: calc(6px + var(--safe-top)) !important;
+        }
+
+        .mobile-bottom-nav {
+            display: none;
+        }
+
+        @media (max-width: 768px) {
+            .mobile-bottom-nav {
+                display: flex;
+                position: fixed;
+                bottom: 0;
+                left: 0;
+                right: 0;
+                height: calc(60px + var(--safe-bottom));
+                padding-bottom: var(--safe-bottom);
+                background: var(--surface, #1e1f22);
+                border-top: 1px solid var(--border, #2e3035);
+                z-index: 9999;
+                justify-content: space-around;
+                align-items: center;
+                box-shadow: 0 -4px 16px rgba(0,0,0,0.25);
+                backdrop-filter: blur(12px);
+                -webkit-backdrop-filter: blur(12px);
+            }
+
+            .mobile-bottom-nav-item {
+                flex: 1;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                background: none;
+                border: none;
+                color: var(--fg2, #8b8f94);
+                font-size: 0.72rem;
+                gap: 3px;
+                padding: 6px 0;
+                cursor: pointer;
+                transition: color 0.15s ease, transform 0.1s ease;
+                user-select: none;
+            }
+
+            .mobile-bottom-nav-item i {
+                font-size: 1.2rem;
+            }
+
+            .mobile-bottom-nav-item.active {
+                color: var(--accent, #cf6215);
+                font-weight: 600;
+            }
+
+            .mobile-bottom-nav-item:active {
+                transform: scale(0.92);
+            }
+
+            #main-content {
+                padding-bottom: calc(78px + var(--safe-bottom)) !important;
+            }
+
+            .dashboard-header {
+                display: grid !important;
+                grid-template-columns: repeat(2, 1fr) !important;
+                gap: 0.75rem !important;
+                margin-bottom: 1rem !important;
+            }
+
+            .stat-card {
+                margin: 0 !important;
+                padding: 0.85rem !important;
+                border-radius: 12px !important;
+            }
+
+            .modal-overlay .modal {
+                width: 100% !important;
+                max-width: 100% !important;
+                border-radius: 20px 20px 0 0 !important;
+                margin-top: auto !important;
+                max-height: 88vh !important;
+            }
+
+            .tiles-grid {
+                grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)) !important;
+                gap: 10px !important;
+            }
+
+            .tile {
+                padding: 12px 8px !important;
+                min-height: 100px !important;
+            }
+        }
+    </style>
     <script>
-      // Mock getUserMedia for PeerJS WebRTC checks on strict Linux WebKit environments
+      // Mock getUserMedia for WebRTC checks on strict Linux WebKit / Mobile WebViews
       if (!window.navigator.mediaDevices) { window.navigator.mediaDevices = {}; }
       if (!window.navigator.mediaDevices.getUserMedia) {
           window.navigator.mediaDevices.getUserMedia = function() { return Promise.resolve(null); };
@@ -891,6 +998,30 @@
             </div>
         </section>
     </div>
+
+    <!-- Android Mobile Bottom Navigation Bar -->
+    <nav class="mobile-bottom-nav" id="mobileBottomNav">
+        <button class="mobile-bottom-nav-item active" data-view="home" id="mobileNavHome">
+            <i class="fas fa-home"></i>
+            <span>Home</span>
+        </button>
+        <button class="mobile-bottom-nav-item" data-view="favorites" id="mobileNavFavorites">
+            <i class="fas fa-star"></i>
+            <span>Favorites</span>
+        </button>
+        <button class="mobile-bottom-nav-item" data-view="recent" id="mobileNavRecent">
+            <i class="fas fa-history"></i>
+            <span>Recent</span>
+        </button>
+        <button class="mobile-bottom-nav-item" data-view="planner" id="mobileNavPlanner">
+            <i class="fas fa-calendar-alt"></i>
+            <span>Planner</span>
+        </button>
+        <button class="mobile-bottom-nav-item" data-view="more" id="mobileNavMore">
+            <i class="fas fa-ellipsis-h"></i>
+            <span>More</span>
+        </button>
+    </nav>
 
     <div class="accessibility-panel" id="accessibilityPanel">
         <h3><i class="fas fa-universal-access"></i> Accessibility</h3>

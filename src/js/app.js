@@ -39,7 +39,7 @@ function preventAccidentalSelection() {
       .sr-wb-toolbar, .sr-exp-badge, .alarm-notification, .login-screen, .login-card,
       .card-editor, .session-item, .deck-card, .note-card, .quick-link-item,
       .search-result-item, .page-bookmark-item, .print-queue-item, .timer-preset-btn,
-      .dialog-box, .dialog-overlay, #dbUploadOverlay, #dbDropZone {
+      .dialog-box, .dialog-overlay, #dbUploadOverlay, #dbDropZone, .mobile-bottom-nav {
         -webkit-user-select: none !important;
         -moz-user-select: none !important;
         -ms-user-select: none !important;
@@ -80,7 +80,7 @@ function preventAccidentalSelection() {
 preventAccidentalSelection();
 
 // ================================================================
-// SQLITE DATABASE SERVICE (Auto-Fetch & Validation Engine)
+// SQLITE DATABASE SERVICE (Auto-Fetch, Schema Fallback & Validation Engine)
 // ================================================================
 const DbService = {
   db: null,
@@ -108,7 +108,7 @@ const DbService = {
       if (savedDb) {
         this.db = new this.SQL.Database(savedDb);
 
-        // VALIDATE: If cached DB is empty or invalid, purge it!
+        // VALIDATE: If cached DB is valid, use it!
         if (await this.isValidDatabase()) {
           console.log('[SQLite] Valid DB loaded from local IndexedDB cache');
           return true;
@@ -119,7 +119,7 @@ const DbService = {
         }
       }
 
-      // 3. Attempt to fetch 'questionary.db' from the app directory (same folder as app.js/index.html)
+      // 3. Attempt to fetch 'questionary.db' from local folder
       console.log('[SQLite] Attempting to fetch questionary.db from root directory...');
       try {
         const response = await fetch('questionary.db?v=' + Date.now()); // Cache bust
@@ -134,7 +134,7 @@ const DbService = {
             console.log('[SQLite] Successfully loaded questionary.db from local folder!');
             return true;
           } else {
-            console.warn('[SQLite] questionary.db found in folder, but it is EMPTY or missing table "nodes".');
+            console.warn('[SQLite] questionary.db found, but table "nodes" missing/empty.');
             this.db = null;
           }
         }
@@ -142,13 +142,44 @@ const DbService = {
         console.warn('[SQLite] Could not auto-fetch questionary.db:', fetchErr);
       }
 
-      // 4. If all automated loads failed, prompt user for manual file drop
-      this.promptForDbUpload();
-      return false;
+      // 4. Fallback for Mobile APK / Environments without asset binary: Auto-initialize default schema
+      console.log('[SQLite] Initializing fresh database with default schema...');
+      this.db = new this.SQL.Database();
+      await this.createDefaultSchema();
+      return true;
 
     } catch (err) {
       console.error('[SQLite] Critical init error:', err);
       return false;
+    }
+  },
+
+  async createDefaultSchema() {
+    if (!this.db) return;
+    try {
+      this.db.run(`
+        CREATE TABLE IF NOT EXISTS nodes (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          parent_id INTEGER DEFAULT NULL,
+          name TEXT NOT NULL,
+          is_folder INTEGER DEFAULT 1,
+          file_path TEXT DEFAULT '#'
+        );
+      `);
+      const countCheck = await this.query("SELECT COUNT(*) as count FROM nodes");
+      if (!countCheck || countCheck.length === 0 || countCheck[0].count === 0) {
+        this.db.run(`
+          INSERT INTO nodes (parent_id, name, is_folder, file_path) VALUES
+          (NULL, 'Physics', 1, '#'),
+          (NULL, 'Chemistry', 1, '#'),
+          (NULL, 'Biology', 1, '#'),
+          (NULL, 'Mathematics', 1, '#');
+        `);
+      }
+      await this.saveToIndexedDB();
+      console.log('[SQLite] Default schema & sample root nodes initialized successfully');
+    } catch (e) {
+      console.error('[SQLite] Default schema creation error:', e);
     }
   },
 
@@ -519,20 +550,20 @@ function showNotification(message, type = 'info') {
 
   toast.style.cssText = `
   position: fixed;
-  bottom: 24px;
+  bottom: calc(75px + env(safe-area-inset-bottom, 0px));
   left: 50%;
   transform: translateX(-50%) translateY(100px);
-  padding: 14px 24px;
+  padding: 12px 22px;
   border-radius: 12px;
   color: white;
   font-weight: 500;
   z-index: 10000;
   display: flex;
   align-items: center;
-  gap: 12px;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+  gap: 10px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.25);
   background: ${bgColor};
-  font-size: 0.95rem;
+  font-size: 0.9rem;
   max-width: 90%;
   animation: slideUpToast 0.3s ease forwards;
   `;
@@ -671,7 +702,6 @@ function showInfoDialog(message, opts = {}) {
 window.showInfoDialog = showInfoDialog;
 
 async function initializeAppAfterLogin() {
-  
   const usernameDisplay = document.getElementById('username-display');
   if (usernameDisplay && currentUser) {
     usernameDisplay.textContent = currentUser.username;
@@ -786,7 +816,6 @@ async function performSearch(e) {
     searchResults.style.display = 'block';
   }
 }
-
 
 async function navigateToSearchResult(pathArray, url) {
   const searchResults = document.getElementById('searchResults');
@@ -942,13 +971,16 @@ function renderTilesFromDb(items) {
         path.push(key);
         await navigateToPath(path);
       } else if (isMissingPdf) {
-        showNotification('This PDF is not available yet', 'warning');
-      } else if (key.endsWith('.png') || key.endsWith('.jpg') || key.endsWith('.jpeg') || key.endsWith('.webp')) {
-        addToRecent(key, [...path, key], value);
-        showImage(value, key);
+        showNotification('This file is not available', 'warning');
       } else {
         addToRecent(key, [...path, key], value);
-        showPDF(value);
+        if (typeof window.openAnyDocument === 'function') {
+          window.openAnyDocument(value, key);
+        } else if (key.match(/\.(png|jpg|jpeg|webp|gif|svg)$/i)) {
+          showImage(value, key);
+        } else {
+          showPDF(value);
+        }
       }
     };
 
@@ -1033,7 +1065,7 @@ async function navigateToPath(newPath) {
     tilesContainer.style.display = isListView ? 'flex' : 'grid';
   }
   if (sectionHeader) sectionHeader.style.display = 'flex';
-  if (dashboardHeader) dashboardHeader.style.display = newPath.length === 0 ? 'flex' : 'none';
+  if (dashboardHeader) dashboardHeader.style.display = newPath.length === 0 ? (window.innerWidth <= 768 ? 'grid' : 'flex') : 'none';
 
   if (typeof hideTimerCompletely === 'function') hideTimerCompletely();
 
@@ -1154,7 +1186,7 @@ function closePDF() {
   if (sectionHeader) sectionHeader.style.display = 'flex';
 
   if (path.length === 0) {
-    if (dashboardHeader) dashboardHeader.style.display = 'flex';
+    if (dashboardHeader) dashboardHeader.style.display = window.innerWidth <= 768 ? 'grid' : 'flex';
     const importedSection = document.getElementById('importedSection');
     if (importedSection) importedSection.style.display = 'block';
     if (typeof showHomeTagsPanels === 'function') showHomeTagsPanels();
@@ -1217,7 +1249,7 @@ function closeImageViewer() {
     tilesContainer.style.display = isListView ? 'flex' : 'grid';
   }
   if (sectionHeader) sectionHeader.style.display = 'flex';
-  if (dashboardHeader && path.length === 0) dashboardHeader.style.display = 'flex';
+  if (dashboardHeader && path.length === 0) dashboardHeader.style.display = window.innerWidth <= 768 ? 'grid' : 'flex';
 }
 function downloadCurrentImage() {
   if (!_currentImageBlobUrl) return;
@@ -1899,6 +1931,46 @@ window.saveSession = saveSession;
 window.deleteSession = deleteSession;
 window.showDaySessions = showDaySessions;
 
+function initializeMobileBottomNav() {
+  const bottomNav = document.getElementById('mobileBottomNav');
+  if (!bottomNav) return;
+
+  bottomNav.addEventListener('click', (e) => {
+    const item = e.target.closest('.mobile-bottom-nav-item');
+    if (!item) return;
+
+    const view = item.dataset.view;
+    if (view === 'more') {
+      const navLinks = document.getElementById('navLinks');
+      const sidebarOverlay = document.getElementById('sidebarOverlay');
+      if (navLinks) {
+        navLinks.classList.toggle('sidebar-open');
+        sidebarOverlay?.classList.toggle('active');
+      }
+    } else {
+      showView(view);
+      const navMap = {
+        'home': 'homeNav',
+        'favorites': 'favoritesNav',
+        'recent': 'recentNav',
+        'planner': 'studyPlannerNav'
+      };
+      if (navMap[view]) setActiveNav(navMap[view]);
+    }
+    updateMobileBottomNavActive(view);
+  });
+}
+
+function updateMobileBottomNavActive(viewName) {
+  document.querySelectorAll('.mobile-bottom-nav-item').forEach(item => {
+    if (item.dataset.view === viewName) {
+      item.classList.add('active');
+    } else {
+      item.classList.remove('active');
+    }
+  });
+}
+
 async function initializeApp() {
   console.log('[App] Starting initialization...');
   preventAccidentalSelection();
@@ -1919,6 +1991,7 @@ async function initializeApp() {
   // Initialize SQLite Database Engine
   await DbService.init();
 
+  initializeMobileBottomNav();
   applyAccessibilitySettings();
 
   if (typeof initializeNewFeatures === 'function') {
@@ -2470,6 +2543,7 @@ window.showView = showView;
 function showView(viewName) {
   currentView = viewName;
   saveUserPreferences();
+  updateMobileBottomNavActive(viewName);
 
   const pdfViewerContainer = document.getElementById('pdfViewerContainer');
   if (pdfViewerContainer && pdfViewerContainer.style.display !== 'none') {
@@ -2518,7 +2592,7 @@ function showView(viewName) {
       if (sh) sh.style.display = 'flex';
 
       if (importedSection) importedSection.style.display = 'block';
-      if (dashboardHeader) dashboardHeader.style.display = 'flex';
+      if (dashboardHeader) dashboardHeader.style.display = path.length === 0 ? (window.innerWidth <= 768 ? 'grid' : 'flex') : 'none';
       if (breadcrumb) breadcrumb.style.display = 'flex';
       if (backBtn) backBtn.style.display = path.length > 0 ? 'flex' : 'none';
       if (typeof window.renderLibrary === 'function') window.renderLibrary();
@@ -2606,7 +2680,7 @@ function showView(viewName) {
     default:
       if (tilesSection) tilesSection.style.display = 'block';
       if (importedSection) importedSection.style.display = 'block';
-      if (dashboardHeader) dashboardHeader.style.display = 'flex';
+      if (dashboardHeader) dashboardHeader.style.display = window.innerWidth <= 768 ? 'grid' : 'flex';
       if (breadcrumb) breadcrumb.style.display = 'flex';
       if (typeof window.renderLibrary === 'function') window.renderLibrary();
       break;
@@ -3452,6 +3526,7 @@ async function downloadAndInstallUpdate() {
     updateState.downloading = false;
   }
 }
+
 function updateButtonToDownloadMode(version) {
   const btn = document.getElementById('checkUpdatesBtn');
   if (btn) {
@@ -4805,6 +4880,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initSettingsDropdown();
   initHamburgerMenu();
 });
+
 async function checkForUpdatesManual() {
   if (window.hotCodeUpdater && typeof window.hotCodeUpdater.check === 'function') {
     const updates = await window.hotCodeUpdater.check(false);
@@ -4813,25 +4889,3 @@ async function checkForUpdatesManual() {
     }
   }
 }
-
-
-    tile.onclick = async () => {
-      if (isFolder) {
-        path.push(key);
-        await navigateToPath(path);
-      } else if (isMissingPdf) {
-        showNotification('This file is not available', 'warning');
-      } else {
-        addToRecent(key, [...path, key], value);
-        if (typeof window.openAnyDocument === 'function') {
-          window.openAnyDocument(value, key);
-        } else if (key.match(/\.(png|jpg|jpeg|webp|gif|svg)$/i)) {
-          showImage(value, key);
-        } else {
-          showPDF(value);
-        }
-      }
-    };
-
-
-

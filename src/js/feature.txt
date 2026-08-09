@@ -4,6 +4,9 @@
 // Complete Local-First Desktop & Web Engine
 // ============================================
 
+// Global Drop Target Tracker for Tauri Native Drop Events
+window.activeDropTargetFolderId = null;
+
 // Utility & Helper Functions
 function escapeHtml(text) {
     if (!text) return '';
@@ -82,7 +85,7 @@ function clearDragHoverStyles() {
     });
 }
 
-// Injected styles for In-App Drag and Drop & Drop Zones
+// Injected styles for In-App Drag and Drop & Multi-Document Reader
 (function injectLibraryDragStyles() {
     if (document.getElementById('library-drag-styles')) return;
     const style = document.createElement('style');
@@ -103,9 +106,47 @@ function clearDragHoverStyles() {
             border-color: var(--accent, #cf6215) !important;
             background: rgba(207, 98, 21, 0.1) !important;
         }
+        .doc-viewer-body {
+            background: var(--surface, #ffffff);
+            color: var(--fg, #18181b);
+            padding: 2rem;
+            border-radius: 12px;
+            border: 1px solid var(--line, #e4e4e7);
+            max-height: calc(100vh - 200px);
+            overflow-y: auto;
+            font-size: 0.95rem;
+            line-height: 1.6;
+        }
+        .doc-viewer-body pre {
+            background: var(--bg, #f7f7f8);
+            padding: 1rem;
+            border-radius: 8px;
+            overflow-x: auto;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .docx-rendered-content table {
+            border-collapse: collapse;
+            width: 100%;
+            margin: 1rem 0;
+        }
+        .docx-rendered-content th, .docx-rendered-content td {
+            border: 1px solid var(--line, #e4e4e7);
+            padding: 8px 12px;
+        }
     `;
     (document.head || document.documentElement).appendChild(style);
 })();
+
+// Helper to determine file category
+function getFileTypeCategory(fileName) {
+    if (!fileName) return 'other';
+    const ext = fileName.toLowerCase().split('.').pop();
+    if (['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg', 'bmp', 'ico'].includes(ext)) return 'image';
+    if (ext === 'pdf') return 'pdf';
+    if (['md', 'markdown', 'txt', 'json', 'csv', 'log', 'js', 'py', 'html', 'css', 'xml', 'yaml', 'yml'].includes(ext)) return 'text';
+    if (['docx', 'doc'].includes(ext)) return 'docx';
+    return 'other';
+}
 
 // ============================================
 // 1. PDF BOOKMARKS & PAGE TRACKING
@@ -272,7 +313,189 @@ function closePdfViewer() {
 }
 
 // ============================================
-// 2. PDF ANNOTATIONS & HIGHLIGHTING
+// 2. TEXT, MARKDOWN, DOCX & IMAGE VIEWERS
+// ============================================
+let _currentTextRaw = '';
+let _currentTextName = '';
+let _currentDocxBlob = null;
+let _currentDocxName = '';
+
+async function showTextFile(urlOrBlob, fileName) {
+    _currentTextName = fileName || 'Document.txt';
+    const container = document.getElementById('textViewerContainer');
+    const body = document.getElementById('textViewerBody');
+    const nameEl = document.getElementById('currentTextName');
+    const tilesContainer = document.getElementById('tilesContainer');
+    const sectionHeader = document.querySelector('#tilesSection .section-header');
+
+    if (nameEl) nameEl.textContent = _currentTextName;
+
+    try {
+        let text = '';
+        if (typeof urlOrBlob === 'string' && urlOrBlob.startsWith('blob-id:')) {
+            const blobId = urlOrBlob.replace('blob-id:', '');
+            const blob = await UserLibraryFileStore.getFileBlob(blobId);
+            text = await blob.text();
+        } else if (urlOrBlob instanceof Blob) {
+            text = await urlOrBlob.text();
+        } else if (typeof urlOrBlob === 'string') {
+            const res = await fetch(urlOrBlob);
+            text = await res.text();
+        }
+
+        _currentTextRaw = text;
+        const ext = _currentTextName.toLowerCase().split('.').pop();
+
+        if ((ext === 'md' || ext === 'markdown') && typeof window.marked !== 'undefined') {
+            body.innerHTML = window.marked.parse(text);
+        } else if (ext === 'json') {
+            try {
+                const parsed = JSON.parse(text);
+                body.innerHTML = `<pre><code>${escapeHtml(JSON.stringify(parsed, null, 2))}</code></pre>`;
+            } catch (e) {
+                body.innerHTML = `<pre><code>${escapeHtml(text)}</code></pre>`;
+            }
+        } else {
+            body.innerHTML = `<pre style="white-space: pre-wrap; font-family: inherit;">${escapeHtml(text)}</pre>`;
+        }
+
+        if (container) container.style.display = 'block';
+        if (tilesContainer) tilesContainer.style.display = 'none';
+        if (sectionHeader) sectionHeader.style.display = 'none';
+    } catch (err) {
+        showNotification('Failed to read text file', 'error');
+        console.error(err);
+    }
+}
+
+function closeTextViewer() {
+    const container = document.getElementById('textViewerContainer');
+    const tilesContainer = document.getElementById('tilesContainer');
+    const sectionHeader = document.querySelector('#tilesSection .section-header');
+    if (container) container.style.display = 'none';
+    if (tilesContainer) {
+        const isListView = tilesContainer.classList.contains('list-view');
+        tilesContainer.style.display = isListView ? 'flex' : 'grid';
+    }
+    if (sectionHeader) sectionHeader.style.display = 'flex';
+}
+
+function copyTextViewerContent() {
+    if (_currentTextRaw) {
+        navigator.clipboard.writeText(_currentTextRaw).then(() => {
+            showNotification('Content copied to clipboard!', 'success');
+        });
+    }
+}
+
+function downloadTextContent() {
+    if (!_currentTextRaw) return;
+    const blob = new Blob([_currentTextRaw], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = _currentTextName || 'document.txt';
+    a.click();
+    URL.revokeObjectURL(url);
+}
+
+async function showDocxFile(urlOrBlob, fileName) {
+    _currentDocxName = fileName || 'Document.docx';
+    const container = document.getElementById('docxViewerContainer');
+    const body = document.getElementById('docxViewerBody');
+    const nameEl = document.getElementById('currentDocxName');
+    const tilesContainer = document.getElementById('tilesContainer');
+    const sectionHeader = document.querySelector('#tilesSection .section-header');
+
+    if (nameEl) nameEl.textContent = _currentDocxName;
+
+    try {
+        let arrayBuffer = null;
+        if (typeof urlOrBlob === 'string' && urlOrBlob.startsWith('blob-id:')) {
+            const blobId = urlOrBlob.replace('blob-id:', '');
+            const blob = await UserLibraryFileStore.getFileBlob(blobId);
+            _currentDocxBlob = blob;
+            arrayBuffer = await blob.arrayBuffer();
+        } else if (urlOrBlob instanceof Blob) {
+            _currentDocxBlob = urlOrBlob;
+            arrayBuffer = await urlOrBlob.arrayBuffer();
+        } else if (typeof urlOrBlob === 'string') {
+            const res = await fetch(urlOrBlob);
+            const blob = await res.blob();
+            _currentDocxBlob = blob;
+            arrayBuffer = await blob.arrayBuffer();
+        }
+
+        if (typeof window.mammoth !== 'undefined') {
+            body.innerHTML = '<p class="empty-state">Rendering Word Document...</p>';
+            const result = await window.mammoth.convertToHtml({ arrayBuffer: arrayBuffer });
+            body.innerHTML = result.value || '<p class="empty-state">Document is empty.</p>';
+        } else {
+            body.innerHTML = '<p class="empty-state">Mammoth.js library unavailable. Download the file to view.</p>';
+        }
+
+        if (container) container.style.display = 'block';
+        if (tilesContainer) tilesContainer.style.display = 'none';
+        if (sectionHeader) sectionHeader.style.display = 'none';
+    } catch (err) {
+        showNotification('Failed to render Word document', 'error');
+        console.error(err);
+    }
+}
+
+function closeDocxViewer() {
+    const container = document.getElementById('docxViewerContainer');
+    const tilesContainer = document.getElementById('tilesContainer');
+    const sectionHeader = document.querySelector('#tilesSection .section-header');
+    if (container) container.style.display = 'none';
+    if (tilesContainer) {
+        const isListView = tilesContainer.classList.contains('list-view');
+        tilesContainer.style.display = isListView ? 'flex' : 'grid';
+    }
+    if (sectionHeader) sectionHeader.style.display = 'flex';
+}
+
+function downloadDocxContent() {
+    if (!_currentDocxBlob) return;
+    const url = URL.createObjectURL(_currentDocxBlob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = _currentDocxName || 'document.docx';
+    a.click();
+    URL.revokeObjectURL(url);
+}
+
+async function openAnyDocument(urlOrBlob, fileName) {
+    const category = getFileTypeCategory(fileName);
+    if (category === 'image') {
+        let src = urlOrBlob;
+        if (typeof urlOrBlob === 'string' && urlOrBlob.startsWith('blob-id:')) {
+            const blobId = urlOrBlob.replace('blob-id:', '');
+            const blob = await UserLibraryFileStore.getFileBlob(blobId);
+            src = URL.createObjectURL(blob);
+        } else if (urlOrBlob instanceof Blob) {
+            src = URL.createObjectURL(urlOrBlob);
+        }
+        if (typeof window.showImage === 'function') window.showImage(src, fileName);
+    } else if (category === 'text') {
+        await showTextFile(urlOrBlob, fileName);
+    } else if (category === 'docx') {
+        await showDocxFile(urlOrBlob, fileName);
+    } else {
+        let pdfSrc = urlOrBlob;
+        if (typeof urlOrBlob === 'string' && urlOrBlob.startsWith('blob-id:')) {
+            const blobId = urlOrBlob.replace('blob-id:', '');
+            const blob = await UserLibraryFileStore.getFileBlob(blobId);
+            pdfSrc = URL.createObjectURL(blob);
+        } else if (urlOrBlob instanceof Blob) {
+            pdfSrc = URL.createObjectURL(urlOrBlob);
+        }
+        if (typeof window.showPDF === 'function') window.showPDF(pdfSrc);
+    }
+}
+
+// ============================================
+// 3. PDF ANNOTATIONS & HIGHLIGHTING
 // ============================================
 let pdfAnnotations = JSON.parse(localStorage.getItem('questionary-pdf-annotations') || '{}');
 
@@ -313,7 +536,7 @@ function deletePdfAnnotation(pdfUrl, annotationId) {
 }
 
 // ============================================
-// 3. QUIZ MODE FROM FLASHCARDS
+// 4. QUIZ MODE FROM FLASHCARDS
 // ============================================
 let quizState = {
     active: false,
@@ -591,7 +814,7 @@ function closeQuizModal() {
 }
 
 // ============================================
-// 4. STUDY REMINDERS WITH NOTIFICATIONS
+// 5. STUDY REMINDERS WITH NOTIFICATIONS
 // ============================================
 let studyReminders = JSON.parse(localStorage.getItem('questionary-reminders') || '[]');
 
@@ -723,7 +946,7 @@ function initReminders() {
 }
 
 // ============================================
-// 5. THEMES — Light / Dark + Custom Theme Builder
+// 6. THEMES — Light / Dark + Custom Theme Builder
 // ============================================
 const defaultCustomTheme = {
     bg: '#f7f7f8', surface: '#ffffff', fg: '#18181b', accent: '#cf6215',
@@ -953,7 +1176,7 @@ function renderThemeSelector() {
 }
 
 // ============================================
-// 6. TAGGING SYSTEM
+// 7. TAGGING SYSTEM
 // ============================================
 let tags = JSON.parse(localStorage.getItem('questionary-tags') || '[]');
 let itemTags = JSON.parse(localStorage.getItem('questionary-item-tags') || '{}');
@@ -1074,7 +1297,7 @@ function renderTagsManager() {
 }
 
 // ============================================
-// 7. VOICE NOTES RECORDER
+// 8. VOICE NOTES RECORDER
 // ============================================
 let mediaRecorder = null;
 let audioChunks = [];
@@ -1304,7 +1527,7 @@ function toggleRecordingNotes() {
 }
 
 // ============================================
-// 8. EXPORT/IMPORT DATA
+// 9. EXPORT/IMPORT DATA
 // ============================================
 function exportAllData() {
     const data = {
@@ -1366,7 +1589,7 @@ function importData(data) {
 }
 
 // ============================================
-// 9. CUSTOMIZABLE DASHBOARD
+// 10. CUSTOMIZABLE DASHBOARD
 // ============================================
 let dashboardLayout = JSON.parse(localStorage.getItem('questionary-dashboard-layout') || '{"widgets":["documents","favorites","recent","streak"],"visible":{"documents":true,"favorites":true,"recent":true,"streak":true}}');
 
@@ -1474,7 +1697,7 @@ function renderDashboardWidgets() {
 }
 
 // ============================================
-// 10. ENHANCED ANALYTICS
+// 11. ENHANCED ANALYTICS
 // ============================================
 function renderEnhancedAnalytics() {
     const container = document.getElementById('enhancedAnalytics');
@@ -1578,7 +1801,8 @@ function calculateSubjectStats() {
 }
 
 // ================================================================
-// 11. FILE IMPORT & TAURI DEV FILE DROP HANDLING
+// 12. FILE IMPORT & TAURI DEV FILE DROP HANDLING
+// WebKitGTK Safe File Drop Engine (Prevents GLib-GIO assertion crashes)
 // ================================================================
 
 async function importFileFromAnySource(fileOrPath, folderId = null) {
@@ -1587,18 +1811,28 @@ async function importFileFromAnySource(fileOrPath, folderId = null) {
     const validFolderId = (folderId !== null && folderId !== undefined && folderId !== 'null' && folderId !== 'undefined') ? Number(folderId) : null;
     let fileObj = null;
 
-    // Case A: File / Blob object (checking flexibly across WebViews)
+    // Case A: File / Blob object
     if (fileOrPath instanceof File || fileOrPath instanceof Blob || (typeof fileOrPath === 'object' && (fileOrPath.name || fileOrPath.size !== undefined))) {
         fileObj = fileOrPath;
     } 
     // Case B: Native file path string from Tauri
     else if (typeof fileOrPath === 'string') {
         const fileName = fileOrPath.split(/[/\\]/).pop() || 'imported_file.pdf';
-        
-        if (window.__TAURI__) {
+        const ext = fileName.toLowerCase();
+        const mimeType = ext.endsWith('.pdf') ? 'application/pdf' :
+                         ext.endsWith('.png') ? 'image/png' :
+                         ext.endsWith('.jpg') || ext.endsWith('.jpeg') ? 'image/jpeg' :
+                         ext.endsWith('.webp') ? 'image/webp' :
+                         ext.endsWith('.gif') ? 'image/gif' :
+                         ext.endsWith('.docx') ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' :
+                         ext.endsWith('.txt') || ext.endsWith('.md') ? 'text/plain' : 'application/octet-stream';
+
+        const isTauri = !!(window.__TAURI__ || window.__TAURI_INTERNALS__);
+
+        if (isTauri) {
             try {
+                const fs = window.__TAURI__?.fs;
                 let binaryData = null;
-                const fs = window.__TAURI__.fs;
                 if (fs && typeof fs.readBinaryFile === 'function') {
                     binaryData = await fs.readBinaryFile(fileOrPath);
                 } else if (fs && typeof fs.readFile === 'function') {
@@ -1606,26 +1840,41 @@ async function importFileFromAnySource(fileOrPath, folderId = null) {
                 }
                 
                 if (binaryData) {
-                    fileObj = new File([binaryData], fileName, { 
-                        type: fileName.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/png' 
-                    });
+                    fileObj = new File([binaryData], fileName, { type: mimeType });
                 }
             } catch (fsErr) {
-                console.warn('[Tauri FS Read Failed, trying asset fetch]:', fsErr);
+                console.warn('[Tauri FS Read Failed, trying convertFileSrc]:', fsErr);
             }
 
-            if (!fileObj && window.__TAURI__.tauri && typeof window.__TAURI__.tauri.convertFileSrc === 'function') {
+            if (!fileObj) {
                 try {
-                    const assetUrl = window.__TAURI__.tauri.convertFileSrc(fileOrPath);
-                    const res = await fetch(assetUrl);
-                    const blob = await res.blob();
-                    fileObj = new File([blob], fileName, {
-                        type: fileName.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/png'
-                    });
+                    let convertFileSrc = null;
+                    if (window.__TAURI__?.tauri && typeof window.__TAURI__.tauri.convertFileSrc === 'function') {
+                        convertFileSrc = window.__TAURI__.tauri.convertFileSrc;
+                    } else if (window.__TAURI__?.core && typeof window.__TAURI__.core.convertFileSrc === 'function') {
+                        convertFileSrc = window.__TAURI__.core.convertFileSrc;
+                    } else if (window.__TAURI_INTERNALS__ && typeof window.__TAURI_INTERNALS__.convertFileSrc === 'function') {
+                        convertFileSrc = window.__TAURI_INTERNALS__.convertFileSrc;
+                    }
+
+                    if (convertFileSrc) {
+                        const assetUrl = convertFileSrc(fileOrPath);
+                        const res = await fetch(assetUrl);
+                        const arrayBuffer = await res.arrayBuffer();
+                        fileObj = new File([arrayBuffer], fileName, { type: mimeType });
+                    }
                 } catch (fetchErr) {
                     console.error('[Tauri Asset Fetch Failed]:', fetchErr);
                 }
             }
+        }
+
+        if (!fileObj && (fileOrPath.startsWith('http') || fileOrPath.startsWith('blob:') || fileOrPath.startsWith('data:'))) {
+            try {
+                const res = await fetch(fileOrPath);
+                const arrayBuffer = await res.arrayBuffer();
+                fileObj = new File([arrayBuffer], fileName, { type: mimeType });
+            } catch (e) {}
         }
     }
 
@@ -1668,40 +1917,83 @@ async function processAndImportFiles(filesOrPaths, folderId = null) {
     }
 }
 
+function setupTauriNativeDropListener() {
+    try {
+        const listenFn = window.__TAURI__?.event?.listen || window.__TAURI_INTERNALS__?.listen;
+
+        const handleDropPayload = async (payload) => {
+            let paths = [];
+            if (Array.isArray(payload)) {
+                paths = payload;
+            } else if (payload && Array.isArray(payload.paths)) {
+                paths = payload.paths;
+            }
+
+            if (paths.length > 0) {
+                const targetFolder = (window.activeDropTargetFolderId !== undefined && window.activeDropTargetFolderId !== null)
+                    ? window.activeDropTargetFolderId
+                    : UserLibraryDbService.currentFolderId;
+
+                window.activeDropTargetFolderId = null;
+                clearDragHoverStyles();
+
+                await processAndImportFiles(paths, targetFolder);
+            }
+        };
+
+        if (typeof listenFn === 'function') {
+            listenFn('tauri://file-drop', (event) => {
+                handleDropPayload(event.payload);
+            });
+            listenFn('tauri://drag-drop', (event) => {
+                handleDropPayload(event.payload);
+            });
+            listenFn('tauri://file-drop-cancelled', () => {
+                clearDragHoverStyles();
+                window.activeDropTargetFolderId = null;
+            });
+        } else if (window.__TAURI__?.webviewWindow) {
+            const appWindow = window.__TAURI__.webviewWindow.getCurrentWebviewWindow();
+            if (appWindow && typeof appWindow.onDragDropEvent === 'function') {
+                appWindow.onDragDropEvent((event) => {
+                    if (event.payload && (event.payload.type === 'drop' || event.payload.paths)) {
+                        handleDropPayload(event.payload.paths || event.payload);
+                    }
+                });
+            }
+        }
+    } catch (err) {
+        console.warn('[Tauri Native Drop Listener Warning]:', err);
+    }
+}
+
 function initDragDropImport() {
-    // 1. Prevent Browser default navigation on window when OS files are dragged over
+    const isTauri = !!(window.__TAURI__ || window.__TAURI_INTERNALS__);
+
     window.addEventListener('dragover', (e) => {
-        if (e.dataTransfer && e.dataTransfer.types && Array.from(e.dataTransfer.types).includes('Files')) {
+        if (!draggedLibraryItem) {
             e.preventDefault();
-            e.dataTransfer.dropEffect = 'copy';
+            if (e.dataTransfer) {
+                e.dataTransfer.dropEffect = 'copy';
+            }
         }
     }, false);
 
     window.addEventListener('drop', async (e) => {
-        // Ignore global OS drop if user is dragging an internal library card
         if (draggedLibraryItem) return;
 
-        if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-            e.preventDefault();
-            await processAndImportFiles(Array.from(e.dataTransfer.files));
+        e.preventDefault();
+        clearDragHoverStyles();
+
+        if (!isTauri) {
+            if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                await processAndImportFiles(Array.from(e.dataTransfer.files));
+            }
         }
     }, false);
 
-    // 2. Tauri Native File Drop Listener (npm run tauri dev)
-    if (window.__TAURI__) {
-        try {
-            const listen = window.__TAURI__.event?.listen || window.__TAURI__.event?.once;
-            if (typeof listen === 'function') {
-                listen('tauri://file-drop', async (event) => {
-                    const paths = event.payload;
-                    if (Array.isArray(paths) && paths.length > 0) {
-                        await processAndImportFiles(paths);
-                    }
-                });
-            }
-        } catch (err) {
-            console.warn('[Tauri Native Drop Listener Warning]:', err);
-        }
+    if (isTauri) {
+        setupTauriNativeDropListener();
     }
 }
 
@@ -1716,7 +2008,7 @@ async function importPdfFile(file) {
 }
 
 // ============================================
-// 12. ALARM SOUND SYSTEM (Web Audio API)
+// 13. ALARM SOUND SYSTEM (Web Audio API)
 // ============================================
 let alarmSettings = JSON.parse(localStorage.getItem('questionary-alarm-settings') || '{}');
 if (!alarmSettings.sound) alarmSettings.sound = 'classic';
@@ -1727,36 +2019,12 @@ let alarmAudioContext = null;
 let alarmIntervalId = null;
 
 const alarmPatterns = {
-    classic: {
-        frequencies: [880, 0, 880, 0, 880, 0, 0],
-        durations:   [120, 80, 120, 80, 120, 80, 400],
-        type: 'square'
-    },
-    gentle: {
-        frequencies: [392, 440, 523, 587, 659, 784, 880],
-        durations:   [250, 250, 250, 250, 300, 300, 500],
-        type: 'sine'
-    },
-    urgent: {
-        frequencies: [1047, 0, 1047, 0, 1319, 0, 1319, 0, 1568, 0],
-        durations:   [60, 60, 60, 60, 60, 60, 60, 60, 60, 300],
-        type: 'square'
-    },
-    chime: {
-        frequencies: [659, 523, 0, 659, 523, 0, 784, 659, 523],
-        durations:   [300, 450, 200, 300, 450, 200, 250, 250, 600],
-        type: 'sine'
-    },
-    digital: {
-        frequencies: [1200, 0, 1200, 0, 800, 0],
-        durations:   [150, 75, 150, 75, 200, 350],
-        type: 'square'
-    },
-    bell: {
-        frequencies: [659, 0, 523, 0, 659, 784, 659],
-        durations:   [350, 50, 350, 50, 200, 200, 500],
-        type: 'triangle'
-    }
+    classic: { frequencies: [880, 0, 880, 0, 880, 0, 0], durations: [120, 80, 120, 80, 120, 80, 400], type: 'square' },
+    gentle: { frequencies: [392, 440, 523, 587, 659, 784, 880], durations: [250, 250, 250, 250, 300, 300, 500], type: 'sine' },
+    urgent: { frequencies: [1047, 0, 1047, 0, 1319, 0, 1319, 0, 1568, 0], durations: [60, 60, 60, 60, 60, 60, 60, 60, 60, 300], type: 'square' },
+    chime: { frequencies: [659, 523, 0, 659, 523, 0, 784, 659, 523], durations: [300, 450, 200, 300, 450, 200, 250, 250, 600], type: 'sine' },
+    digital: { frequencies: [1200, 0, 1200, 0, 800, 0], durations: [150, 75, 150, 75, 200, 350], type: 'square' },
+    bell: { frequencies: [659, 0, 523, 0, 659, 784, 659], durations: [350, 50, 350, 50, 200, 200, 500], type: 'triangle' }
 };
 
 function saveAlarmSettings() {
@@ -1942,9 +2210,9 @@ function initAlarmUI() {
 }
 
 // ================================================================
-// 13. PDF LIBRARY MANAGEMENT SYSTEM ('userlibrary.db')
+// 14. PDF & MULTI-DOC LIBRARY MANAGEMENT SYSTEM ('userlibrary.db')
 // Stores custom library metadata in 'userlibrary.db'
-// Stores PDF binary files in IndexedDB / AppData 'user_library_files/'
+// Stores PDF/Doc binary files in IndexedDB / AppData 'user_library_files/'
 // ================================================================
 
 const UserLibraryFileStore = {
@@ -1995,7 +2263,7 @@ const UserLibraryFileStore = {
                 const readBinaryFile = fs.readBinaryFile || fs.readFile;
                 const BaseDirectory = fs.BaseDirectory || 1;
                 const data = await readBinaryFile(`user_library_files/${blobId}.bin`, { baseDir: BaseDirectory.AppData });
-                if (data) return new Blob([data], { type: 'application/pdf' });
+                if (data) return new Blob([data]);
             } catch (e) {}
         }
 
@@ -2007,7 +2275,7 @@ const UserLibraryFileStore = {
                 const tx = idb.transaction('files_store', 'readonly');
                 const getReq = tx.objectStore('files_store').get(blobId);
                 getReq.onsuccess = () => {
-                    if (getReq.result) resolve(new Blob([getReq.result], { type: 'application/pdf' }));
+                    if (getReq.result) resolve(new Blob([getReq.result]));
                     else resolve(null);
                 };
                 getReq.onerror = () => resolve(null);
@@ -2184,21 +2452,20 @@ const UserLibraryDbService = {
 
     async importFile(file, folderId = null) {
         const validFolderId = (folderId !== null && folderId !== undefined && folderId !== 'null' && folderId !== 'undefined') ? Number(folderId) : null;
-        const blobId = `user_pdf_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+        const blobId = `doc_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
         const name = file.name || 'Imported_File';
-        const fileType = name.toLowerCase().match(/\.(png|jpg|jpeg|webp)$/) ? 'image' : 'pdf';
+        const fileType = getFileTypeCategory(name);
 
         const uInt8Array = await fileToUint8Array(file);
         await UserLibraryFileStore.saveBytes(blobId, uInt8Array);
         
-        // SAFE: Use uInt8Array.byteLength to avoid WebKitGTK GLib size assertion bugs
         const fileSize = uInt8Array.byteLength || 0;
 
         await this.execute(
             "INSERT INTO files (folder_id, name, file_type, blob_id, file_size) VALUES (?, ?, ?, ?, ?)", 
             [validFolderId, name, fileType, blobId, fileSize]
         );
-        console.log(`[UserLibraryDB] Inserted file "${name}" (${fileSize} bytes) into folder_id:`, validFolderId);
+        console.log(`[UserLibraryDB] Inserted file "${name}" (${fileSize} bytes, type: ${fileType}) into folder_id:`, validFolderId);
     },
 
     async deleteFile(fileId) {
@@ -2229,7 +2496,6 @@ let moveItemState = { itemId: null, itemType: null };
 let selectedFolderColor = '#3b82f6';
 let selectedMoveDestinationId = null;
 
-// Track internal dragged library item
 let draggedLibraryItem = null;
 
 function toggleLibraryEditMode() {
@@ -2260,7 +2526,8 @@ async function renderLibrary() {
     const emptyState = document.getElementById('libraryEmptyState');
     if (emptyState) emptyState.style.display = isEmpty ? 'flex' : 'none';
 
-    // 1. Render Folders (both Draggable and Drop Targets for Organization)
+    const isTauri = !!(window.__TAURI__ || window.__TAURI_INTERNALS__);
+
     folders.forEach(folder => {
         const item = document.createElement('div');
         item.className = 'library-item library-folder';
@@ -2281,7 +2548,6 @@ async function renderLibrary() {
             ` : ''}
         `;
 
-        // DRAG START (Folder)
         item.addEventListener('dragstart', (e) => {
             draggedLibraryItem = { id: folder.id, type: 'folder' };
             item.classList.add('is-dragging');
@@ -2294,12 +2560,16 @@ async function renderLibrary() {
             draggedLibraryItem = null;
         });
 
-        // DROP TARGET (Folder can accept files or other folders)
         item.addEventListener('dragover', (e) => {
             e.preventDefault();
             e.stopPropagation();
-            e.dataTransfer.dropEffect = 'move';
+            if (e.dataTransfer) {
+                e.dataTransfer.dropEffect = 'move';
+            }
             item.classList.add('drag-target-hover');
+            if (!draggedLibraryItem) {
+                window.activeDropTargetFolderId = folder.id;
+            }
         });
 
         item.addEventListener('dragenter', (e) => {
@@ -2311,6 +2581,9 @@ async function renderLibrary() {
             e.preventDefault();
             if (!item.contains(e.relatedTarget)) {
                 item.classList.remove('drag-target-hover');
+                if (!draggedLibraryItem && window.activeDropTargetFolderId === folder.id) {
+                    window.activeDropTargetFolderId = null;
+                }
             }
         });
 
@@ -2319,7 +2592,6 @@ async function renderLibrary() {
             e.stopPropagation();
             clearDragHoverStyles();
 
-            // Case A: Dropping internal library item into this folder
             if (draggedLibraryItem) {
                 if (draggedLibraryItem.type === 'folder' && draggedLibraryItem.id === folder.id) {
                     showNotification("Cannot move a folder into itself", "warning");
@@ -2332,8 +2604,7 @@ async function renderLibrary() {
                 return;
             }
 
-            // Case B: Dropping OS File directly onto this folder
-            if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) {
+            if (!isTauri && e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) {
                 await processAndImportFiles(Array.from(e.dataTransfer.files), folder.id);
             }
         });
@@ -2347,14 +2618,19 @@ async function renderLibrary() {
         container.appendChild(item);
     });
 
-    // 2. Render Files (Draggable)
     files.forEach(file => {
         const item = document.createElement('div');
         item.className = 'library-item library-pdf';
         item.setAttribute('draggable', 'true');
-        const isImage = file.file_type === 'image';
-        const icon = isImage ? 'fa-image' : 'fa-file-pdf';
-        const iconColor = isImage ? '#22c55e' : '#ef4444';
+        
+        const category = getFileTypeCategory(file.name);
+        let icon = 'fa-file-alt';
+        let iconColor = '#cf6215';
+        
+        if (category === 'image') { icon = 'fa-file-image'; iconColor = '#22c55e'; }
+        else if (category === 'pdf') { icon = 'fa-file-pdf'; iconColor = '#ef4444'; }
+        else if (category === 'text') { icon = 'fa-file-code'; iconColor = '#0891b2'; }
+        else if (category === 'docx') { icon = 'fa-file-word'; iconColor = '#2563eb'; }
 
         item.innerHTML = `
             <div class="library-item-icon" style="color: ${iconColor}">
@@ -2371,7 +2647,6 @@ async function renderLibrary() {
             ` : ''}
         `;
 
-        // DRAG START (File)
         item.addEventListener('dragstart', (e) => {
             draggedLibraryItem = { id: file.id, type: 'file' };
             item.classList.add('is-dragging');
@@ -2385,17 +2660,7 @@ async function renderLibrary() {
         });
 
         item.onclick = async () => {
-            const blob = await UserLibraryFileStore.getFileBlob(file.blob_id);
-            if (!blob) {
-                showNotification('File data not found in storage', 'error');
-                return;
-            }
-            const objectUrl = URL.createObjectURL(blob);
-            if (isImage) {
-                if (typeof window.showImage === 'function') window.showImage(objectUrl, file.name);
-            } else {
-                if (typeof window.showPDF === 'function') window.showPDF(objectUrl);
-            }
+            await openAnyDocument(`blob-id:${file.blob_id}`, file.name);
         };
 
         container.appendChild(item);
@@ -2414,7 +2679,6 @@ function renderLibraryBreadcrumb() {
     breadcrumb.style.display = 'flex';
     breadcrumb.innerHTML = '';
 
-    // Root Library Breadcrumb (Drop Target to move item out to Root!)
     const rootBtn = document.createElement('button');
     rootBtn.className = 'breadcrumb-item';
     rootBtn.innerHTML = '<i class="fas fa-home"></i> Library';
@@ -2439,7 +2703,6 @@ function renderLibraryBreadcrumb() {
     });
 }
 
-// Helper to make breadcrumb buttons drop targets for moving files up
 function attachBreadcrumbDropHandler(element, targetFolderId, label) {
     element.addEventListener('dragover', (e) => {
         if (draggedLibraryItem) {
@@ -2594,7 +2857,7 @@ async function confirmMoveItem() {
 function openPdfFilePicker() {
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = '.pdf,.png,.jpg,.jpeg,.webp';
+    input.accept = '.pdf,.png,.jpg,.jpeg,.webp,.gif,.svg,.txt,.md,.markdown,.json,.csv,.docx';
     input.multiple = true;
     input.onchange = async (e) => {
         if (e.target.files.length) {
@@ -2619,7 +2882,8 @@ function handleLibraryDragLeave(e) {
 
 async function handleLibraryDrop(e) {
     e.preventDefault();
-    if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) {
+    const isTauri = !!(window.__TAURI__ || window.__TAURI_INTERNALS__);
+    if (!isTauri && e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) {
         await processAndImportFiles(Array.from(e.dataTransfer.files));
     }
 }
@@ -2627,6 +2891,7 @@ async function handleLibraryDrop(e) {
 function initLibraryDragDrop() {
     const dropZone = document.getElementById('libraryDropZone');
     const settingsDropZone = document.getElementById('dropZone');
+    const isTauri = !!(window.__TAURI__ || window.__TAURI_INTERNALS__);
 
     [dropZone, settingsDropZone].forEach(el => {
         if (!el) return;
@@ -2665,7 +2930,7 @@ function initLibraryDragDrop() {
                 e.preventDefault();
                 e.stopPropagation();
                 clearDragHoverStyles();
-                if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) {
+                if (!isTauri && e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) {
                     await processAndImportFiles(Array.from(e.dataTransfer.files));
                 }
             }
@@ -2674,7 +2939,7 @@ function initLibraryDragDrop() {
 }
 
 // ============================================
-// 14. TAGS SECTION & TAGGING ITEMS
+// 15. TAGS SECTION & TAGGING ITEMS
 // ============================================
 let currentTaggingItem = null;
 
@@ -2874,11 +3139,7 @@ function navigateToTaggedItem(itemId) {
                 }
                 const value = level ? level[fileName] : null;
                 if (value && typeof value === 'string') {
-                    if (fileName.match(/\.(png|jpg|jpeg|webp)$/i)) {
-                        if (typeof window.showImage === 'function') window.showImage(value, fileName);
-                    } else {
-                        if (typeof window.showPDF === 'function') window.showPDF(value);
-                    }
+                    openAnyDocument(value, fileName);
                 } else {
                     showNotification('Could not open file — it may have been moved or deleted.', 'warning');
                 }
@@ -2890,7 +3151,7 @@ function navigateToTaggedItem(itemId) {
 }
 
 // ============================================
-// 15. PDF POSITION MEMORY
+// 16. PDF POSITION MEMORY
 // ============================================
 let pdfPositions = JSON.parse(localStorage.getItem('questionary-pdf-positions') || '{}');
 
@@ -2937,7 +3198,7 @@ window.addEventListener('message', (event) => {
 });
 
 // ============================================
-// 16. VOICE NOTES GRID FOR NOTES SECTION
+// 17. VOICE NOTES GRID FOR NOTES SECTION
 // ============================================
 function renderVoiceNotesGrid() {
     const container = document.getElementById('voiceNotesGrid');
@@ -2970,7 +3231,7 @@ function renderVoiceNotesGrid() {
 }
 
 // ============================================
-// 17. INITIALIZATION & SETTINGS UI
+// 18. INITIALIZATION & SETTINGS UI
 // ============================================
 function renderSettings() {
     initThemeOnLoad();
@@ -3269,6 +3530,15 @@ window.savePdfBlob = async function(id, blob) {
 window.deletePdfBlob = async function(id) {
     return await UserLibraryFileStore.removeFile(id);
 };
+
+window.openAnyDocument = openAnyDocument;
+window.showTextFile = showTextFile;
+window.closeTextViewer = closeTextViewer;
+window.copyTextViewerContent = copyTextViewerContent;
+window.downloadTextContent = downloadTextContent;
+window.showDocxFile = showDocxFile;
+window.closeDocxViewer = closeDocxViewer;
+window.downloadDocxContent = downloadDocxContent;
 
 window.addPdfBookmark = addPdfBookmark;
 window.removePdfBookmark = removePdfBookmark;
