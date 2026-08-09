@@ -74,12 +74,12 @@ jobs:
           files: ${{ matrix.artifact-path }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: 'true'
 
   release-android:
     permissions:
       contents: write
     runs-on: ubuntu-22.04
+    needs: release-desktop
     env:
       ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
 
@@ -139,47 +139,57 @@ jobs:
           ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
           NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/27.0.12077973
 
-      - name: Setup Android signing keystore
-        if: ${{ env.ANDROID_KEYSTORE_BASE64 != '' }}
-        run: |
-          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > src-tauri/gen/android/app/questionary.jks
-          cat >> src-tauri/gen/android/local.properties <<EOF
-          storeFile=questionary.jks
-          storePassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}
-          keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}
-          EOF
-
       - name: Build Android APK
         run: npx tauri android build --apk
         env:
           ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
           NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/27.0.12077973
 
-      - name: Auto-Sign APKs if no custom keystore was configured
+      - name: Sign and Package Android APKs
         run: |
-          if [ ! -f "src-tauri/gen/android/app/questionary.jks" ]; then
-            echo "Custom keystore secret not detected. Generating release signature for APKs..."
-            keytool -genkey -v -keystore ci-release.jks -keyalg RSA -keysize 2048 -validity 10000 \
-              -alias ci-key -storepass password123 -keypass password123 \
+          mkdir -p release-apks
+          VERSION=$(node -p "require('./package.json').version")
+
+          KEYSTORE="ci-release.jks"
+          KEY_PASS="password123"
+          KEY_ALIAS="ci-key"
+
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "Using custom keystore from GitHub Secrets..."
+            echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE"
+            KEY_PASS="${{ secrets.ANDROID_KEYSTORE_PASSWORD }}"
+            KEY_ALIAS="${{ secrets.ANDROID_KEY_ALIAS }}"
+          else
+            echo "Generating release keystore in CI..."
+            keytool -genkey -v -keystore "$KEYSTORE" -keyalg RSA -keysize 2048 -validity 10000 \
+              -alias "$KEY_ALIAS" -storepass "$KEY_PASS" -keypass "$KEY_PASS" \
               -dname "CN=Questionary, OU=CI, O=Questionary, L=CI, S=CI, C=US"
-            
-            for apk in $(find src-tauri/gen/android/app/build/outputs/apk -type f -name "*.apk"); do
-              echo "Signing $apk with apksigner..."
-              $ANDROID_SDK_ROOT/build-tools/34.0.0/apksigner sign \
-                --ks ci-release.jks \
-                --ks-pass pass:password123 \
-                --key-pass pass:password123 \
-                --ks-key-alias ci-key \
-                "$apk"
-              $ANDROID_SDK_ROOT/build-tools/34.0.0/apksigner verify "$apk"
-            done
           fi
+
+          APKSIGNER="$ANDROID_SDK_ROOT/build-tools/34.0.0/apksigner"
+
+          for apk in $(find src-tauri/gen/android/app/build/outputs/apk -type f -name "*.apk"); do
+            filename=$(basename "$apk")
+            echo "Signing $filename with apksigner..."
+
+            $APKSIGNER sign \
+              --ks "$KEYSTORE" \
+              --ks-pass "pass:$KEY_PASS" \
+              --ks-key-alias "$KEY_ALIAS" \
+              "$apk"
+
+            $APKSIGNER verify "$apk"
+
+            arch_name=$(echo "$filename" | sed 's/app-//g' | sed 's/-release-unsigned//g' | sed 's/-release//g' | sed 's/\.apk//g')
+            target_name="Questionary-${VERSION}-${arch_name}.apk"
+
+            cp "$apk" "release-apks/$target_name"
+            echo "Prepared signed APK: release-apks/$target_name"
+          done
 
       - name: Upload Android APKs to Release
         uses: softprops/action-gh-release@v2
         with:
-          files: 'src-tauri/gen/android/app/build/outputs/apk/**/*.apk'
+          files: 'release-apks/*.apk'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: 'true'
