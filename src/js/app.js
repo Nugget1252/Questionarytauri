@@ -1051,7 +1051,13 @@ function showPDF(url) {
 
   if (pdfViewer) {
     const absoluteUrl = new URL(url, window.location.href).href;
-    pdfViewer.src = 'pdfviewer.html?file=' + encodeURIComponent(absoluteUrl);
+    
+    // Check if hot-swapped viewer template exists
+    const viewerUrl = (window.hotCodeUpdater && typeof window.hotCodeUpdater.getViewerUrl === 'function')
+        ? window.hotCodeUpdater.getViewerUrl(absoluteUrl)
+        : 'pdfviewer.html?file=' + encodeURIComponent(absoluteUrl);
+
+    pdfViewer.src = viewerUrl;
     pdfViewer.classList.add('active');
     pdfViewer.onload = function() {
       pdfViewer.contentWindow.postMessage({ type: 'loadPdf', url: absoluteUrl }, '*');

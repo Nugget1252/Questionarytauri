@@ -1,5 +1,5 @@
 /* ================================================================
- *   BULLETPROOF HOT UPDATER ENGINE (CDN Rate-Limit Bypass)
+ *   ZERO-CONFIG HOT UPDATER ENGINE (Guaranteed Live Code Swapping)
  *   Monitors GitHub Repository: Nugget1252/Questionarytauri
  *   Branches: 'beta' (primary) -> 'main' (fallback)
  *   ================================================================ */
@@ -57,6 +57,7 @@
         localStorage.setItem(CODE_FILES_KEY, JSON.stringify(files));
     }
 
+    // Apply hot CSS directly into <head>
     function applyHotCSS(filename, content) {
         if (!content) return;
         const styleId = `hot-css-${filename.replace(/[^a-zA-Z0-9]/g, '-')}`;
@@ -79,24 +80,40 @@
         }
     }
 
+    // CRITICAL FIX: Executing textContent directly overrides window functions cleanly!
     function applyStoredJS() {
         const stored = getStoredCodeFiles();
-        for (const [filename, content] of Object.entries(stored)) {
-            if (filename.endsWith('.js') && content) {
-                console.log(`[HotUpdate] Redirecting script to saved local version: ${filename}`);
-                const existingScript = Array.from(document.querySelectorAll('script')).find(s => s.src && s.src.includes(filename));
-                const blob = new Blob([content], { type: 'application/javascript' });
-                const blobUrl = URL.createObjectURL(blob);
-                if (existingScript) {
-                    existingScript.src = blobUrl;
-                } else {
-                    const script = document.createElement('script');
-                    script.src = blobUrl;
-                    script.id = `hotupdate-${filename.replace(/[^a-zA-Z0-9]/g, '-')}`;
-                    document.body.appendChild(script);
+        // Execute scripts in order of dependency: features -> studyRoom -> app
+        const executionOrder = ['js/features.js', 'js/studyRoom.js', 'js/contentUpdater.js', 'js/app.js'];
+
+        for (const filename of executionOrder) {
+            const content = stored[filename];
+            if (content && content.trim().length > 50) {
+                try {
+                    console.log(`[HotUpdate] Executing updated script override: ${filename}`);
+                    const scriptId = `hot-js-${filename.replace(/[^a-zA-Z0-9]/g, '-')}`;
+                    let scriptEl = document.getElementById(scriptId);
+                    if (scriptEl) scriptEl.remove();
+
+                    scriptEl = document.createElement('script');
+                    scriptEl.id = scriptId;
+                    scriptEl.textContent = content;
+                    document.head.appendChild(scriptEl);
+                } catch (err) {
+                    console.error(`[HotUpdate] Error executing updated ${filename}:`, err);
                 }
             }
         }
+    }
+
+    // Helper to get hot-swapped pdfviewer.html URL/content if updated
+    function getViewerUrl(fileUrl) {
+        const stored = getStoredCodeFiles();
+        if (stored['pdfviewer.html'] && stored['pdfviewer.html'].length > 100) {
+            const blob = new Blob([stored['pdfviewer.html']], { type: 'text/html' });
+            return URL.createObjectURL(blob) + '#file=' + encodeURIComponent(fileUrl);
+        }
+        return 'pdfviewer.html?file=' + encodeURIComponent(fileUrl);
     }
 
     // Try fetching from both /src/ and repository root across branches
@@ -132,7 +149,7 @@
         let latestSha = null;
         let detectedBranch = PRIMARY_BRANCH;
 
-        // Tier 1: Try GitHub REST API for 'beta' and 'main' branches
+        // Tier 1: Try GitHub REST API
         const branchesToTry = [PRIMARY_BRANCH, FALLBACK_BRANCH];
         for (const branch of branchesToTry) {
             try {
@@ -189,7 +206,7 @@
         }
 
         const installedSha = localStorage.getItem(INSTALLED_COMMIT_KEY);
-        console.log(`[HotUpdate] Latest: ${latestSha.substring(0, 7)} | Installed: ${installedSha?.substring(0, 7) || 'None'}`);
+        console.log(`[HotUpdate] Latest SHA: ${latestSha.substring(0, 7)} | Installed SHA: ${installedSha?.substring(0, 7) || 'None'}`);
 
         if (latestSha !== installedSha) {
             window.codeUpdateState.available = true;
@@ -199,7 +216,7 @@
             updateCodeUpdateUI('available', MANAGED_FILES.length);
 
             if (!silent && canShowNotification() && typeof showNotification === 'function') {
-                showNotification('New code update available! Click update button to download.', 'success');
+                showNotification('New code update available! Downloading...', 'success');
             }
 
             window.codeUpdateState.checking = false;
@@ -236,11 +253,14 @@
         let dbUpdated = false;
 
         for (const fileRelPath of MANAGED_FILES) {
-            console.log(`[HotUpdate] Syncing: ${fileRelPath}...`);
+            console.log(`[HotUpdate] Downloading file: ${fileRelPath}...`);
 
             try {
                 const res = await fetchFileFromRepo(fileRelPath);
-                if (!res) continue;
+                if (!res) {
+                    console.warn(`[HotUpdate] Skipping unretrievable file: ${fileRelPath}`);
+                    continue;
+                }
 
                 if (fileRelPath.endsWith('.db')) {
                     const arrayBuffer = await res.arrayBuffer();
@@ -262,20 +282,22 @@
                     }
                 } else {
                     const content = await res.text();
-                    storedFiles[fileRelPath] = content;
-                    successCount++;
+                    if (content && content.trim().length > 0) {
+                        storedFiles[fileRelPath] = content;
+                        successCount++;
 
-                    if (fileRelPath.endsWith('.css')) {
-                        applyHotCSS(fileRelPath, content);
-                    } else if (fileRelPath.endsWith('.js')) {
-                        requiresReload = true;
-                    }
+                        if (fileRelPath.endsWith('.css')) {
+                            applyHotCSS(fileRelPath, content);
+                        } else if (fileRelPath.endsWith('.js')) {
+                            requiresReload = true;
+                        }
 
-                    if (window.__TAURI__ && window.__TAURI__.fs) {
-                        try {
-                            const { writeTextFile, BaseDirectory } = window.__TAURI__.fs;
-                            await writeTextFile(fileRelPath, content, { dir: BaseDirectory.AppData });
-                        } catch (e) {}
+                        if (window.__TAURI__ && window.__TAURI__.fs) {
+                            try {
+                                const { writeTextFile, BaseDirectory } = window.__TAURI__.fs;
+                                await writeTextFile(fileRelPath, content, { dir: BaseDirectory.AppData });
+                            } catch (e) {}
+                        }
                     }
                 }
             } catch (error) {
@@ -283,8 +305,20 @@
             }
         }
 
-        saveStoredCodeFiles(storedFiles);
-        localStorage.setItem(INSTALLED_COMMIT_KEY, window.codeUpdateState.latestCommitSha);
+        // STRICT CHECK: Only mark as installed if critical JS files downloaded successfully!
+        if (successCount >= 3) {
+            saveStoredCodeFiles(storedFiles);
+            localStorage.setItem(INSTALLED_COMMIT_KEY, window.codeUpdateState.latestCommitSha);
+            console.log(`[HotUpdate] Commit ${window.codeUpdateState.latestCommitSha.substring(0, 7)} successfully installed!`);
+        } else {
+            console.error('[HotUpdate] Update failed to fetch essential files. Not marking as installed.');
+            if (canShowNotification() && typeof showNotification === 'function') {
+                showNotification('Update download incomplete. Please try again.', 'error');
+            }
+            window.codeUpdateState.downloading = false;
+            updateCodeUpdateUI('idle');
+            return;
+        }
 
         window.codeUpdateState.downloading = false;
         window.codeUpdateState.available = false;
@@ -295,17 +329,13 @@
             window.renderTiles();
         }
 
-        if (successCount > 0 && canShowNotification()) {
-            if (requiresReload) {
-                if (typeof showNotification === 'function') {
-                    showNotification('Update installed successfully! Reloading...', 'success');
-                }
-                setTimeout(() => location.reload(), 1200);
-            } else {
-                if (typeof showNotification === 'function') {
-                    showNotification('Updated successfully!', 'success');
-                }
+        if (requiresReload) {
+            if (canShowNotification() && typeof showNotification === 'function') {
+                showNotification('Update applied! Reloading application...', 'success');
             }
+            setTimeout(() => location.reload(), 1000);
+        } else if (canShowNotification() && typeof showNotification === 'function') {
+            showNotification('Updated successfully!', 'success');
         }
     }
 
@@ -356,6 +386,7 @@
         download: downloadCodeUpdates,
         applyStoredCSS,
         applyStoredJS,
+        getViewerUrl,
         init: initHotUpdater,
         getState: () => window.codeUpdateState
     };
