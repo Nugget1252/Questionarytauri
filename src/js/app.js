@@ -5050,4 +5050,40 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
 
     // Call on startup
     document.addEventListener('DOMContentLoaded', injectHotUIElements);
+        // FORCE SYNC BUTTON HANDLER ON HOME SCREEN
+    function initHomeSyncButton() {
+      const syncBtn = document.getElementById('homeSyncBtn');
+      if (syncBtn && !syncBtn.dataset.initialized) {
+        syncBtn.dataset.initialized = 'true';
+        syncBtn.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          
+          const doReset = () => {
+            if (window.hotCodeUpdater && typeof window.hotCodeUpdater.resetCache === 'function') {
+              window.hotCodeUpdater.resetCache();
+            } else {
+              localStorage.removeItem('questionary-code-files');
+              localStorage.removeItem('questionary-installed-commit-sha');
+              delete window._HOT_APP_JS_LOADED;
+              location.reload();
+            }
+          };
+
+          if (typeof window.showConfirm === 'function') {
+            window.showConfirm('Force re-sync code from GitHub and clear local cache?', {
+              title: 'Force Re-sync Code',
+              confirmText: 'Sync Now',
+              type: 'warning'
+            }).then(yes => { if (yes) doReset(); });
+          } else if (confirm('Force re-sync code from GitHub and clear local cache?')) {
+            doReset();
+          }
+        });
+      }
+    }
+
+    // Call on startup
+    document.addEventListener('DOMContentLoaded', initHomeSyncButton);
+    setTimeout(initHomeSyncButton, 1000);
 }
