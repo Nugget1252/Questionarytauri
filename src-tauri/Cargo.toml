@@ -1,6 +1,6 @@
 [package]
 name = "Questionary"
-version = "0.8.6"
+version = "0.8.7"
 description = "Questionary"
 authors = ["Nugget"]
 edition = "2021"
