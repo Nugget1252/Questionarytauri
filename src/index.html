@@ -8,11 +8,12 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <!-- Font Awesome CDN with crossOrigin attribute for Android WebView compatibility -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet" crossorigin="anonymous" referrerpolicy="no-referrer">
     <link rel="stylesheet" href="css/styles.css?v=210">
     <link rel="stylesheet" href="css/features.css?v=211">
     <style>
-        /* Mobile Safe Area & Bottom Nav Responsive Extensions */
+        /* Mobile Safe Area & Android Touch Optimization */
         :root {
             --safe-top: env(safe-area-inset-top, 0px);
             --safe-bottom: env(safe-area-inset-bottom, 0px);
@@ -20,87 +21,203 @@
             --safe-right: env(safe-area-inset-right, 0px);
         }
 
+        /* Ensure Font Awesome Icons Render Correctly in Android WebViews */
+        i.fa, i.fas, i.far, i.fab, i.fal {
+            font-family: "Font Awesome 6 Free", "Font Awesome 6 Brands", sans-serif !important;
+            font-style: normal !important;
+            font-weight: 900 !important;
+            display: inline-block !important;
+            text-rendering: auto !important;
+            -webkit-font-smoothing: antialiased !important;
+            -moz-osx-font-smoothing: grayscale !important;
+        }
+
         body {
             padding-top: var(--safe-top);
             padding-bottom: var(--safe-bottom);
             padding-left: var(--safe-left);
             padding-right: var(--safe-right);
-        }
-
-        .header {
-            padding-top: calc(6px + var(--safe-top)) !important;
+            background: var(--bg, #111113);
         }
 
         .mobile-bottom-nav {
             display: none;
         }
 
+        /* ================================================================
+           MOBILE RESPONSIVE OVERHAUL (< 768px)
+           ================================================================ */
         @media (max-width: 768px) {
+            /* Streamlined Top App Header on Mobile */
+            .header {
+                height: calc(52px + var(--safe-top)) !important;
+                padding: calc(6px + var(--safe-top)) 12px 6px 12px !important;
+                display: flex !important;
+                align-items: center !important;
+                justify-content: space-between !important;
+                gap: 8px !important;
+                background: var(--surface, #1e1f22) !important;
+                border-bottom: 1px solid var(--border, #2e3035) !important;
+            }
+
+            .header-left {
+                display: flex !important;
+                align-items: center !important;
+                gap: 6px !important;
+            }
+
+            /* Hide Desktop Navigation & Hamburger in Header on Mobile */
+            .hamburger-menu,
+            .mobile-menu-toggle,
+            .nav-links:not(.sidebar-open) {
+                display: none !important;
+            }
+
+            .logo span {
+                font-size: 1rem !important;
+                font-weight: 700 !important;
+            }
+
+            .logo-icon {
+                width: 24px !important;
+                height: 24px !important;
+            }
+
+            .header-right {
+                display: flex !important;
+                align-items: center !important;
+                gap: 6px !important;
+                flex: 1 !important;
+                justify-content: flex-end !important;
+            }
+
+            /* Responsive Search Input */
+            .search-container {
+                flex: 1 !important;
+                max-width: 180px !important;
+                height: 34px !important;
+            }
+
+            .search-input {
+                height: 34px !important;
+                font-size: 0.8rem !important;
+                padding-left: 30px !important;
+            }
+
+            .search-icon {
+                font-size: 0.8rem !important;
+                left: 10px !important;
+            }
+
+            .update-check-btn,
+            .content-update-btn,
+            .accessibility-toggle {
+                display: none !important; /* Move to 'More' drawer for cleaner header */
+            }
+
+            /* Bottom Fixed Navigation Bar */
             .mobile-bottom-nav {
-                display: flex;
-                position: fixed;
-                bottom: 0;
-                left: 0;
-                right: 0;
-                height: calc(60px + var(--safe-bottom));
-                padding-bottom: var(--safe-bottom);
-                background: var(--surface, #1e1f22);
-                border-top: 1px solid var(--border, #2e3035);
-                z-index: 9999;
-                justify-content: space-around;
-                align-items: center;
-                box-shadow: 0 -4px 16px rgba(0,0,0,0.25);
-                backdrop-filter: blur(12px);
-                -webkit-backdrop-filter: blur(12px);
+                display: flex !important;
+                position: fixed !important;
+                bottom: 0 !important;
+                left: 0 !important;
+                right: 0 !important;
+                height: calc(56px + var(--safe-bottom)) !important;
+                padding-bottom: var(--safe-bottom) !important;
+                background: var(--surface, #1e1f22) !important;
+                border-top: 1px solid var(--border, #2e3035) !important;
+                z-index: 9999 !important;
+                justify-content: space-around !important;
+                align-items: center !important;
+                box-shadow: 0 -4px 16px rgba(0,0,0,0.3) !important;
+                backdrop-filter: blur(12px) !important;
+                -webkit-backdrop-filter: blur(12px) !important;
             }
 
             .mobile-bottom-nav-item {
-                flex: 1;
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-                justify-content: center;
-                background: none;
-                border: none;
-                color: var(--fg2, #8b8f94);
-                font-size: 0.72rem;
-                gap: 3px;
-                padding: 6px 0;
-                cursor: pointer;
-                transition: color 0.15s ease, transform 0.1s ease;
-                user-select: none;
+                flex: 1 !important;
+                display: flex !important;
+                flex-direction: column !important;
+                align-items: center !important;
+                justify-content: center !important;
+                background: none !important;
+                border: none !important;
+                color: var(--fg3, #8b8f94) !important;
+                font-size: 0.7rem !important;
+                gap: 3px !important;
+                padding: 4px 0 !important;
+                cursor: pointer !important;
+                user-select: none !important;
+                transition: color 0.15s ease, transform 0.1s ease !important;
             }
 
             .mobile-bottom-nav-item i {
-                font-size: 1.2rem;
+                font-size: 1.15rem !important;
             }
 
             .mobile-bottom-nav-item.active {
-                color: var(--accent, #cf6215);
-                font-weight: 600;
+                color: var(--accent, #cf6215) !important;
+                font-weight: 600 !important;
             }
 
             .mobile-bottom-nav-item:active {
-                transform: scale(0.92);
+                transform: scale(0.92) !important;
             }
 
             #main-content {
-                padding-bottom: calc(78px + var(--safe-bottom)) !important;
+                padding-bottom: calc(72px + var(--safe-bottom)) !important;
+                padding-top: 10px !important;
             }
 
+            /* Mobile 2x2 Dashboard Stat Cards */
             .dashboard-header {
                 display: grid !important;
                 grid-template-columns: repeat(2, 1fr) !important;
-                gap: 0.75rem !important;
-                margin-bottom: 1rem !important;
+                gap: 10px !important;
+                margin-bottom: 12px !important;
             }
 
             .stat-card {
                 margin: 0 !important;
-                padding: 0.85rem !important;
+                padding: 10px 12px !important;
                 border-radius: 12px !important;
+                display: flex !important;
+                align-items: center !important;
+                gap: 10px !important;
+                background: var(--surface, #1e1f22) !important;
+                border: 1px solid var(--border, #2e3035) !important;
             }
 
+            .stat-icon {
+                width: 36px !important;
+                height: 36px !important;
+                min-width: 36px !important;
+                border-radius: 8px !important;
+                display: flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+                font-size: 1.1rem !important;
+            }
+
+            .stat-info {
+                display: flex !important;
+                flex-direction: column !important;
+            }
+
+            .stat-value {
+                font-size: 1.1rem !important;
+                font-weight: 700 !important;
+                line-height: 1.1 !important;
+            }
+
+            .stat-label {
+                font-size: 0.65rem !important;
+                text-transform: uppercase !important;
+                letter-spacing: 0.5px !important;
+                opacity: 0.7 !important;
+            }
+
+            /* Mobile Slide-Up Modal Sheets */
             .modal-overlay .modal {
                 width: 100% !important;
                 max-width: 100% !important;
@@ -109,6 +226,7 @@
                 max-height: 88vh !important;
             }
 
+            /* Touch Friendly Grid */
             .tiles-grid {
                 grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)) !important;
                 gap: 10px !important;
@@ -117,6 +235,14 @@
             .tile {
                 padding: 12px 8px !important;
                 min-height: 100px !important;
+            }
+
+            .tile-icon i {
+                font-size: 1.8rem !important;
+            }
+
+            .tile-text {
+                font-size: 0.8rem !important;
             }
         }
     </style>
@@ -211,13 +337,13 @@
                 <a class="nav-link" id="analyticsNav"><i class="fas fa-chart-bar"></i><span>Analytics</span></a>
                 <a class="nav-link" id="remindersNav"><i class="fas fa-bell"></i><span>Reminders</span></a>
                 <a class="nav-link" id="studyRoomNav"><i class="fas fa-users"></i><span>Study Room</span></a>
-                <a class="nav-link" id="settingsNav" style="display:none;"><i class="fas fa-cog"></i><span>Settings</span></a>
+                <a class="nav-link" id="settingsNav"><i class="fas fa-cog"></i><span>Settings</span></a>
             </nav>
         </div>
         <div class="header-right" id="headerRight">
             <div class="search-container">
                 <i class="fas fa-search search-icon"></i>
-                <input type="text" class="search-input" id="globalSearch" placeholder="Search documents...">
+                <input type="text" class="search-input" id="globalSearch" placeholder="Search...">
             </div>
             <button class="update-check-btn" id="checkUpdatesBtn" title="Check for App Updates">
                 <i class="fas fa-sync-alt"></i>

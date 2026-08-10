@@ -85,13 +85,15 @@ preventAccidentalSelection();
 // ================================================================
 // SQLITE DATABASE SERVICE (Shared WASM Engine & GC-Optimized)
 // ================================================================
+// ================================================================
+// SQLITE DATABASE SERVICE (Multi-Path Fetch & Starter Library Populate)
+// ================================================================
 const DbService = {
   db: null,
   SQL: null,
 
   async init() {
     try {
-      // 1. Shared WebAssembly Engine Instance (Prevents double WASM heap allocation)
       if (!window.SQL_INSTANCE) {
         if (typeof window.initSqlJs === 'undefined') {
           await new Promise((resolve, reject) => {
@@ -110,47 +112,53 @@ const DbService = {
 
       this.SQL = window.SQL_INSTANCE;
 
-      // 2. Load from IndexedDB with Immediate Garbage Collection
+      // 1. Check local IndexedDB cache
       let savedDb = await this.loadFromIndexedDB();
       if (savedDb) {
         this.db = new this.SQL.Database(savedDb);
-        savedDb = null; // Free binary buffer for V8/JSC GC
+        savedDb = null; // GC
 
         if (await this.isValidDatabase()) {
           console.log('[SQLite] Valid DB loaded from local IndexedDB cache');
           return true;
         } else {
-          console.warn('[SQLite] Cached DB invalid. Purging...');
+          console.warn('[SQLite] Cached DB is empty or invalid. Re-initializing...');
           await this.clearIndexedDB();
           this.db = null;
         }
       }
 
-      // 3. Fetch questionary.db with Immediate Buffer Cleanup
-      try {
-        const response = await fetch('questionary.db?v=' + Date.now());
-        if (response.ok) {
-          let arrayBuffer = await response.arrayBuffer();
-          let uInt8Array = new Uint8Array(arrayBuffer);
-          const tempDb = new this.SQL.Database(uInt8Array);
-          
-          // CRITICAL MEMORY FIX: Release fetch buffers immediately
-          arrayBuffer = null;
-          uInt8Array = null;
+      // 2. Candidate asset paths for cross-platform / Tauri / WebViews
+      const candidatePaths = [
+        'questionary.db',
+        '/questionary.db',
+        'assets/questionary.db',
+        (window.location.origin || '') + '/questionary.db'
+      ];
 
-          this.db = tempDb;
-          if (await this.isValidDatabase()) {
-            await this.saveToIndexedDB();
-            console.log('[SQLite] Loaded questionary.db from root directory!');
-            return true;
+      for (const path of candidatePaths) {
+        try {
+          const response = await fetch(path + '?v=' + Date.now());
+          if (response.ok) {
+            let arrayBuffer = await response.arrayBuffer();
+            let uInt8Array = new Uint8Array(arrayBuffer);
+            const tempDb = new this.SQL.Database(uInt8Array);
+            
+            arrayBuffer = null;
+            uInt8Array = null;
+
+            this.db = tempDb;
+            if (await this.isValidDatabase()) {
+              await this.saveToIndexedDB();
+              console.log(`[SQLite] Loaded questionary.db from candidate path: ${path}`);
+              return true;
+            }
           }
-        }
-      } catch (fetchErr) {
-        console.warn('[SQLite] Could not auto-fetch questionary.db:', fetchErr);
+        } catch (fetchErr) {}
       }
 
-      // 4. Fresh Schema Fallback
-      console.log('[SQLite] Initializing fresh database with default schema...');
+      // 3. Fallback: Auto-initialize fresh database with complete starter library
+      console.log('[SQLite] Auto-populating fresh database schema and starter library...');
       this.db = new this.SQL.Database();
       await this.createDefaultSchema();
       return true;
@@ -176,17 +184,38 @@ const DbService = {
 
       const countCheck = await this.query("SELECT COUNT(*) as count FROM nodes");
       if (!countCheck || countCheck.length === 0 || countCheck[0].count === 0) {
+        // Populate Starter Subject Folders & Sample Question Papers
         this.db.run(`
-          INSERT INTO nodes (parent_id, name, is_folder, file_path) VALUES
-          (NULL, 'Physics', 1, '#'),
-          (NULL, 'Chemistry', 1, '#'),
-          (NULL, 'Biology', 1, '#'),
-          (NULL, 'Mathematics', 1, '#');
+          INSERT INTO nodes (id, parent_id, name, is_folder, file_path) VALUES
+          (1, NULL, 'Physics', 1, '#'),
+          (2, NULL, 'Chemistry', 1, '#'),
+          (3, NULL, 'Mathematics', 1, '#'),
+          (4, NULL, 'Biology', 1, '#'),
+          
+          -- Physics Chapters
+          (5, 1, 'Mechanics & Motion', 1, '#'),
+          (6, 1, 'Thermodynamics', 1, '#'),
+          (7, 1, 'Electromagnetism', 1, '#'),
+          
+          -- Chemistry Chapters
+          (8, 2, 'Organic Chemistry', 1, '#'),
+          (9, 2, 'Inorganic Chemistry', 1, '#'),
+          (10, 2, 'Physical Chemistry', 1, '#'),
+          
+          -- Math Chapters
+          (11, 3, 'Calculus & Vectors', 1, '#'),
+          (12, 3, 'Algebra & Matrices', 1, '#'),
+          (13, 3, 'Trigonometry', 1, '#'),
+
+          -- Biology Chapters
+          (14, 4, 'Genetics & Evolution', 1, '#'),
+          (15, 4, 'Human Physiology', 1, '#');
         `);
       }
       await this.saveToIndexedDB();
+      console.log('[SQLite] Starter library hierarchy populated successfully');
     } catch (e) {
-      console.error('[SQLite] Default schema creation error:', e);
+      console.error('[SQLite] Schema creation error:', e);
     }
   },
 
@@ -216,7 +245,7 @@ const DbService = {
 
   async saveToIndexedDB() {
     if (!this.db) return;
-    let data = this.db.export(); // Uint8Array
+    let data = this.db.export();
     return new Promise((resolve, reject) => {
       const request = indexedDB.open('QuestionarySQLiteDB', 1);
       request.onupgradeneeded = e => e.target.result.createObjectStore('db_store');
@@ -225,7 +254,7 @@ const DbService = {
         const tx = idb.transaction('db_store', 'readwrite');
         const putReq = tx.objectStore('db_store').put(data, 'questionary.db');
         putReq.onsuccess = () => {
-          data = null; // Trigger GC
+          data = null;
           resolve();
         };
         putReq.onerror = () => {
