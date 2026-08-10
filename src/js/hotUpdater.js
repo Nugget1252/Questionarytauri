@@ -1,7 +1,6 @@
 /* ================================================================
- *   ZERO-CONFIG HOT UPDATER ENGINE (Atomic Validation & Auto-Sync)
- *   Monitors GitHub Repository: Nugget1252/Questionarytauri
- *   Branches: 'beta' (primary) -> 'main' (fallback)
+ *   ZERO-CONFIG HOT UPDATER ENGINE (With In-App Force-Reset UI)
+ *   Repository: Nugget1252/Questionarytauri
  *   ================================================================ */
 (function() {
     'use strict';
@@ -14,7 +13,6 @@
     const CODE_FILES_KEY = 'questionary-code-files';
     const INSTALLED_COMMIT_KEY = 'questionary-installed-commit-sha';
     
-    // Core files required for a complete update
     const MANAGED_FILES = [
         'css/styles.css',
         'css/features.css',
@@ -57,6 +55,24 @@
         localStorage.setItem(CODE_FILES_KEY, JSON.stringify(files));
     }
 
+    // FORCE CLEAR CACHE & RE-DOWNLOAD FROM GITHUB
+    async function resetCache() {
+        localStorage.removeItem(CODE_FILES_KEY);
+        localStorage.removeItem(INSTALLED_COMMIT_KEY);
+        console.log('[HotUpdate] Hot-code cache purged successfully.');
+        
+        if (canShowNotification() && typeof showNotification === 'function') {
+            showNotification('Hot-code cache cleared. Re-checking GitHub...', 'info');
+        }
+        
+        const pending = await checkForCodeUpdates(false);
+        if (pending && pending.length > 0) {
+            await downloadCodeUpdates();
+        } else {
+            location.reload();
+        }
+    }
+
     function applyHotCSS(filename, content) {
         if (!content || content.length < 10) return;
         const styleId = `hot-css-${filename.replace(/[^a-zA-Z0-9]/g, '-')}`;
@@ -79,16 +95,15 @@
         }
     }
 
-    // Execute stored JS scripts in order of dependency before app initializers
     function applyStoredJS() {
         const stored = getStoredCodeFiles();
         const executionOrder = ['js/features.js', 'js/studyRoom.js', 'js/contentUpdater.js', 'js/app.js'];
 
         for (const filename of executionOrder) {
             const content = stored[filename];
-            if (content && content.trim().length > 100) {
+            if (content && content.trim().length > 50) {
                 try {
-                    console.log(`[HotUpdate] Applying stored JS override: ${filename} (${Math.round(content.length / 1024)} KB)`);
+                    console.log(`[HotUpdate] Applying stored JS override: ${filename}`);
                     const scriptId = `hot-js-${filename.replace(/[^a-zA-Z0-9]/g, '-')}`;
                     let scriptEl = document.getElementById(scriptId);
                     if (scriptEl) scriptEl.remove();
@@ -106,19 +121,17 @@
 
     function getViewerUrl(fileUrl) {
         const stored = getStoredCodeFiles();
-        if (stored['pdfviewer.html'] && stored['pdfviewer.html'].length > 200) {
+        if (stored['pdfviewer.html'] && stored['pdfviewer.html'].includes('pdfjsLib')) {
             const blob = new Blob([stored['pdfviewer.html']], { type: 'text/html' });
             return URL.createObjectURL(blob) + '#file=' + encodeURIComponent(fileUrl);
         }
         return 'pdfviewer.html?file=' + encodeURIComponent(fileUrl);
     }
 
-    // Multi-candidate path resolver for GitHub repositories
     async function fetchFileFromRepo(relativePath) {
         const branches = [window.codeUpdateState.activeBranch, PRIMARY_BRANCH, FALLBACK_BRANCH];
         const uniqueBranches = [...new Set(branches)];
 
-        // Candidate directory prefixes
         const pathVariants = [
             relativePath,
             `src/${relativePath}`,
@@ -129,11 +142,13 @@
         ];
         const uniquePaths = [...new Set(pathVariants)];
 
+        const cacheBuster = Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+
         for (const branch of uniqueBranches) {
             for (const pathVar of uniquePaths) {
-                const url = `https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${branch}/${pathVar}?t=${Date.now()}`;
+                const url = `https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${branch}/${pathVar}?nocache=${cacheBuster}`;
                 try {
-                    const res = await fetch(url, { cache: 'no-cache' });
+                    const res = await fetch(url, { cache: 'no-store' });
                     if (res.ok) {
                         console.log(`[HotUpdate] Successfully fetched ${relativePath} from: ${url}`);
                         return res;
@@ -155,13 +170,12 @@
         let latestSha = null;
         let detectedBranch = PRIMARY_BRANCH;
 
-        // Tier 1: Try GitHub REST API
         const branchesToTry = [PRIMARY_BRANCH, FALLBACK_BRANCH];
         for (const branch of branchesToTry) {
             try {
                 const apiUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/commits/${branch}?t=${Date.now()}`;
                 const res = await fetch(apiUrl, {
-                    cache: 'no-cache',
+                    cache: 'no-store',
                     headers: { 'Accept': 'application/vnd.github.v3+json' }
                 });
 
@@ -170,28 +184,22 @@
                     if (data && data.sha) {
                         latestSha = data.sha;
                         detectedBranch = branch;
-                        console.log(`[HotUpdate] GitHub API returned SHA (${branch}): ${latestSha.substring(0, 7)}`);
                         break;
                     }
                 }
-            } catch (err) {
-                console.warn(`[HotUpdate] API check failed for branch ${branch}:`, err);
-            }
+            } catch (err) {}
         }
 
-        // Tier 2: CDN Fallback if GitHub API is rate-limited (HTTP 403)
         if (!latestSha) {
-            console.log('[HotUpdate] API rate limited or offline. Falling back to Raw CDN version check...');
             for (const branch of branchesToTry) {
                 try {
                     const cdnUrl = `https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${branch}/package.json?t=${Date.now()}`;
-                    const res = await fetch(cdnUrl, { cache: 'no-cache' });
+                    const res = await fetch(cdnUrl, { cache: 'no-store' });
                     if (res.ok) {
                         const pkg = await res.json();
                         if (pkg && (pkg.version || pkg.buildSha)) {
                             latestSha = pkg.buildSha || `version-${pkg.version}`;
                             detectedBranch = branch;
-                            console.log(`[HotUpdate] CDN manifest version found (${branch}): ${latestSha}`);
                             break;
                         }
                     }
@@ -202,7 +210,6 @@
         window.codeUpdateState.activeBranch = detectedBranch;
 
         if (!latestSha) {
-            console.warn('[HotUpdate] Could not fetch version from GitHub API or CDN.');
             window.codeUpdateState.checking = false;
             updateCodeUpdateUI('idle');
             if (!silent && canShowNotification() && typeof showNotification === 'function') {
@@ -259,14 +266,9 @@
         let dbUpdated = false;
 
         for (const fileRelPath of MANAGED_FILES) {
-            console.log(`[HotUpdate] Downloading file: ${fileRelPath}...`);
-
             try {
                 const res = await fetchFileFromRepo(fileRelPath);
-                if (!res) {
-                    console.warn(`[HotUpdate] Skipping missing file: ${fileRelPath}`);
-                    continue;
-                }
+                if (!res) continue;
 
                 if (fileRelPath.endsWith('.db')) {
                     const arrayBuffer = await res.arrayBuffer();
@@ -278,7 +280,6 @@
                             await window.DbService.saveToIndexedDB();
                             dbUpdated = true;
                             downloadedCount++;
-                            console.log('[HotUpdate] Saved new questionary.db to storage');
                         }
 
                         if (window.__TAURI__ && window.__TAURI__.fs) {
@@ -290,13 +291,13 @@
                     }
                 } else {
                     const content = await res.text();
-                    if (content && content.trim().length > 50) {
+                    if (content && content.trim().length > 10) {
                         storedFiles[fileRelPath] = content;
                         downloadedCount++;
 
                         if (fileRelPath.endsWith('.css')) {
                             applyHotCSS(fileRelPath, content);
-                        } else if (fileRelPath.endsWith('.js')) {
+                        } else if (fileRelPath.endsWith('.js') || fileRelPath.endsWith('.html')) {
                             requiresReload = true;
                         }
 
@@ -313,13 +314,12 @@
             }
         }
 
-        // STRICT ATOMIC VERIFICATION: Only mark installed if critical files downloaded!
-        if (downloadedCount >= 2 && storedFiles['js/app.js']) {
+        if (downloadedCount >= 2) {
             saveStoredCodeFiles(storedFiles);
             localStorage.setItem(INSTALLED_COMMIT_KEY, window.codeUpdateState.latestCommitSha);
             console.log(`[HotUpdate] Commit ${window.codeUpdateState.latestCommitSha.substring(0, 7)} installed successfully!`);
         } else {
-            console.error('[HotUpdate] Critical files failed to download. Commit SHA NOT updated.');
+            console.error('[HotUpdate] Critical files failed to download.');
             if (canShowNotification() && typeof showNotification === 'function') {
                 showNotification('Update download failed. Please check connection.', 'error');
             }
@@ -339,9 +339,9 @@
 
         if (requiresReload) {
             if (canShowNotification() && typeof showNotification === 'function') {
-                showNotification('Update installed! Reloading application...', 'success');
+                showNotification('Update installed! Reloading...', 'success');
             }
-            setTimeout(() => location.reload(), 1200);
+            setTimeout(() => location.reload(), 1000);
         } else if (canShowNotification() && typeof showNotification === 'function') {
             showNotification('Updated successfully!', 'success');
         }
@@ -371,19 +371,39 @@
                 break;
             default:
                 btn.innerHTML = '<i class="fas fa-sync-alt"></i>';
-                btn.title = 'Check for updates';
+                btn.title = 'Check for updates (Right-click to Force Re-sync)';
+        }
+    }
+
+    function attachContextMenuReset() {
+        const btn = document.getElementById('checkUpdatesBtn');
+        if (btn && !btn.dataset.resetAttached) {
+            btn.dataset.resetAttached = 'true';
+            btn.addEventListener('contextmenu', (e) => {
+                e.preventDefault();
+                if (typeof window.showConfirm === 'function') {
+                    window.showConfirm('Force-clear hot code cache and re-sync from GitHub?', {
+                        title: 'Force Re-sync Code',
+                        confirmText: 'Clear & Re-sync',
+                        type: 'warning'
+                    }).then(yes => {
+                        if (yes) resetCache();
+                    });
+                } else if (confirm('Force-clear hot code cache and re-sync from GitHub?')) {
+                    resetCache();
+                }
+            });
         }
     }
 
     async function initHotUpdater() {
         applyStoredCSS();
         applyStoredJS();
+        attachContextMenuReset();
 
-        // Auto-check GitHub 3 seconds after startup
         setTimeout(async () => {
             const pending = await checkForCodeUpdates(true);
             if (pending && pending.length > 0) {
-                console.log('[HotUpdate] Auto-syncing updates from GitHub...');
                 await downloadCodeUpdates();
             }
         }, 3000);
@@ -392,6 +412,7 @@
     window.hotCodeUpdater = {
         check: checkForCodeUpdates,
         download: downloadCodeUpdates,
+        resetCache: resetCache,
         applyStoredCSS,
         applyStoredJS,
         getViewerUrl,
