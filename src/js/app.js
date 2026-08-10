@@ -80,17 +80,94 @@ function preventAccidentalSelection() {
 preventAccidentalSelection();
 
 // ================================================================
-// SQLITE DATABASE SERVICE (Auto-Fetch, Schema Fallback & Validation Engine)
+// DUAL-ENGINE SQLITE & INDEXEDDB DATABASE SERVICE (Android Unbreakable)
 // ================================================================
-// ================================================================
-// SQLITE DATABASE SERVICE (Shared WASM Engine & GC-Optimized)
-// ================================================================
-// ================================================================
-// SQLITE DATABASE SERVICE (Multi-Path Fetch & Starter Library Populate)
-// ================================================================
+const LocalNodeStore = {
+  getNodes() {
+    try {
+      const data = localStorage.getItem('questionary-local-nodes');
+      return data ? JSON.parse(data) : [];
+    } catch (e) {
+      return [];
+    }
+  },
+
+  saveNodes(nodes) {
+    localStorage.setItem('questionary-local-nodes', JSON.stringify(nodes));
+  },
+
+  seedDefaultLibrary() {
+    const starterNodes = [
+      { id: 1, parent_id: null, name: 'Physics', is_folder: 1, file_path: '#' },
+      { id: 2, parent_id: null, name: 'Chemistry', is_folder: 1, file_path: '#' },
+      { id: 3, parent_id: null, name: 'Mathematics', is_folder: 1, file_path: '#' },
+      { id: 4, parent_id: null, name: 'Biology', is_folder: 1, file_path: '#' },
+      { id: 5, parent_id: 1, name: 'Mechanics & Motion', is_folder: 1, file_path: '#' },
+      { id: 6, parent_id: 1, name: 'Thermodynamics', is_folder: 1, file_path: '#' },
+      { id: 7, parent_id: 1, name: 'Electromagnetism', is_folder: 1, file_path: '#' },
+      { id: 8, parent_id: 2, name: 'Organic Chemistry', is_folder: 1, file_path: '#' },
+      { id: 9, parent_id: 2, name: 'Inorganic Chemistry', is_folder: 1, file_path: '#' },
+      { id: 10, parent_id: 3, name: 'Calculus & Vectors', is_folder: 1, file_path: '#' },
+      { id: 11, parent_id: 3, name: 'Algebra & Matrices', is_folder: 1, file_path: '#' },
+      { id: 12, parent_id: 4, name: 'Genetics & Cell Biology', is_folder: 1, file_path: '#' }
+    ];
+    this.saveNodes(starterNodes);
+    return starterNodes;
+  },
+
+  getChildren(pathArray) {
+    let nodes = this.getNodes();
+    if (nodes.length === 0) {
+      nodes = this.seedDefaultLibrary();
+    }
+
+    if (!pathArray || pathArray.length === 0) {
+      return nodes.filter(n => n.parent_id === null);
+    }
+
+    let currentParentId = null;
+    for (const segment of pathArray) {
+      const match = nodes.find(n => n.parent_id === currentParentId && n.name === segment);
+      if (!match) return [];
+      currentParentId = match.id;
+    }
+
+    return nodes.filter(n => n.parent_id === currentParentId);
+  },
+
+  search(keyword) {
+    const nodes = this.getNodes();
+    const cleanKw = keyword.toLowerCase();
+    const matches = nodes.filter(n => n.name.toLowerCase().includes(cleanKw));
+    
+    return matches.map(m => {
+      const pathArray = [];
+      let cur = m;
+      while (cur && cur.parent_id !== null) {
+        const parent = nodes.find(n => n.id === cur.parent_id);
+        if (parent) { pathArray.unshift(parent.name); cur = parent; }
+        else break;
+      }
+      pathArray.push(m.name);
+      return {
+        name: m.name,
+        path: pathArray,
+        isFolder: m.is_folder === 1,
+        url: m.file_path
+      };
+    });
+  },
+
+  countDocuments() {
+    const nodes = this.getNodes();
+    return nodes.filter(n => n.is_folder === 0 && n.file_path && n.file_path !== '#').length;
+  }
+};
+
 const DbService = {
   db: null,
   SQL: null,
+  isFallback: false,
 
   async init() {
     try {
@@ -112,23 +189,22 @@ const DbService = {
 
       this.SQL = window.SQL_INSTANCE;
 
-      // 1. Check local IndexedDB cache
+      // Check IndexedDB
       let savedDb = await this.loadFromIndexedDB();
       if (savedDb) {
         this.db = new this.SQL.Database(savedDb);
-        savedDb = null; // GC
+        savedDb = null;
 
         if (await this.isValidDatabase()) {
-          console.log('[SQLite] Valid DB loaded from local IndexedDB cache');
+          console.log('[SQLite] Valid DB loaded from IndexedDB cache');
           return true;
         } else {
-          console.warn('[SQLite] Cached DB is empty or invalid. Re-initializing...');
           await this.clearIndexedDB();
           this.db = null;
         }
       }
 
-      // 2. Candidate asset paths for cross-platform / Tauri / WebViews
+      // Candidate asset paths for cross-platform / Tauri / WebViews
       const candidatePaths = [
         'questionary.db',
         '/questionary.db',
@@ -150,22 +226,24 @@ const DbService = {
             this.db = tempDb;
             if (await this.isValidDatabase()) {
               await this.saveToIndexedDB();
-              console.log(`[SQLite] Loaded questionary.db from candidate path: ${path}`);
+              console.log(`[SQLite] Loaded questionary.db from: ${path}`);
               return true;
             }
           }
         } catch (fetchErr) {}
       }
 
-      // 3. Fallback: Auto-initialize fresh database with complete starter library
-      console.log('[SQLite] Auto-populating fresh database schema and starter library...');
+      // Fresh WASM Schema Fallback
+      console.log('[SQLite] Populating default schema...');
       this.db = new this.SQL.Database();
       await this.createDefaultSchema();
       return true;
 
     } catch (err) {
-      console.error('[SQLite] Critical init error:', err);
-      return false;
+      console.warn('[SQLite] WASM unavailable on Android WebView. Activating LocalNodeStore Engine fallback:', err);
+      this.isFallback = true;
+      LocalNodeStore.getChildren([]);
+      return true;
     }
   },
 
@@ -184,36 +262,23 @@ const DbService = {
 
       const countCheck = await this.query("SELECT COUNT(*) as count FROM nodes");
       if (!countCheck || countCheck.length === 0 || countCheck[0].count === 0) {
-        // Populate Starter Subject Folders & Sample Question Papers
         this.db.run(`
           INSERT INTO nodes (id, parent_id, name, is_folder, file_path) VALUES
           (1, NULL, 'Physics', 1, '#'),
           (2, NULL, 'Chemistry', 1, '#'),
           (3, NULL, 'Mathematics', 1, '#'),
           (4, NULL, 'Biology', 1, '#'),
-          
-          -- Physics Chapters
           (5, 1, 'Mechanics & Motion', 1, '#'),
           (6, 1, 'Thermodynamics', 1, '#'),
           (7, 1, 'Electromagnetism', 1, '#'),
-          
-          -- Chemistry Chapters
           (8, 2, 'Organic Chemistry', 1, '#'),
           (9, 2, 'Inorganic Chemistry', 1, '#'),
-          (10, 2, 'Physical Chemistry', 1, '#'),
-          
-          -- Math Chapters
-          (11, 3, 'Calculus & Vectors', 1, '#'),
-          (12, 3, 'Algebra & Matrices', 1, '#'),
-          (13, 3, 'Trigonometry', 1, '#'),
-
-          -- Biology Chapters
-          (14, 4, 'Genetics & Evolution', 1, '#'),
-          (15, 4, 'Human Physiology', 1, '#');
+          (10, 3, 'Calculus & Vectors', 1, '#'),
+          (11, 3, 'Algebra & Matrices', 1, '#'),
+          (12, 4, 'Genetics & Cell Biology', 1, '#');
         `);
       }
       await this.saveToIndexedDB();
-      console.log('[SQLite] Starter library hierarchy populated successfully');
     } catch (e) {
       console.error('[SQLite] Schema creation error:', e);
     }
@@ -232,7 +297,7 @@ const DbService = {
   },
 
   async query(sql, params = []) {
-    if (!this.db) return [];
+    if (this.isFallback || !this.db) return [];
     const stmt = this.db.prepare(sql);
     stmt.bind(params);
     const results = [];
@@ -244,7 +309,7 @@ const DbService = {
   },
 
   async saveToIndexedDB() {
-    if (!this.db) return;
+    if (this.isFallback || !this.db) return;
     let data = this.db.export();
     return new Promise((resolve, reject) => {
       const request = indexedDB.open('QuestionarySQLiteDB', 1);
@@ -253,19 +318,10 @@ const DbService = {
         const idb = e.target.result;
         const tx = idb.transaction('db_store', 'readwrite');
         const putReq = tx.objectStore('db_store').put(data, 'questionary.db');
-        putReq.onsuccess = () => {
-          data = null;
-          resolve();
-        };
-        putReq.onerror = () => {
-          data = null;
-          reject(putReq.error);
-        };
+        putReq.onsuccess = () => { data = null; resolve(); };
+        putReq.onerror = () => { data = null; reject(putReq.error); };
       };
-      request.onerror = () => {
-        data = null;
-        reject(request.error);
-      };
+      request.onerror = () => { data = null; reject(request.error); };
     });
   },
 
@@ -294,6 +350,7 @@ const DbService = {
   },
 
   async getNodeIdByPath(pathArray) {
+    if (this.isFallback) return null;
     let currentId = null;
     for (const segment of pathArray) {
       const sql = currentId === null
@@ -308,15 +365,26 @@ const DbService = {
   },
 
   async getChildren(pathArray) {
-    if (!pathArray || pathArray.length === 0) {
-      return await this.query("SELECT * FROM nodes WHERE parent_id IS NULL ORDER BY name ASC");
+    if (this.isFallback || !this.db) {
+      return LocalNodeStore.getChildren(pathArray);
     }
     const parentId = await this.getNodeIdByPath(pathArray);
-    if (parentId === null) return [];
-    return await this.query("SELECT * FROM nodes WHERE parent_id = ? ORDER BY name ASC", [parentId]);
+    if (parentId === null && pathArray.length > 0) {
+      return LocalNodeStore.getChildren(pathArray);
+    }
+    const res = await this.query(
+      parentId === null 
+      ? "SELECT * FROM nodes WHERE parent_id IS NULL ORDER BY name ASC" 
+      : "SELECT * FROM nodes WHERE parent_id = ? ORDER BY name ASC", 
+      parentId === null ? [] : [parentId]
+    );
+    return (res && res.length > 0) ? res : LocalNodeStore.getChildren(pathArray);
   },
 
   async search(keyword) {
+    if (this.isFallback || !this.db) {
+      return LocalNodeStore.search(keyword);
+    }
     const res = await this.query("SELECT * FROM nodes WHERE name LIKE ?", [`%${keyword}%`]);
     const results = [];
     for (const item of res) {
@@ -329,7 +397,7 @@ const DbService = {
         url: item.file_path
       });
     }
-    return results;
+    return results.length > 0 ? results : LocalNodeStore.search(keyword);
   },
 
   async buildPath(parentId) {
@@ -345,10 +413,14 @@ const DbService = {
   },
 
   async countDocuments() {
+    if (this.isFallback || !this.db) {
+      return LocalNodeStore.countDocuments();
+    }
     const res = await this.query("SELECT COUNT(*) as count FROM nodes WHERE is_folder = 0 AND file_path != '#' AND file_path != ''");
-    return res.length > 0 ? res[0].count : 0;
+    return res.length > 0 ? res[0].count : LocalNodeStore.countDocuments();
   }
 };
+
 // Global Reset Function for easy debugging / manual reset
 window.resetDatabase = async function() {
   if (confirm('Reset database cache? This will purge the cached DB and reload from questionary.db or let you select a new file.')) {
@@ -4850,3 +4922,43 @@ async function checkForUpdatesManual() {
     }
   }
 }
+// Listener for PDF Viewer 'Open in New Window' messages
+window.addEventListener('message', async function(e) {
+    if (e.data && e.data.type === 'openInNewWindow' && e.data.url) {
+        openUrlInExternalWindow(e.data.url);
+    }
+});
+
+async function openUrlInExternalWindow(url) {
+    if (!url) return;
+    
+    // 1. Try Tauri Shell Plugin (Native Desktop / Android)
+    try {
+        if (window.__TAURI__ && window.__TAURI__.shell && typeof window.__TAURI__.shell.open === 'function') {
+            await window.__TAURI__.shell.open(url);
+            showNotification('Opening PDF in external application...', 'info');
+            return;
+        } else if (window.__TAURI__ && window.__TAURI__.core && typeof window.__TAURI__.core.invoke === 'function') {
+            await window.__TAURI__.core.invoke('plugin:shell|open', { href: url });
+            showNotification('Opening PDF in external application...', 'info');
+            return;
+        }
+    } catch (err) {
+        console.warn('[Tauri Shell Open Error]:', err);
+    }
+
+    // 2. Fallback for Web Browsers & WebViews
+    try {
+        const a = document.createElement('a');
+        a.href = url;
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => a.remove(), 100);
+        showNotification('Opened PDF in new window', 'info');
+    } catch (e) {
+        window.open(url, '_blank');
+    }
+}
+window.openUrlInExternalWindow = openUrlInExternalWindow;

@@ -565,7 +565,12 @@ html, body { height: 100%; overflow: hidden; background: #232527; font-family: -
 
     document.getElementById('openNewTab').addEventListener('click', function() {
         if (fileUrl) {
-            window.open(fileUrl, '_blank');
+            // Send message to parent window to handle external opening safely across WebViews & Tauri
+            if (window.parent && window.parent !== window) {
+                window.parent.postMessage({ type: 'openInNewWindow', url: fileUrl }, '*');
+            } else {
+                window.open(fileUrl, '_blank');
+            }
         }
     });
 

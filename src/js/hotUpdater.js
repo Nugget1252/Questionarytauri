@@ -1,5 +1,5 @@
 /* ================================================================
- *   ZERO-CONFIG HOT UPDATER ENGINE (Guaranteed Live Code Swapping)
+ *   ZERO-CONFIG HOT UPDATER ENGINE (Atomic Validation & Auto-Sync)
  *   Monitors GitHub Repository: Nugget1252/Questionarytauri
  *   Branches: 'beta' (primary) -> 'main' (fallback)
  *   ================================================================ */
@@ -14,7 +14,7 @@
     const CODE_FILES_KEY = 'questionary-code-files';
     const INSTALLED_COMMIT_KEY = 'questionary-installed-commit-sha';
     
-    // Core files to sync from the repo
+    // Core files required for a complete update
     const MANAGED_FILES = [
         'css/styles.css',
         'css/features.css',
@@ -57,9 +57,8 @@
         localStorage.setItem(CODE_FILES_KEY, JSON.stringify(files));
     }
 
-    // Apply hot CSS directly into <head>
     function applyHotCSS(filename, content) {
-        if (!content) return;
+        if (!content || content.length < 10) return;
         const styleId = `hot-css-${filename.replace(/[^a-zA-Z0-9]/g, '-')}`;
         let styleEl = document.getElementById(styleId);
         if (!styleEl) {
@@ -80,17 +79,16 @@
         }
     }
 
-    // CRITICAL FIX: Executing textContent directly overrides window functions cleanly!
+    // Execute stored JS scripts in order of dependency before app initializers
     function applyStoredJS() {
         const stored = getStoredCodeFiles();
-        // Execute scripts in order of dependency: features -> studyRoom -> app
         const executionOrder = ['js/features.js', 'js/studyRoom.js', 'js/contentUpdater.js', 'js/app.js'];
 
         for (const filename of executionOrder) {
             const content = stored[filename];
-            if (content && content.trim().length > 50) {
+            if (content && content.trim().length > 100) {
                 try {
-                    console.log(`[HotUpdate] Executing updated script override: ${filename}`);
+                    console.log(`[HotUpdate] Applying stored JS override: ${filename} (${Math.round(content.length / 1024)} KB)`);
                     const scriptId = `hot-js-${filename.replace(/[^a-zA-Z0-9]/g, '-')}`;
                     let scriptEl = document.getElementById(scriptId);
                     if (scriptEl) scriptEl.remove();
@@ -106,38 +104,46 @@
         }
     }
 
-    // Helper to get hot-swapped pdfviewer.html URL/content if updated
     function getViewerUrl(fileUrl) {
         const stored = getStoredCodeFiles();
-        if (stored['pdfviewer.html'] && stored['pdfviewer.html'].length > 100) {
+        if (stored['pdfviewer.html'] && stored['pdfviewer.html'].length > 200) {
             const blob = new Blob([stored['pdfviewer.html']], { type: 'text/html' });
             return URL.createObjectURL(blob) + '#file=' + encodeURIComponent(fileUrl);
         }
         return 'pdfviewer.html?file=' + encodeURIComponent(fileUrl);
     }
 
-    // Try fetching from both /src/ and repository root across branches
+    // Multi-candidate path resolver for GitHub repositories
     async function fetchFileFromRepo(relativePath) {
         const branches = [window.codeUpdateState.activeBranch, PRIMARY_BRANCH, FALLBACK_BRANCH];
         const uniqueBranches = [...new Set(branches)];
 
-        for (const branch of uniqueBranches) {
-            const urls = [
-                `https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${branch}/src/${relativePath}?t=${Date.now()}`,
-                `https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${branch}/${relativePath}?t=${Date.now()}`
-            ];
+        // Candidate directory prefixes
+        const pathVariants = [
+            relativePath,
+            `src/${relativePath}`,
+            relativePath.replace(/^js\//, ''),
+            relativePath.replace(/^css\//, ''),
+            `src/${relativePath.replace(/^js\//, '')}`,
+            `src/${relativePath.replace(/^css\//, '')}`
+        ];
+        const uniquePaths = [...new Set(pathVariants)];
 
-            for (const url of urls) {
+        for (const branch of uniqueBranches) {
+            for (const pathVar of uniquePaths) {
+                const url = `https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${branch}/${pathVar}?t=${Date.now()}`;
                 try {
                     const res = await fetch(url, { cache: 'no-cache' });
-                    if (res.ok) return res;
+                    if (res.ok) {
+                        console.log(`[HotUpdate] Successfully fetched ${relativePath} from: ${url}`);
+                        return res;
+                    }
                 } catch (e) {}
             }
         }
         return null;
     }
 
-    // Multi-tier commit/version detection (Bypasses API 403 Rate Limits)
     async function checkForCodeUpdates(silent = false) {
         if (window.codeUpdateState.checking || window.codeUpdateState.downloading) {
             return null;
@@ -216,7 +222,7 @@
             updateCodeUpdateUI('available', MANAGED_FILES.length);
 
             if (!silent && canShowNotification() && typeof showNotification === 'function') {
-                showNotification('New code update available! Downloading...', 'success');
+                showNotification('New update detected! Downloading update...', 'success');
             }
 
             window.codeUpdateState.checking = false;
@@ -248,7 +254,7 @@
         }
 
         const storedFiles = getStoredCodeFiles();
-        let successCount = 0;
+        let downloadedCount = 0;
         let requiresReload = false;
         let dbUpdated = false;
 
@@ -258,7 +264,7 @@
             try {
                 const res = await fetchFileFromRepo(fileRelPath);
                 if (!res) {
-                    console.warn(`[HotUpdate] Skipping unretrievable file: ${fileRelPath}`);
+                    console.warn(`[HotUpdate] Skipping missing file: ${fileRelPath}`);
                     continue;
                 }
 
@@ -266,25 +272,27 @@
                     const arrayBuffer = await res.arrayBuffer();
                     const uInt8Array = new Uint8Array(arrayBuffer);
 
-                    if (window.DbService && window.DbService.SQL) {
-                        window.DbService.db = new window.DbService.SQL.Database(uInt8Array);
-                        await window.DbService.saveToIndexedDB();
-                        dbUpdated = true;
-                        successCount++;
-                        console.log('[HotUpdate] Saved questionary.db to permanent storage');
-                    }
+                    if (uInt8Array.length > 100) {
+                        if (window.DbService && window.DbService.SQL) {
+                            window.DbService.db = new window.DbService.SQL.Database(uInt8Array);
+                            await window.DbService.saveToIndexedDB();
+                            dbUpdated = true;
+                            downloadedCount++;
+                            console.log('[HotUpdate] Saved new questionary.db to storage');
+                        }
 
-                    if (window.__TAURI__ && window.__TAURI__.fs) {
-                        try {
-                            const { writeBinaryFile, BaseDirectory } = window.__TAURI__.fs;
-                            await writeBinaryFile('questionary.db', uInt8Array, { dir: BaseDirectory.AppData });
-                        } catch (e) {}
+                        if (window.__TAURI__ && window.__TAURI__.fs) {
+                            try {
+                                const { writeBinaryFile, BaseDirectory } = window.__TAURI__.fs;
+                                await writeBinaryFile('questionary.db', uInt8Array, { dir: BaseDirectory.AppData });
+                            } catch (e) {}
+                        }
                     }
                 } else {
                     const content = await res.text();
-                    if (content && content.trim().length > 0) {
+                    if (content && content.trim().length > 50) {
                         storedFiles[fileRelPath] = content;
-                        successCount++;
+                        downloadedCount++;
 
                         if (fileRelPath.endsWith('.css')) {
                             applyHotCSS(fileRelPath, content);
@@ -305,15 +313,15 @@
             }
         }
 
-        // STRICT CHECK: Only mark as installed if critical JS files downloaded successfully!
-        if (successCount >= 3) {
+        // STRICT ATOMIC VERIFICATION: Only mark installed if critical files downloaded!
+        if (downloadedCount >= 2 && storedFiles['js/app.js']) {
             saveStoredCodeFiles(storedFiles);
             localStorage.setItem(INSTALLED_COMMIT_KEY, window.codeUpdateState.latestCommitSha);
-            console.log(`[HotUpdate] Commit ${window.codeUpdateState.latestCommitSha.substring(0, 7)} successfully installed!`);
+            console.log(`[HotUpdate] Commit ${window.codeUpdateState.latestCommitSha.substring(0, 7)} installed successfully!`);
         } else {
-            console.error('[HotUpdate] Update failed to fetch essential files. Not marking as installed.');
+            console.error('[HotUpdate] Critical files failed to download. Commit SHA NOT updated.');
             if (canShowNotification() && typeof showNotification === 'function') {
-                showNotification('Update download incomplete. Please try again.', 'error');
+                showNotification('Update download failed. Please check connection.', 'error');
             }
             window.codeUpdateState.downloading = false;
             updateCodeUpdateUI('idle');
@@ -331,9 +339,9 @@
 
         if (requiresReload) {
             if (canShowNotification() && typeof showNotification === 'function') {
-                showNotification('Update applied! Reloading application...', 'success');
+                showNotification('Update installed! Reloading application...', 'success');
             }
-            setTimeout(() => location.reload(), 1000);
+            setTimeout(() => location.reload(), 1200);
         } else if (canShowNotification() && typeof showNotification === 'function') {
             showNotification('Updated successfully!', 'success');
         }
