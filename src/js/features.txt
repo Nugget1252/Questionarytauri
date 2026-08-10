@@ -2315,25 +2315,29 @@ const UserLibraryDbService = {
 
     async init() {
         try {
-            if (typeof window.initSqlJs === 'undefined') {
-                await new Promise((resolve, reject) => {
-                    const script = document.createElement('script');
-                    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.js';
-                    script.onload = resolve;
-                    script.onerror = reject;
-                    document.head.appendChild(script);
-                });
-            }
+            // Share global SQL.js WASM instance (prevents duplicating WebAssembly heap memory)
+            if (!window.SQL_INSTANCE) {
+                if (typeof window.initSqlJs === 'undefined') {
+                    await new Promise((resolve, reject) => {
+                        const script = document.createElement('script');
+                        script.src = 'https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.js';
+                        script.onload = resolve;
+                        script.onerror = reject;
+                        document.head.appendChild(script);
+                    });
+                }
 
-            if (!this.SQL) {
-                this.SQL = await window.initSqlJs({
+                window.SQL_INSTANCE = await window.initSqlJs({
                     locateFile: file => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/${file}`
                 });
             }
 
-            const savedDb = await this.loadDbFromIndexedDB();
+            this.SQL = window.SQL_INSTANCE;
+
+            let savedDb = await this.loadDbFromIndexedDB();
             if (savedDb) {
                 this.db = new this.SQL.Database(savedDb);
+                savedDb = null; // Immediate Garbage Collection
             } else {
                 this.db = new this.SQL.Database();
             }
@@ -2387,7 +2391,7 @@ const UserLibraryDbService = {
 
     async saveDbToIndexedDB() {
         if (!this.db) return;
-        const data = this.db.export();
+        let data = this.db.export(); // Uint8Array
         return new Promise((resolve, reject) => {
             const request = indexedDB.open('QuestionaryUserLibraryDB', 1);
             request.onupgradeneeded = e => e.target.result.createObjectStore('db_store');
@@ -2395,10 +2399,19 @@ const UserLibraryDbService = {
                 const idb = e.target.result;
                 const tx = idb.transaction('db_store', 'readwrite');
                 const putReq = tx.objectStore('db_store').put(data, 'userlibrary.db');
-                putReq.onsuccess = () => resolve();
-                putReq.onerror = () => reject(putReq.error);
+                putReq.onsuccess = () => {
+                    data = null; // Free export buffer for GC
+                    resolve();
+                };
+                putReq.onerror = () => {
+                    data = null;
+                    reject(putReq.error);
+                };
             };
-            request.onerror = () => reject(request.error);
+            request.onerror = () => {
+                data = null;
+                reject(request.error);
+            };
         });
     },
 
@@ -2456,10 +2469,11 @@ const UserLibraryDbService = {
         const name = file.name || 'Imported_File';
         const fileType = getFileTypeCategory(name);
 
-        const uInt8Array = await fileToUint8Array(file);
+        let uInt8Array = await fileToUint8Array(file);
         await UserLibraryFileStore.saveBytes(blobId, uInt8Array);
         
         const fileSize = uInt8Array.byteLength || 0;
+        uInt8Array = null; // Free binary buffer for GC
 
         await this.execute(
             "INSERT INTO files (folder_id, name, file_type, blob_id, file_size) VALUES (?, ?, ?, ?, ?)", 
