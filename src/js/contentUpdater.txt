@@ -1,3 +1,5 @@
+
+
 const CONTENT_MANIFEST_URL = 'https://raw.githubusercontent.com/Nugget1252/Questionarytauri/beta/content-manifest.json';
 const LOCAL_MANIFEST_KEY = 'questionary-local-manifest';
 const DOWNLOADED_DOCS_KEY = 'questionary-downloaded-docs';
@@ -183,7 +185,10 @@ async function checkForContentUpdates(silent = false) {
 }
 
 async function downloadFile(url, filename) {
-    if (!window.__TAURI__) return null;
+    if (!window.__TAURI__) {
+        console.log('Downloads run in web/Tauri hybrid compatibility mode');
+        return null;
+    }
     
     try {
         const { writeBinaryFile, BaseDirectory } = window.__TAURI__.fs;
@@ -298,7 +303,7 @@ function updateContentDownloadProgress() {
         : 0;
     
     if (progressFill) progressFill.style.width = `${progress}%`;
-    if (progressText) progressText.textContent = `${contentContentUpdateState.completedFiles}/${contentUpdateState.totalFiles} files (${contentUpdateState.currentFile})`;
+    if (progressText) progressText.textContent = `${contentUpdateState.completedFiles}/${contentUpdateState.totalFiles} files (${contentUpdateState.currentFile})`;
 }
 
 function showContentProgressBar() {
@@ -323,8 +328,8 @@ function formatBytesContent(bytes) {
 
 async function handleContentUpdateClick() {
     if (window.hotCodeUpdater && typeof window.hotCodeUpdater.check === 'function') {
-        const pending = await window.hotCodeUpdater.check(false);
-        if (pending && pending.length > 0) {
+        const updates = await window.hotCodeUpdater.check(false);
+        if (updates && updates.length > 0) {
             await window.hotCodeUpdater.download();
             return;
         }
@@ -338,3 +343,5 @@ window.contentUpdateSystem = {
     handleClick: handleContentUpdateClick,
     getState: () => contentUpdateState
 };
+
+
