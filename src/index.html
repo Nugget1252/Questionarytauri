@@ -342,6 +342,7 @@
                 <a class="nav-link" id="remindersNav"><i class="fas fa-bell"></i><span>Reminders</span></a>
                 <a class="nav-link" id="studyRoomNav"><i class="fas fa-users"></i><span>Study Room</span></a>
                 <a class="nav-link" id="settingsNav"><i class="fas fa-cog"></i><span>Settings</span></a>
+                <a class="nav-link" id="forceSyncNav" style="color: var(--accent, #cf6215);"><i class="fas fa-sync-alt"></i><span>Force Sync / Clear Cache</span></a>
             </nav>
         </div>
         <div class="header-right" id="headerRight">
@@ -349,7 +350,7 @@
                 <i class="fas fa-search search-icon"></i>
                 <input type="text" class="search-input" id="globalSearch" placeholder="Search...">
             </div>
-            <button class="update-check-btn" id="checkUpdatesBtn" title="Check for App Updates">
+            <button class="update-check-btn" id="checkUpdatesBtn" title="Check for App Updates (Right-click to Force Re-sync)">
                 <i class="fas fa-sync-alt"></i>
             </button>
             <button class="content-update-btn" id="contentUpdateBtn" title="Check for New Content">
@@ -1046,15 +1047,12 @@
 
             <div class="settings-card">
                 <h3 class="settings-card-title"><i class="fas fa-database"></i> Data Management</h3>
-                <p class="settings-hint">Export your data for backup or import from a previous backup.</p>
-                <div class="data-actions">
-                    <button id="exportAllDataBtn" class="btn btn-secondary btn-sm">
-                        <i class="fas fa-download"></i> Export All Data
-                    </button>
-                    <label for="importDataInput" class="btn btn-secondary btn-sm" style="cursor: pointer;">
-                        <i class="fas fa-upload"></i> Import Data
-                    </label>
+                <p class="settings-hint">Export your data, clear cached code updates, or reset local app data.</p>
+                <div class="data-actions" style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px;">
+                    <button id="exportAllDataBtn" class="btn btn-secondary btn-sm"><i class="fas fa-download"></i> Export Data</button>
+                    <label for="importDataInput" class="btn btn-secondary btn-sm" style="cursor: pointer;"><i class="fas fa-upload"></i> Import Data</label>
                     <input type="file" id="importDataInput" class="import-input" accept=".json">
+                    <button id="resetCodeCacheBtnSettings" class="btn btn-primary btn-sm" style="background: var(--accent, #cf6215); color: white;"><i class="fas fa-sync-alt"></i> Reset Code Cache & Force Sync</button>
                 </div>
             </div>
 

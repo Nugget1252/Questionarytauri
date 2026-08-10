@@ -4962,23 +4962,29 @@ async function openUrlInExternalWindow(url) {
     }
 }
 window.openUrlInExternalWindow = openUrlInExternalWindow;
-const resetCodeCacheBtn = document.getElementById('resetCodeCacheBtn');
-  if (resetCodeCacheBtn) {
-    resetCodeCacheBtn.addEventListener('click', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      showConfirmModal(
-        'Reset Code Cache',
-        'Clear stored hot-code updates and re-sync directly from GitHub?',
-        () => {
-          if (window.hotCodeUpdater && typeof window.hotCodeUpdater.resetCache === 'function') {
-            window.hotCodeUpdater.resetCache();
-          } else {
-            localStorage.removeItem('questionary-code-files');
-            localStorage.removeItem('questionary-installed-commit-sha');
-            location.reload();
-          }
-        }
-      );
+function setupResetCacheButtons() {
+    const handleReset = (e) => {
+        if (e) { e.preventDefault(); e.stopPropagation(); }
+        showConfirmModal(
+            'Reset Code Cache',
+            'Clear stored hot-code updates and re-sync directly from GitHub?',
+            () => {
+                if (window.hotCodeUpdater && typeof window.hotCodeUpdater.resetCache === 'function') {
+                    window.hotCodeUpdater.resetCache();
+                } else {
+                    localStorage.removeItem('questionary-code-files');
+                    localStorage.removeItem('questionary-installed-commit-sha');
+                    location.reload();
+                }
+            }
+        );
+    };
+
+    ['resetCodeCacheBtn', 'resetCodeCacheBtnSettings', 'forceSyncNav'].forEach(id => {
+        const btn = document.getElementById(id);
+        if (btn) btn.onclick = handleReset;
     });
-  }
+}
+
+// Call inside setupSettingsActions() or DOMContentLoaded
+document.addEventListener('DOMContentLoaded', setupResetCacheButtons);
