@@ -1,5 +1,5 @@
 /* ================================================================
- *   ZERO-CONFIG HOT UPDATER ENGINE (With In-App Force-Reset UI)
+ *   ZERO-CONFIG HOT UPDATER ENGINE (Guaranteed Script Overriding)
  *   Repository: Nugget1252/Questionarytauri
  *   ================================================================ */
 (function() {
@@ -55,10 +55,10 @@
         localStorage.setItem(CODE_FILES_KEY, JSON.stringify(files));
     }
 
-    // FORCE CLEAR CACHE & RE-DOWNLOAD FROM GITHUB
     async function resetCache() {
         localStorage.removeItem(CODE_FILES_KEY);
         localStorage.removeItem(INSTALLED_COMMIT_KEY);
+        delete window._HOT_APP_JS_LOADED;
         console.log('[HotUpdate] Hot-code cache purged successfully.');
         
         if (canShowNotification() && typeof showNotification === 'function') {
@@ -95,6 +95,7 @@
         }
     }
 
+    // Execute stored JS scripts in order of dependency & set hot-update flags
     function applyStoredJS() {
         const stored = getStoredCodeFiles();
         const executionOrder = ['js/features.js', 'js/studyRoom.js', 'js/contentUpdater.js', 'js/app.js'];
@@ -107,6 +108,8 @@
                     const scriptId = `hot-js-${filename.replace(/[^a-zA-Z0-9]/g, '-')}`;
                     let scriptEl = document.getElementById(scriptId);
                     if (scriptEl) scriptEl.remove();
+
+                    window._HOT_APP_JS_LOADED = true;
 
                     scriptEl = document.createElement('script');
                     scriptEl.id = scriptId;
