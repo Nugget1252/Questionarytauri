@@ -25,7 +25,9 @@
             font-family: "Font Awesome 6 Free", "Font Awesome 6 Brands", sans-serif !important;
             font-style: normal !important;
             font-weight: 900 !important;
-            display: inline-block !important;
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
             text-rendering: auto !important;
             -webkit-font-smoothing: antialiased !important;
             -moz-osx-font-smoothing: grayscale !important;
@@ -42,6 +44,22 @@
         .mobile-bottom-nav {
             display: none;
         }
+
+        /* Dashboard Stat Icons Backgrounds */
+        .stat-icon {
+            width: 40px !important;
+            height: 40px !important;
+            border-radius: 10px !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            color: white !important;
+            font-size: 1.1rem !important;
+        }
+        .stat-icon.documents { background: #cf6215 !important; }
+        .stat-icon.favorites { background: #eab308 !important; }
+        .stat-icon.recent { background: #3b82f6 !important; }
+        .stat-icon.streak { background: #ef4444 !important; }
 
         /* ================================================================
            MOBILE RESPONSIVE OVERHAUL (< 768px)
@@ -93,7 +111,7 @@
             /* Responsive Search Input */
             .search-container {
                 flex: 1 !important;
-                max-width: 180px !important;
+                max-width: 170px !important;
                 height: 34px !important;
             }
 
@@ -185,17 +203,6 @@
                 gap: 10px !important;
                 background: var(--surface, #1e1f22) !important;
                 border: 1px solid var(--border, #2e3035) !important;
-            }
-
-            .stat-icon {
-                width: 36px !important;
-                height: 36px !important;
-                min-width: 36px !important;
-                border-radius: 8px !important;
-                display: flex !important;
-                align-items: center !important;
-                justify-content: center !important;
-                font-size: 1.1rem !important;
             }
 
             .stat-info {
@@ -449,6 +456,7 @@
                             <button class="dropdown-btn" id="exportDataBtn"><i class="fas fa-download"></i> Export</button>
                             <button class="dropdown-btn" id="importDataBtn"><i class="fas fa-upload"></i> Import</button>
                         </div>
+                        <button class="dropdown-btn" id="resetCodeCacheBtn" style="margin-top: 6px;"><i class="fas fa-sync-alt"></i> Reset Code Cache</button>
                         <button class="dropdown-btn dropdown-btn-danger" id="clearDataBtn"><i class="fas fa-trash-alt"></i> Clear Local Data</button>
                     </div>
                     
@@ -457,15 +465,6 @@
                     <button class="dropdown-btn dropdown-btn-logout" id="logoutBtn">
                         <i class="fas fa-sign-out-alt"></i> Logout
                     </button>
-                    <div class="dropdown-group">
-                        <div class="dropdown-group-label">Data</div>
-                        <div class="dropdown-btn-row">
-                            <button class="dropdown-btn" id="exportDataBtn"><i class="fas fa-download"></i> Export</button>
-                            <button class="dropdown-btn" id="importDataBtn"><i class="fas fa-upload"></i> Import</button>
-                        </div>
-                        <button class="dropdown-btn" id="resetCodeCacheBtn" style="margin-top: 6px;"><i class="fas fa-sync-alt"></i> Reset Code Cache</button>
-                        <button class="dropdown-btn dropdown-btn-danger" id="clearDataBtn"><i class="fas fa-trash-alt"></i> Clear Local Data</button>
-                    </div>
                 </div>
             </div>
         </div>
