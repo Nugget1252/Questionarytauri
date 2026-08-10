@@ -4988,3 +4988,59 @@ function setupResetCacheButtons() {
 
 // Call inside setupSettingsActions() or DOMContentLoaded
 document.addEventListener('DOMContentLoaded', setupResetCacheButtons);
+// AUTO-INJECT HOT-UPDATED UI ELEMENTS INTO DOM AT RUNTIME
+function injectHotUIElements() {
+  // 1. Inject "Force Sync / Clear Cache" into Mobile Side Menu (#navLinks)
+  const navLinks = document.getElementById('navLinks');
+  if (navLinks && !document.getElementById('forceSyncNav')) {
+    const forceSyncLink = document.createElement('a');
+    forceSyncLink.className = 'nav-link';
+    forceSyncLink.id = 'forceSyncNav';
+    forceSyncLink.style.color = 'var(--accent, #cf6215)';
+    forceSyncLink.innerHTML = '<i class="fas fa-sync-alt"></i><span>Force Sync / Clear Cache</span>';
+    
+    const settingsNav = document.getElementById('settingsNav');
+    if (settingsNav) {
+      navLinks.insertBefore(forceSyncLink, settingsNav.nextSibling);
+    } else {
+      navLinks.appendChild(forceSyncLink);
+    }
+  }
+
+  // 2. Inject "Reset Code Cache" into Settings Page Data Management card
+  const dataActions = document.querySelector('.data-actions');
+  if (dataActions && !document.getElementById('resetCodeCacheBtnSettings')) {
+    const resetBtn = document.createElement('button');
+    resetBtn.id = 'resetCodeCacheBtnSettings';
+    resetBtn.className = 'btn btn-primary btn-sm';
+    resetBtn.style.cssText = 'background: var(--accent, #cf6215); color: white;';
+    resetBtn.innerHTML = '<i class="fas fa-sync-alt"></i> Reset Code Cache & Force Sync';
+    dataActions.appendChild(resetBtn);
+  }
+
+  // 3. Attach click handlers to all reset buttons
+  const handleReset = (e) => {
+    if (e) { e.preventDefault(); e.stopPropagation(); }
+    showConfirmModal(
+      'Reset Code Cache',
+      'Clear stored hot-code updates and re-sync directly from GitHub?',
+      () => {
+        if (window.hotCodeUpdater && typeof window.hotCodeUpdater.resetCache === 'function') {
+          window.hotCodeUpdater.resetCache();
+        } else {
+          localStorage.removeItem('questionary-code-files');
+          localStorage.removeItem('questionary-installed-commit-sha');
+          location.reload();
+        }
+      }
+    );
+  };
+
+  ['resetCodeCacheBtn', 'resetCodeCacheBtnSettings', 'forceSyncNav'].forEach(id => {
+    const btn = document.getElementById(id);
+    if (btn) btn.onclick = handleReset;
+  });
+}
+
+// Call on startup
+document.addEventListener('DOMContentLoaded', injectHotUIElements);
