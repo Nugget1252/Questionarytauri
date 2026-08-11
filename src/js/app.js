@@ -1,10 +1,3 @@
-The JS broke because checkForUpdatesManual() was declared twice in app.js (once
-in the middle and once at the very end of the file), causing a JavaScript
-duplicate declaration error that stopped the whole file from executing.
-
-Here is the COMPLETE, 100% SYNTAX-CORRECT, SINGLE-FILE js/app.js.
-
-Replace your entire js/app.js file with this exact code:
 
 // HOT-UPDATE EXECUTION GUARD (Prevents static script tag from overwriting hot updates)
 if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentScript.id || !document.currentScript.id.includes('hot-js'))) {
