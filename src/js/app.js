@@ -748,7 +748,29 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
       if (usernameDisplay && currentUser) {
         usernameDisplay.textContent = currentUser.username;
       }
+      async function initializeAppAfterLogin() {
+      const usernameDisplay = document.getElementById('username-display');
+      if (usernameDisplay && currentUser) {
+        usernameDisplay.textContent = currentUser.username;
+      }
 
+      const adminBadge = document.getElementById('adminBadge');
+      if (adminBadge && currentUser && currentUser.role === 'admin') {
+        adminBadge.style.display = 'inline-block';
+      }
+
+      // Re-initialize dropdown & hot features
+      initSettingsDropdown();
+
+      if (typeof initializeNewFeatures === 'function') {
+        initializeNewFeatures();
+      }
+
+      const nodes = await DbService.getChildren(path);
+      renderTilesFromDb(nodes);
+      updateBreadcrumb();
+      await updateDashboardStats();
+    }
       const adminBadge = document.getElementById('adminBadge');
       if (adminBadge && currentUser && currentUser.role === 'admin') {
         adminBadge.style.display = 'inline-block';
@@ -4323,14 +4345,42 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
       }
     });
 
-    function initSettingsDropdown() {
-      const userBadge = document.getElementById('userBadge');
-      const userDropdown = document.getElementById('userDropdownMenu');
+function initSettingsDropdown() {
+      let userBadge = document.getElementById('userBadge') || document.querySelector('.user-badge');
+      if (!userBadge) return;
 
-      if (!userBadge || !userDropdown) return;
+      let userDropdown = document.getElementById('userDropdownMenu') || userBadge.querySelector('.user-dropdown-menu');
 
-      userBadge.addEventListener('click', (e) => {
+      // FAIL-SAFE: If HTML in Tauri app binary is outdated and missing userDropdownMenu, dynamically inject it!
+      if (!userDropdown) {
+        console.log('[HotUpdate] userDropdownMenu missing in DOM. Dynamically injecting dropdown structure...');
+        userDropdown = document.createElement('div');
+        userDropdown.className = 'user-dropdown-menu';
+        userDropdown.id = 'userDropdownMenu';
+        userDropdown.innerHTML = `
+          <div class="user-dropdown-header" style="padding: 12px 16px; border-bottom: 1px solid var(--border, rgba(255,255,255,0.1));">
+            <strong id="dropdownUsername" style="display: block; color: var(--text-primary); font-size: 0.95rem;">User</strong>
+            <small style="color: var(--text-secondary); font-size: 0.75rem;">Account Settings</small>
+          </div>
+          <div class="user-dropdown-items" style="padding: 6px 0;">
+            <a class="dropdown-item" id="openSettingsBtn" href="#" style="display: flex; align-items: center; gap: 10px; padding: 10px 16px; color: var(--text-primary); text-decoration: none; font-size: 0.85rem;">
+              <i class="fas fa-cog" style="width: 16px; text-align: center;"></i> Settings
+            </a>
+            <a class="dropdown-item" id="resetCodeCacheBtn" href="#" style="display: flex; align-items: center; gap: 10px; padding: 10px 16px; color: var(--accent, #cf6215); text-decoration: none; font-size: 0.85rem;">
+              <i class="fas fa-sync-alt" style="width: 16px; text-align: center;"></i> Force Sync / Clear Cache
+            </a>
+            <a class="dropdown-item" id="logoutBtn" href="#" style="display: flex; align-items: center; gap: 10px; padding: 10px 16px; color: #ef4444; text-decoration: none; font-size: 0.85rem;">
+              <i class="fas fa-sign-out-alt" style="width: 16px; text-align: center;"></i> Logout
+            </a>
+          </div>
+        `;
+        userBadge.appendChild(userDropdown);
+      }
+
+      // Robust Toggle Handler for Desktop & WebView Touch
+      const toggleDropdown = (e) => {
         if (e.target.closest('#userDropdownMenu')) return;
+        e.preventDefault();
         e.stopPropagation();
         userBadge.classList.toggle('active');
 
@@ -4339,19 +4389,25 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
         if (usernameDisplay && dropdownUsername) {
           dropdownUsername.textContent = usernameDisplay.textContent;
         }
-      });
+      };
 
-      document.addEventListener('click', (e) => {
-        if (!e.target.closest('.user-badge')) {
-          userBadge.classList.remove('active');
-        }
-      });
+      // Bind directly to element
+      userBadge.onclick = toggleDropdown;
+
+      // Close dropdown when clicking outside (Global listener)
+      if (!window._userDropdownGlobalClickListener) {
+        window._userDropdownGlobalClickListener = true;
+        document.addEventListener('click', (e) => {
+          if (!e.target.closest('#userBadge') && !e.target.closest('.user-badge')) {
+            document.querySelectorAll('.user-badge, #userBadge').forEach(el => el.classList.remove('active'));
+          }
+        });
+      }
 
       loadSettingsState();
       setupSettingsToggles();
       setupSettingsActions();
     }
-
     function loadSettingsState() {
       const settings = JSON.parse(localStorage.getItem('questionary-settings') || '{}');
 
