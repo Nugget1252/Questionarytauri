@@ -4381,11 +4381,8 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
     function loadSettingsState() {
       const settings = JSON.parse(localStorage.getItem('questionary-settings') || '{}');
 
-      const verticalNavToggle = document.getElementById('verticalNavbarToggle');
-      if (verticalNavToggle) {
-        verticalNavToggle.checked = settings.verticalNavbar || false;
-        if (settings.verticalNavbar) document.body.classList.add('vertical-navbar-mode');
-      }
+      // Always ensure vertical-navbar-mode is cleared from body
+      document.body.classList.remove('vertical-navbar-mode');
 
       const compactToggle = document.getElementById('compactModeToggle');
       if (compactToggle) {
@@ -4414,7 +4411,6 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
 
     function saveSettingsState() {
       const settings = {
-        verticalNavbar: document.getElementById('verticalNavbarToggle')?.checked || false,
         compactMode: document.getElementById('compactModeToggle')?.checked || false,
         animations: document.getElementById('animationsToggle')?.checked !== false,
         autoOpenPdfs: document.getElementById('autoPlayToggle')?.checked || false,
@@ -4449,17 +4445,6 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
         }
       }
 
-      setupToggleRow('verticalNavbarToggle', (checked) => {
-        if (checked) {
-          document.body.classList.add('vertical-navbar-mode');
-          showNotification('Vertical navbar enabled', 'success');
-        } else {
-          document.body.classList.remove('vertical-navbar-mode');
-          closeSidebar();
-          showNotification('Horizontal navbar restored', 'info');
-        }
-      });
-
       setupToggleRow('compactModeToggle', (checked) => {
         document.body.classList.toggle('compact-mode', checked);
         showNotification(checked ? 'Compact mode enabled' : 'Compact mode disabled', 'info');
@@ -4483,7 +4468,6 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
         showNotification(checked ? 'Will remember your last location' : 'Will start at home on launch', 'info');
       });
     }
-
     function setupSettingsActions() {
       const clearDataBtn = document.getElementById('clearDataBtn');
       if (clearDataBtn) {
@@ -4912,6 +4896,14 @@ function resetKeybinds() {
     window.renderKeybindsSettings = renderKeybindsSettings;
     window.resetKeybinds = resetKeybinds;
 
+    function closeSidebar() {
+      const navLinks = document.getElementById('navLinks');
+      if (navLinks && !navLinks.classList.contains('is-pinned')) {
+        navLinks.classList.remove('sidebar-open');
+        document.getElementById('sidebarOverlay')?.classList.remove('active');
+      }
+    }
+
     function initHamburgerMenu() {
       const hamburgerBtn = document.getElementById('hamburgerMenu');
       const mobileMenuToggle = document.getElementById('mobileMenuToggle');
@@ -4921,7 +4913,7 @@ function resetKeybinds() {
 
       if (!navLinks) return;
 
-      // Add Pin / Unpin Button inside sidebar header
+      // Pin / Unpin Button Handler
       let sidebarHeader = navLinks.querySelector('.sidebar-header');
       if (sidebarHeader && !document.getElementById('sidebarPin')) {
         const pinBtn = document.createElement('button');
@@ -4942,7 +4934,6 @@ function resetKeybinds() {
           }
         });
 
-        // Restore pinned state on boot
         const savedPin = localStorage.getItem('questionary-sidebar-pinned') === 'true';
         if (savedPin) {
           navLinks.classList.add('is-pinned');
@@ -4958,7 +4949,7 @@ function resetKeybinds() {
         if (sidebarOverlay) sidebarOverlay.classList.toggle('active', isOpen);
       };
 
-      const closeSidebar = () => {
+      const closeDrawer = () => {
         if (navLinks.classList.contains('is-pinned')) return;
         navLinks.classList.remove('sidebar-open');
         if (sidebarOverlay) sidebarOverlay.classList.remove('active');
@@ -4966,21 +4957,14 @@ function resetKeybinds() {
 
       if (hamburgerBtn) hamburgerBtn.onclick = toggleSidebar;
       if (mobileMenuToggle) mobileMenuToggle.onclick = toggleSidebar;
-      if (sidebarClose) sidebarClose.onclick = closeSidebar;
-      if (sidebarOverlay) sidebarOverlay.onclick = closeSidebar;
+      if (sidebarClose) sidebarClose.onclick = closeDrawer;
+      if (sidebarOverlay) sidebarOverlay.onclick = closeDrawer;
 
       navLinks.querySelectorAll('.nav-link').forEach(link => {
         link.addEventListener('click', () => {
-          if (!navLinks.classList.contains('is-pinned')) {
-            closeSidebar();
-          }
+          closeDrawer();
         });
       });
-    }
-
-    function closeSidebar() {
-      document.getElementById('navLinks')?.classList.remove('sidebar-open');
-      document.getElementById('sidebarOverlay')?.classList.remove('active');
     }
 
     document.addEventListener('DOMContentLoaded', () => {
