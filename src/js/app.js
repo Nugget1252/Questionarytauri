@@ -5177,4 +5177,29 @@ function resetKeybinds() {
     }
     document.addEventListener('DOMContentLoaded', applyWebViewCssFixes);
     applyWebViewCssFixes();
-}
+    // Global Event Delegation for Vertical Navbar Toggle in Tauri
+    // Reliable Click Handler for Vertical Navbar Toggle in Tauri WebViews
+    document.addEventListener('click', (e) => {
+      const toggleRow = e.target.closest('#verticalNavbarToggle, .toggle-item');
+      if (toggleRow && (toggleRow.id === 'verticalNavbarToggle' || toggleRow.querySelector('#verticalNavbarToggle'))) {
+        e.preventDefault();
+        e.stopPropagation();
+
+        const checkbox = document.getElementById('verticalNavbarToggle') || toggleRow.querySelector('input[type="checkbox"]');
+        if (checkbox) {
+          checkbox.checked = !checkbox.checked;
+        }
+
+        const isVertical = checkbox ? checkbox.checked : document.body.classList.contains('vertical-navbar-mode');
+        document.body.classList.toggle('vertical-navbar-mode', isVertical);
+
+        const settings = JSON.parse(localStorage.getItem('questionary-settings') || '{}');
+        settings.verticalNavbar = isVertical;
+        localStorage.setItem('questionary-settings', JSON.stringify(settings));
+
+        if (typeof showNotification === 'function') {
+          showNotification(isVertical ? 'Vertical navbar enabled' : 'Horizontal navbar restored', 'info');
+        }
+      }
+    });
+  }
