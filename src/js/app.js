@@ -1,3 +1,4 @@
+
 // HOT-UPDATE EXECUTION GUARD (Prevents static script tag from overwriting hot updates)
 if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentScript.id || !document.currentScript.id.includes('hot-js'))) {
     console.log('[HotUpdate] Hot-updated app.js is active. Aborting bundled app.js execution.');
@@ -176,81 +177,89 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
       isFallback: false,
 
       async init() {
-        try {
-          if (!window.SQL_INSTANCE) {
-            if (typeof window.initSqlJs === 'undefined') {
-              await new Promise((resolve, reject) => {
-                const script = document.createElement('script');
-                script.src = 'https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.js';
-                script.onload = resolve;
-                script.onerror = reject;
-                document.head.appendChild(script);
-              });
-            }
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('DbService init timeout')), 2000)
+        );
 
-            window.SQL_INSTANCE = await window.initSqlJs({
-              locateFile: file => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/${file}`
+        try {
+          await Promise.race([this._internalInit(), timeoutPromise]);
+          return true;
+        } catch (err) {
+          console.warn('[SQLite] WASM DB Init timed out or failed. Activating LocalNodeStore fallback engine:', err);
+          this.isFallback = true;
+          LocalNodeStore.seedDefaultLibrary();
+          return true;
+        }
+      },
+
+      async _internalInit() {
+        if (!window.SQL_INSTANCE) {
+          if (typeof window.initSqlJs === 'undefined') {
+            await new Promise((resolve, reject) => {
+              const script = document.createElement('script');
+              script.src = 'https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.js';
+              script.onload = resolve;
+              script.onerror = reject;
+              document.head.appendChild(script);
             });
           }
 
-          this.SQL = window.SQL_INSTANCE;
-
-          // Check IndexedDB
-          let savedDb = await this.loadFromIndexedDB();
-          if (savedDb) {
-            this.db = new this.SQL.Database(savedDb);
-            savedDb = null;
-
-            if (await this.isValidDatabase()) {
-              console.log('[SQLite] Valid DB loaded from IndexedDB cache');
-              return true;
-            } else {
-              await this.clearIndexedDB();
-              this.db = null;
-            }
-          }
-
-          // Candidate asset paths for cross-platform / Tauri / WebViews
-          const candidatePaths = [
-            'questionary.db',
-            '/questionary.db',
-            'assets/questionary.db',
-            (window.location.origin || '') + '/questionary.db'
-          ];
-
-          for (const path of candidatePaths) {
-            try {
-              const response = await fetch(path + '?v=' + Date.now());
-              if (response.ok) {
-                let arrayBuffer = await response.arrayBuffer();
-                let uInt8Array = new Uint8Array(arrayBuffer);
-                const tempDb = new this.SQL.Database(uInt8Array);
-                
-                arrayBuffer = null;
-                uInt8Array = null;
-
-                this.db = tempDb;
-                if (await this.isValidDatabase()) {
-                  await this.saveToIndexedDB();
-                  console.log(`[SQLite] Loaded questionary.db from: ${path}`);
-                  return true;
-                }
-              }
-            } catch (fetchErr) {}
-          }
-
-          // Fresh WASM Schema Fallback
-          console.log('[SQLite] Populating default schema...');
-          this.db = new this.SQL.Database();
-          await this.createDefaultSchema();
-          return true;
-
-        } catch (err) {
-          console.warn('[SQLite] WASM unavailable on Android WebView. Activating LocalNodeStore Engine fallback:', err);
-          this.isFallback = true;
-          LocalNodeStore.getChildren([]);
-          return true;
+          window.SQL_INSTANCE = await window.initSqlJs({
+            locateFile: file => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/${file}`
+          });
         }
+
+        this.SQL = window.SQL_INSTANCE;
+
+        // Check IndexedDB
+        let savedDb = await this.loadFromIndexedDB();
+        if (savedDb) {
+          this.db = new this.SQL.Database(savedDb);
+          savedDb = null;
+
+          if (await this.isValidDatabase()) {
+            console.log('[SQLite] Valid DB loaded from IndexedDB cache');
+            return true;
+          } else {
+            await this.clearIndexedDB();
+            this.db = null;
+          }
+        }
+
+        // Candidate asset paths for cross-platform / Tauri / WebViews
+        const candidatePaths = [
+          'questionary.db',
+          '/questionary.db',
+          'assets/questionary.db',
+          (window.location.origin || '') + '/questionary.db'
+        ];
+
+        for (const path of candidatePaths) {
+          try {
+            const response = await fetch(path + '?v=' + Date.now());
+            if (response.ok) {
+              let arrayBuffer = await response.arrayBuffer();
+              let uInt8Array = new Uint8Array(arrayBuffer);
+              const tempDb = new this.SQL.Database(uInt8Array);
+              
+              arrayBuffer = null;
+              uInt8Array = null;
+
+              this.db = tempDb;
+              if (await this.isValidDatabase()) {
+                await this.saveToIndexedDB();
+                console.log(`[SQLite] Loaded questionary.db from: ${path}`);
+                return true;
+              }
+            }
+          } catch (fetchErr) {}
+        }
+
+        // Fresh WASM Schema Fallback
+        console.log('[SQLite] Populating default schema...');
+        this.db = new this.SQL.Database();
+        await this.createDefaultSchema();
+        return true;
       },
 
       async createDefaultSchema() {
@@ -749,12 +758,11 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
         initializeNewFeatures();
       }
 
-      if (DbService.db) {
-        const nodes = await DbService.getChildren(path);
-        renderTilesFromDb(nodes);
-        updateBreadcrumb();
-        await updateDashboardStats();
-      }
+      const nodes = await DbService.getChildren(path);
+      renderTilesFromDb(nodes);
+      updateBreadcrumb();
+      await updateDashboardStats();
+
       if (window.hotCodeUpdater && typeof window.hotCodeUpdater.check === 'function') {
         window.hotCodeUpdater.check(true).then(updates => {
           if (updates && updates.length > 0) {
@@ -781,10 +789,8 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
       if (typeof addToSearchHistory === 'function') addToSearchHistory(query);
 
       const results = [];
-      if (DbService.db) {
-        const sqlResults = await DbService.search(query.toLowerCase());
-        results.push(...sqlResults);
-      }
+      const sqlResults = await DbService.search(query.toLowerCase());
+      results.push(...sqlResults);
 
       if (notes && notes.length > 0) {
         notes.forEach(note => {
@@ -1024,7 +1030,6 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
     }
 
     window.renderTiles = async function(ignoredDocs) {
-      if (!DbService.db) return;
       const nodes = await DbService.getChildren(path);
       renderTilesFromDb(nodes);
     };
@@ -1114,7 +1119,6 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
     }
 
     async function updateDashboardStats() {
-      if (!DbService.db) return;
       const totalDocs = await DbService.countDocuments();
       const totalDocsEl = document.getElementById('totalDocuments');
       if (totalDocsEl) totalDocsEl.textContent = totalDocs;
@@ -2014,6 +2018,16 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
       console.log('[App] Starting initialization...');
       preventAccidentalSelection();
 
+      // Unconditional 1.5-second Fail-Safe Timer for Loading Screen
+      const overlayTimeout = setTimeout(() => {
+        const loadingOverlay = document.getElementById('loadingOverlay');
+        if (loadingOverlay && loadingOverlay.classList.contains('active')) {
+          console.warn('[App] Fail-safe timer triggered: Force removing stuck loading overlay.');
+          loadingOverlay.classList.remove('active');
+          checkSavedLogin();
+        }
+      }, 1500);
+
       if (window.__TAURI__ && window.__TAURI__.window) {
         try {
           const currentWindow = window.__TAURI__.window.getCurrentWindow();
@@ -2027,7 +2041,7 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
 
       await initializeFavorites();
 
-      // Initialize SQLite Database Engine
+      // Initialize Database Engine with fallback handling
       await DbService.init();
 
       initializeMobileBottomNav();
@@ -2093,6 +2107,7 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
         loginForm.addEventListener('submit', handleLogin);
       }
 
+      clearTimeout(overlayTimeout);
       checkSavedLogin();
 
       document.addEventListener('click', e => {
@@ -2129,10 +2144,8 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
         window.loadCustomDocuments();
       }
 
-      if (DbService.db) {
-        const nodes = await DbService.getChildren(path);
-        renderTilesFromDb(nodes);
-      }
+      const nodes = await DbService.getChildren(path);
+      renderTilesFromDb(nodes);
 
       console.log('Questionary application initialized successfully');
     }
@@ -3502,6 +3515,13 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
             showNotification('You are on the latest version!', 'success');
             resetUpdateButton();
           }
+        } else if (window.hotCodeUpdater && typeof window.hotCodeUpdater.check === 'function') {
+          const updates = await window.hotCodeUpdater.check(false);
+          if (updates && updates.length > 0) {
+            await window.hotCodeUpdater.download();
+          } else {
+            showNotification('App code is completely up to date!', 'success');
+          }
         } else {
           showNotification('Updater is available in the Desktop app only.', 'info');
         }
@@ -3522,7 +3542,6 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
       try {
         showNotification('Downloading & installing update...', 'info');
 
-        // 1. Download & stage binary
         await updateState.update.downloadAndInstall((event) => {
           if (event.event === 'Started') {
             updateState.totalBytes = event.data.contentLength || 0;
@@ -3541,7 +3560,6 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
         showNotification('Update installed! Restarting app...', 'success');
         updateButtonToRestartMode();
 
-        // 2. Relaunch application to apply update
         setTimeout(async () => {
           try {
             if (window.__TAURI__?.process?.relaunch) {
@@ -3629,13 +3647,6 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
       updateState.available = false;
       updateState.update = null;
       updateState.downloading = false;
-    }
-
-    function showUpdateProgressNotification() {
-      const progress = updateState.downloadProgress;
-      const downloaded = formatBytes(updateState.downloadedBytes);
-      const total = formatBytes(updateState.totalBytes);
-      showNotification(`Downloading: ${progress}% (${downloaded} / ${total})`, 'info');
     }
 
     function formatBytes(bytes) {
@@ -4556,8 +4567,7 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
         });
       }
     }
-
-    function getKeyboardShortcuts() {
+function getKeyboardShortcuts() {
       return getAllKeybindEntries();
     }
 
@@ -4920,14 +4930,6 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
       initHamburgerMenu();
     });
 
-    async function checkForUpdatesManual() {
-      if (window.hotCodeUpdater && typeof window.hotCodeUpdater.check === 'function') {
-        const updates = await window.hotCodeUpdater.check(false);
-        if (updates && updates.length > 0) {
-          await window.hotCodeUpdater.download();
-        }
-      }
-    }
     // Listener for PDF Viewer 'Open in New Window' messages
     window.addEventListener('message', async function(e) {
         if (e.data && e.data.type === 'openInNewWindow' && e.data.url) {
@@ -4968,6 +4970,7 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
         }
     }
     window.openUrlInExternalWindow = openUrlInExternalWindow;
+
     function setupResetCacheButtons() {
         const handleReset = (e) => {
             if (e) { e.preventDefault(); e.stopPropagation(); }
@@ -4992,8 +4995,8 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
         });
     }
 
-    // Call inside setupSettingsActions() or DOMContentLoaded
     document.addEventListener('DOMContentLoaded', setupResetCacheButtons);
+
     // AUTO-INJECT HOT-UPDATED UI ELEMENTS INTO DOM AT RUNTIME
     function injectHotUIElements() {
       // 1. Inject "Force Sync / Clear Cache" into Mobile Side Menu (#navLinks)
@@ -5048,9 +5051,9 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
       });
     }
 
-    // Call on startup
     document.addEventListener('DOMContentLoaded', injectHotUIElements);
-        // FORCE SYNC BUTTON HANDLER ON HOME SCREEN
+
+    // FORCE SYNC BUTTON HANDLER ON HOME SCREEN
     function initHomeSyncButton() {
       const syncBtn = document.getElementById('homeSyncBtn');
       if (syncBtn && !syncBtn.dataset.initialized) {
@@ -5083,7 +5086,6 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
       }
     }
 
-    // Call on startup
     document.addEventListener('DOMContentLoaded', initHomeSyncButton);
     setTimeout(initHomeSyncButton, 1000);
 }
