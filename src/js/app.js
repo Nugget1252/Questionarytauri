@@ -4998,89 +4998,50 @@ function resetKeybinds() {
     }
     window.openUrlInExternalWindow = openUrlInExternalWindow;
 
-    function setupResetCacheButtons() {
-        const handleReset = (e) => {
-            if (e) { e.preventDefault(); e.stopPropagation(); }
-            showConfirmModal(
-                'Reset Code Cache',
-                'Clear stored hot-code updates and re-sync directly from GitHub?',
-                () => {
-                    if (window.hotCodeUpdater && typeof window.hotCodeUpdater.resetCache === 'function') {
-                        window.hotCodeUpdater.resetCache();
-                    } else {
-                        localStorage.removeItem('questionary-code-files');
-                        localStorage.removeItem('questionary-installed-commit-sha');
-                        location.reload();
-                    }
-                }
-            );
+    // 1. GLOBAL EVENT DELEGATION (Fixes Reset Buttons everywhere)
+    document.addEventListener('click', (e) => {
+      const resetBtn = e.target.closest('#resetCodeCacheBtn, #resetCodeCacheBtnSettings, .reset-cache-btn');
+      if (resetBtn) {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        const doReset = () => {
+          if (window.hotCodeUpdater && typeof window.hotCodeUpdater.resetCache === 'function') {
+            window.hotCodeUpdater.resetCache();
+          } else {
+            localStorage.removeItem('questionary-code-files');
+            localStorage.removeItem('questionary-installed-commit-sha');
+            location.reload();
+          }
         };
 
-        ['resetCodeCacheBtn', 'resetCodeCacheBtnSettings', 'forceSyncNav'].forEach(id => {
-            const btn = document.getElementById(id);
-            if (btn) btn.onclick = handleReset;
-        });
-    }
-
-    document.addEventListener('DOMContentLoaded', setupResetCacheButtons);
-
-    // AUTO-INJECT HOT-UPDATED UI ELEMENTS INTO DOM AT RUNTIME
-    function injectHotUIElements() {
-      // 1. Inject "Force Sync / Clear Cache" into Mobile Side Menu (#navLinks)
-      const navLinks = document.getElementById('navLinks');
-      if (navLinks && !document.getElementById('forceSyncNav')) {
-        const forceSyncLink = document.createElement('a');
-        forceSyncLink.className = 'nav-link';
-        forceSyncLink.id = 'forceSyncNav';
-        forceSyncLink.style.color = 'var(--accent, #cf6215)';
-        forceSyncLink.innerHTML = '<i class="fas fa-sync-alt"></i><span>Force Sync / Clear Cache</span>';
-        
-        const settingsNav = document.getElementById('settingsNav');
-        if (settingsNav) {
-          navLinks.insertBefore(forceSyncLink, settingsNav.nextSibling);
-        } else {
-          navLinks.appendChild(forceSyncLink);
+        if (typeof showConfirm === 'function') {
+          showConfirm('Clear stored hot-code updates and re-sync directly from GitHub?', {
+            title: 'Reset Code Cache',
+            confirmText: 'Reset & Sync',
+            type: 'warning'
+          }).then(yes => { if (yes) doReset(); });
+        } else if (confirm('Clear stored hot-code updates and re-sync directly from GitHub?')) {
+          doReset();
         }
       }
+    });
 
-      // 2. Inject "Reset Code Cache" into Settings Page Data Management card
+    // 2. INJECT RESET BUTTON ONLY INTO SETTINGS TAB (Removed from Navbar)
+    function injectHotUIElements() {
       const dataActions = document.querySelector('.data-actions');
       if (dataActions && !document.getElementById('resetCodeCacheBtnSettings')) {
         const resetBtn = document.createElement('button');
         resetBtn.id = 'resetCodeCacheBtnSettings';
-        resetBtn.className = 'btn btn-primary btn-sm';
-        resetBtn.style.cssText = 'background: var(--accent, #cf6215); color: white;';
+        resetBtn.className = 'btn btn-primary btn-sm reset-cache-btn';
+        resetBtn.style.cssText = 'background: var(--accent, #cf6215); color: white; margin-top: 8px;';
         resetBtn.innerHTML = '<i class="fas fa-sync-alt"></i> Reset Code Cache & Force Sync';
         dataActions.appendChild(resetBtn);
       }
-
-      // 3. Attach click handlers to all reset buttons
-      const handleReset = (e) => {
-        if (e) { e.preventDefault(); e.stopPropagation(); }
-        showConfirmModal(
-          'Reset Code Cache',
-          'Clear stored hot-code updates and re-sync directly from GitHub?',
-          () => {
-            if (window.hotCodeUpdater && typeof window.hotCodeUpdater.resetCache === 'function') {
-              window.hotCodeUpdater.resetCache();
-            } else {
-              localStorage.removeItem('questionary-code-files');
-              localStorage.removeItem('questionary-installed-commit-sha');
-              location.reload();
-            }
-          }
-        );
-      };
-
-      ['resetCodeCacheBtn', 'resetCodeCacheBtnSettings', 'forceSyncNav'].forEach(id => {
-        const btn = document.getElementById(id);
-        if (btn) btn.onclick = handleReset;
-      });
     }
-
     document.addEventListener('DOMContentLoaded', injectHotUIElements);
 
-    // FORCE SYNC BUTTON HANDLER ON HOME SCREEN
+    // 3. HOME SCREEN FORCE SYNC BUTTON
     function initHomeSyncButton() {
       const syncBtn = document.getElementById('homeSyncBtn');
       if (syncBtn && !syncBtn.dataset.initialized) {
@@ -5112,7 +5073,44 @@ function resetKeybinds() {
         });
       }
     }
-
     document.addEventListener('DOMContentLoaded', initHomeSyncButton);
     setTimeout(initHomeSyncButton, 1000);
+
+    // 4. NAVBAR DYNAMIC SCALING FOR 1366x768 & LAPTOP DISPLAYS
+    function applyNavbarResponsiveFix() {
+      if (!document.getElementById('navbar-responsive-fix')) {
+        const style = document.createElement('style');
+        style.id = 'navbar-responsive-fix';
+        style.textContent = `
+          @media (min-width: 769px) and (max-width: 1400px) {
+            .header, header {
+              padding: 0 10px !important;
+              gap: 6px !important;
+            }
+            .logo {
+              font-size: 1.05rem !important;
+            }
+            .nav-links {
+              gap: 2px !important;
+              flex-wrap: nowrap !important;
+            }
+            .nav-link {
+              padding: 5px 7px !important;
+              font-size: 0.78rem !important;
+              white-space: nowrap !important;
+            }
+            .nav-link i {
+              margin-right: 3px !important;
+              font-size: 0.8rem !important;
+            }
+            .user-badge {
+              padding: 4px 8px !important;
+            }
+          }
+        `;
+        (document.head || document.documentElement).appendChild(style);
+      }
+    }
+    document.addEventListener('DOMContentLoaded', applyNavbarResponsiveFix);
+    applyNavbarResponsiveFix();
 }
