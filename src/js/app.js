@@ -3512,7 +3512,6 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
       downloadedBytes: 0,
       totalBytes: 0
     };
-
     async function checkForUpdatesManual() {
       const btn = document.getElementById('checkUpdatesBtn');
       if (updateState.downloading) {
@@ -3522,40 +3521,73 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
 
       if (btn) btn.classList.add('checking');
 
-      try {
-        if (window.__TAURI__ && window.__TAURI__.updater) {
-          showNotification('Checking for updates...', 'info');
-          const update = await window.__TAURI__.updater.check();
+      let nativeUpdateFound = false;
 
-          if (update) {
+      // 1. Try Native Tauri Binary Updater (if configured in tauri.conf.json)
+      if (window.__TAURI__ && (window.__TAURI__.updater || window.__TAURI_PLUGIN_UPDATER__)) {
+        try {
+          showNotification('Checking for native app binary updates...', 'info');
+          const updater = window.__TAURI__.updater || window.__TAURI_PLUGIN_UPDATER__;
+          const update = await updater.check();
+
+          if (update && update.available) {
+            nativeUpdateFound = true;
             updateState.available = true;
             updateState.version = update.version;
             updateState.update = update;
-            showNotification(`Update ${update.version} available! Installing...`, 'success');
+            showNotification(`Native update ${update.version} available! Installing...`, 'success');
             await downloadAndInstallUpdate();
-          } else {
-            showNotification('You are on the latest version!', 'success');
-            resetUpdateButton();
+            return;
           }
-        } else if (window.hotCodeUpdater && typeof window.hotCodeUpdater.check === 'function') {
+        } catch (tauriErr) {
+          console.warn('[Tauri Native Updater]: Native binary check skipped/unconfigured. Falling back to Hot-Code Updater:', tauriErr.message || tauriErr);
+        }
+      }
+
+      // 2. Fallback to Hot-Code Updater (Direct GitHub live JS/HTML/CSS sync)
+      if (window.hotCodeUpdater && typeof window.hotCodeUpdater.check === 'function') {
+        try {
+          showNotification('Checking for GitHub code updates...', 'info');
           const updates = await window.hotCodeUpdater.check(false);
           if (updates && updates.length > 0) {
+            showNotification(`Downloading ${updates.length} hot update file(s)...`, 'info');
             await window.hotCodeUpdater.download();
           } else {
             showNotification('App code is completely up to date!', 'success');
+            resetUpdateButton();
           }
-        } else {
-          showNotification('Updater is available in the Desktop app only.', 'info');
+        } catch (hotErr) {
+          console.error('[Hot Code Updater Error]:', hotErr);
+          showNotification('Update check failed: ' + (hotErr.message || 'Network error'), 'error');
+          resetUpdateButton();
         }
-      } catch (error) {
-        console.error('[Updater Error]:', error);
-        showNotification('Update check failed. Check console for details.', 'error');
-        resetUpdateButton();
-      } finally {
-        if (btn) btn.classList.remove('checking');
+      } else {
+        if (!nativeUpdateFound) {
+          showNotification('No updater available in this environment.', 'warning');
+          resetUpdateButton();
+        }
       }
+
+      if (btn) btn.classList.remove('checking');
     }
 
+    async function checkForUpdatesOnStartup() {
+      await new Promise(resolve => setTimeout(resolve, 3000));
+      
+      // Always run Hot Code Updater on startup inside both Browser AND Tauri!
+      if (window.hotCodeUpdater && typeof window.hotCodeUpdater.check === 'function') {
+        try {
+          console.log('[HotUpdate] Running startup code check...');
+          const updates = await window.hotCodeUpdater.check(true);
+          if (updates && updates.length > 0) {
+            console.log('[HotUpdate] Startup updates found, downloading...');
+            await window.hotCodeUpdater.download();
+          }
+        } catch (e) {
+          console.log('[HotUpdate] Startup check notice:', e.message);
+        }
+      }
+    }
     async function downloadAndInstallUpdate() {
       if (!updateState.update) return;
       updateState.downloading = true;
