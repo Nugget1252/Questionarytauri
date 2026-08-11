@@ -5113,4 +5113,68 @@ function resetKeybinds() {
     }
     document.addEventListener('DOMContentLoaded', applyNavbarResponsiveFix);
     applyNavbarResponsiveFix();
+
+    function applyWebViewCssFixes() {
+      if (!document.getElementById('webview-css-fixes')) {
+        const style = document.createElement('style');
+        style.id = 'webview-css-fixes';
+        style.textContent = `
+          /* --- WEBVIEW 3D FLASHCARD FLIP FIX --- */
+          .flashcard-container {
+            perspective: 1000px !important;
+            -webkit-perspective: 1000px !important;
+          }
+          .flashcard {
+            transform-style: preserve-3d !important;
+            -webkit-transform-style: preserve-3d !important;
+            transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1) !important;
+            -webkit-transition: -webkit-transform 0.5s cubic-bezier(0.4, 0, 0.2, 1) !important;
+            position: relative !important;
+          }
+          .flashcard.flipped {
+            transform: rotateY(180deg) !important;
+            -webkit-transform: rotateY(180deg) !important;
+          }
+          .flashcard-front, .flashcard-back {
+            backface-visibility: hidden !important;
+            -webkit-backface-visibility: hidden !important;
+            position: absolute !important;
+            top: 0 !important; left: 0 !important;
+            width: 100% !important; height: 100% !important;
+          }
+          .flashcard-back {
+            transform: rotateY(180deg) !important;
+            -webkit-transform: rotateY(180deg) !important;
+          }
+
+          /* --- VERTICAL NAVBAR WEBVIEW MODE FIX --- */
+          body.vertical-navbar-mode {
+            display: flex !important;
+            flex-direction: row !important;
+          }
+          body.vertical-navbar-mode .header {
+            width: 220px !important;
+            height: 100vh !important;
+            flex-direction: column !important;
+            align-items: flex-start !important;
+            padding: 20px 10px !important;
+            position: fixed !important;
+            top: 0 !important; left: 0 !important; bottom: 0 !important;
+            z-index: 1000 !important;
+          }
+          body.vertical-navbar-mode .nav-links {
+            flex-direction: column !important;
+            width: 100% !important;
+            gap: 8px !important;
+          }
+          body.vertical-navbar-mode #main-content {
+            margin-left: 220px !important;
+            width: calc(100% - 220px) !important;
+          }
+        `;
+        (document.head || document.documentElement).appendChild(style);
+      }
+    }
+    document.addEventListener('DOMContentLoaded', applyWebViewCssFixes);
+    applyWebViewCssFixes();
 }
