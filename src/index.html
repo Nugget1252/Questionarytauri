@@ -83,9 +83,10 @@
                 gap: 6px !important;
             }
 
-            /* Hide Hamburger Menu in Header on Mobile in favor of Bottom Nav */
+            /* Hide Desktop Navigation & Hamburger in Header on Mobile */
             .hamburger-menu,
-            .mobile-menu-toggle {
+            .mobile-menu-toggle,
+            .nav-links:not(.sidebar-open) {
                 display: none !important;
             }
 
@@ -341,7 +342,7 @@
                 <a class="nav-link" id="remindersNav"><i class="fas fa-bell"></i><span>Reminders</span></a>
                 <a class="nav-link" id="studyRoomNav"><i class="fas fa-users"></i><span>Study Room</span></a>
                 <a class="nav-link" id="settingsNav"><i class="fas fa-cog"></i><span>Settings</span></a>
-            </nav>
+                
         </div>
         <div class="header-right" id="headerRight">
             <div class="search-container">
@@ -385,6 +386,14 @@
                     
                     <div class="dropdown-group">
                         <div class="dropdown-group-label">Layout</div>
+                        <div class="user-dropdown-item toggle-item">
+                            <i class="fas fa-bars"></i>
+                            <span>Vertical Navbar</span>
+                            <div class="toggle-switch">
+                                <input type="checkbox" id="verticalNavbarToggle">
+                                <span class="toggle-slider"></span>
+                            </div>
+                        </div>
                         <div class="user-dropdown-item toggle-item">
                             <i class="fas fa-compress-alt"></i>
                             <span>Compact Mode</span>

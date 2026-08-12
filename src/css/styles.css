@@ -360,7 +360,7 @@ body {
 .form-input,.form-textarea,select.form-input {
     width: 100%; padding: 0.6rem 0.75rem; border: 1px solid var(--line);
     border-radius: 8px; background-color: var(--bg); color: var(--fg);
-    color-scheme: dark; /* Helps on Linux for default widgets */
+    color-scheme: dark;
     font-size: 0.85rem; font-family: inherit; transition: border-color 0.15s, box-shadow 0.15s; outline: none;
 }
 .form-input option, select.form-input option {
@@ -817,21 +817,56 @@ body {
 .deck-card-actions { display: flex; gap: 0.35rem; }
 .deck-card-actions .btn { flex: 1; }
 
-/* Flashcard flip */
-.flashcard-container { perspective: 1000px; margin-bottom: 1.25rem; }
+/* ── TAURI / WEBKIT WEBVIEW 3D FLASHCARD FLIP FIX ── */
+.flashcard-container {
+    perspective: 1000px !important;
+    -webkit-perspective: 1000px !important;
+    width: 100% !important;
+    max-width: 420px !important;
+    height: 240px !important;
+    margin: 0 auto !important;
+    position: relative !important;
+}
+
 .flashcard {
-    width: 100%; height: 200px; cursor: pointer; position: relative;
-    transform-style: preserve-3d; transition: transform 0.5s ease;
+    width: 100% !important;
+    height: 100% !important;
+    position: relative !important;
+    transform-style: preserve-3d !important;
+    -webkit-transform-style: preserve-3d !important;
+    transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    -webkit-transition: -webkit-transform 0.6s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    cursor: pointer !important;
+    border-radius: 16px !important;
 }
-.flashcard.flipped { transform: rotateY(180deg); }
-.flashcard-inner { position: relative; width: 100%; height: 100%; transform-style: preserve-3d; }
-.flashcard-front,.flashcard-back {
-    position: absolute; width: 100%; height: 100%; backface-visibility: hidden;
-    display: flex; align-items: center; justify-content: center;
-    padding: 1.5rem; border-radius: 8px; font-size: 1rem; line-height: 1.4;
+
+.flashcard.flipped {
+    transform: rotateY(180deg) !important;
+    -webkit-transform: rotateY(180deg) !important;
 }
-.flashcard-front { background: var(--accent); color: #fff; }
-.flashcard-back { background: var(--hover); border: 1px solid var(--line); color: var(--fg); transform: rotateY(180deg); }
+
+.flashcard-front, .flashcard-back {
+    position: absolute !important;
+    top: 0 !important; left: 0 !important; 
+    width: 100% !important; height: 100% !important;
+    backface-visibility: hidden !important;
+    -webkit-backface-visibility: hidden !important;
+    display: flex !important; 
+    align-items: center !important; 
+    justify-content: center !important;
+    padding: 24px !important; 
+    text-align: center !important; 
+    border-radius: 16px !important;
+    box-sizing: border-box !important;
+    background: var(--surface) !important;
+    border: 1px solid var(--line) !important;
+}
+
+.flashcard-back {
+    transform: rotateY(180deg) !important;
+    -webkit-transform: rotateY(180deg) !important;
+}
+
 .study-body { text-align: center; padding: 1.25rem; }
 .study-progress { font-size: 0.8rem; color: var(--fg3); margin-bottom: 0.85rem; }
 .study-hint { font-size: 0.75rem; color: var(--fg3); margin-top: 0.5rem; }
@@ -1404,40 +1439,29 @@ body.enhanced-focus *:focus,html.enhanced-focus *:focus { outline: 2px solid var
 .move-destination:hover { background: var(--hover); }
 .move-destination.selected { background: rgba(99,102,241,0.1); border-color: var(--accent); color: var(--accent); }
 
-/* ── SIDEBAR ── */
+/* ── SIDEBAR & HAMBURGER CONTROLS ── */
 .hamburger-menu {
-    display: none; background: none; border: none; color: var(--fg);
+    display: flex; background: none; border: 1px solid var(--line); color: var(--fg);
     font-size: 1rem; cursor: pointer; padding: 5px; border-radius: 6px; transition: background 0.1s;
 }
-.hamburger-menu:hover { background: var(--hover); }
-body.vertical-navbar-mode .hamburger-menu { display: flex; align-items: center; justify-content: center; }
-body.vertical-navbar-mode .header .nav-links {
-    position: fixed; top: 0; left: -250px; width: 250px; height: 100vh;
-    background: var(--bg); border-right: 1px solid var(--line);
-    flex-direction: column; padding: 56px 10px 20px; gap: 1px;
-    z-index: 1001; transition: left 0.2s ease; overflow-y: auto;
-}
-body.vertical-navbar-mode .header .nav-links.sidebar-open { left: 0; }
-body.vertical-navbar-mode .nav-link {
-    width: 100%; padding: 7px 10px; border-radius: 6px; font-size: 0.8rem; justify-content: flex-start; height: auto;
-}
-body.vertical-navbar-mode .nav-link i { display: inline-flex; }
-body.vertical-navbar-mode .nav-link::after { display: none; }
-body.vertical-navbar-mode .nav-link:hover,.nav-link.active { background: var(--hover); }
-body.vertical-navbar-mode .nav-link i { width: 18px; text-align: center; }
+.hamburger-menu:hover { background: var(--hover); color: var(--accent); }
+
 .sidebar-overlay {
-    position: fixed; inset: 0; background: rgba(0,0,0,0.4);
-    opacity: 0; visibility: hidden; pointer-events: none; transition: all 0.2s; z-index: 99;
+    position: fixed; inset: 0; background: rgba(0,0,0,0.5); backdrop-filter: blur(2px);
+    opacity: 0; visibility: hidden; pointer-events: none; transition: all 0.2s; z-index: 1999;
 }
-.sidebar-overlay.active { opacity: 1; visibility: visible; pointer-events: auto; left: 250px; width: calc(100% - 250px); }
+.sidebar-overlay.active { opacity: 1; visibility: visible; pointer-events: auto; }
+
 .sidebar-close {
     position: absolute; top: 14px; right: 10px; background: none; border: none;
-    color: var(--fg3); font-size: 1rem; cursor: pointer; padding: 5px; border-radius: 6px; display: none;
+    color: var(--fg3); font-size: 1rem; cursor: pointer; padding: 5px; border-radius: 6px; display: flex;
 }
-body.vertical-navbar-mode .sidebar-close { display: block; }
 .sidebar-close:hover { color: var(--fg); background: var(--hover); }
-.sidebar-header { position: absolute; top: 10px; left: 10px; display: none; align-items: center; gap: 5px; font-weight: 600; font-size: 0.9rem; color: var(--fg); }
-body.vertical-navbar-mode .sidebar-header { display: flex; }
+
+.sidebar-header {
+    position: absolute; top: 10px; left: 10px; display: flex; align-items: center; gap: 5px;
+    font-weight: 600; font-size: 0.9rem; color: var(--fg);
+}
 
 /* ── DELETE BTNS ── */
 .deck-card .btn-icon.delete,.note-card .btn-icon.delete,.deck-card button.btn-icon,.note-card button.btn-icon {
@@ -1453,7 +1477,7 @@ body.vertical-navbar-mode .sidebar-header { display: flex; }
 }
 .session-item .btn-icon:hover { background: rgba(239,68,68,0.08); color: var(--red); border-color: var(--red); }
 
-/* ── COMPACT / FOCUS ── */
+/* ── COMPACT / FOCUS MODES ── */
 body.compact-mode .stat-card { padding: 0.65rem 0.85rem; }
 body.compact-mode .breadcrumb-item { padding: 2px 5px; font-size: 0.72rem; }
 body.reduced-animations * { animation: none !important; transition: none !important; }
@@ -1473,19 +1497,11 @@ body.focus-mode::after {
 [data-theme="dark"] .home-section-card,[data-theme="dark"] .home-tagged-item { background: var(--bg); }
 [data-theme="dark"] .error-message { background: rgba(239,68,68,0.08); }
 
-@keyframes pulse-green { 0%,100% { box-shadow: 0 0 0 0 rgba(34,197,94,0.3); } 50% { box-shadow: 0 0 0 6px rgba(34,197,94,0); } }
-@keyframes pulse { 0%,100% { box-shadow: none; } 50% { box-shadow: 0 0 0 4px rgba(0,0,0,0.08); } }
-
-/* ── RESPONSIVE ── */
-
-/* --- Wide: collapse nav text to icons --- */
+/* ── RESPONSIVE QUERY BREAKPOINTS ── */
 @media (max-width: 1100px) {
     .nav-link { padding: 0 0.5rem; font-size: 0.75rem; }
 }
 @media (max-width: 960px) {
-    .nav-link span { display: none; }
-    .nav-link i { display: inline-flex; font-size: 0.9rem; }
-    .nav-link { padding: 0 0.7rem; gap: 0; }
     .search-input { width: 140px; }
     .search-input:focus { width: 180px; }
     .container { padding: 1rem 1.25rem; }
@@ -1515,8 +1531,6 @@ body.focus-mode::after {
     .user-badge { padding: 0.25rem 0.4rem; }
 }
 @media (max-width: 600px) {
-    .nav-link { padding: 0 0.5rem; }
-    .nav-link i { font-size: 0.82rem; }
     .header-right { gap: 0.2rem; }
     .search-container { order: 10; flex-basis: 100%; }
     .search-input { width: 100%; }
@@ -1544,9 +1558,7 @@ body.focus-mode::after {
     background: var(--surface); border: 1px solid var(--line); border-radius: 16px;
     padding: 1.75rem 1.5rem 1.25rem; max-width: 380px; width: 100%;
     box-shadow: 0 20px 60px rgba(0,0,0,0.35), 0 0 0 1px rgba(255,255,255,0.05);
-    text-align: center;
-    transform: scale(0.92) translateY(10px);
-    transition: transform 0.2s ease;
+    text-align: center; transform: scale(0.92) translateY(10px); transition: transform 0.2s ease;
 }
 .dialog-overlay.active .dialog-box { transform: scale(1) translateY(0); }
 .dialog-icon { font-size: 2rem; margin-bottom: 0.65rem; }
@@ -1562,572 +1574,82 @@ body.focus-mode::after {
 .dialog-actions { display: flex; gap: 0.5rem; justify-content: center; }
 .dialog-btn {
     padding: 0.5rem 1.25rem; font-size: 0.82rem; font-weight: 500; border-radius: 8px;
-    cursor: pointer; border: none; font-family: inherit; transition: all 0.15s;
-    min-width: 80px;
+    cursor: pointer; border: none; font-family: inherit; transition: all 0.15s; min-width: 80px;
 }
-.dialog-btn-cancel {
-    background: var(--bg); color: var(--fg2); border: 1px solid var(--line);
-}
+.dialog-btn-cancel { background: var(--bg); color: var(--fg2); border: 1px solid var(--line); }
 .dialog-btn-cancel:hover { background: var(--hover); border-color: var(--fg3); }
-.dialog-btn-confirm {
-    background: var(--accent); color: #fff; box-shadow: 0 2px 8px rgba(99,102,241,0.25);
-}
+.dialog-btn-confirm { background: var(--accent); color: #fff; box-shadow: 0 2px 8px rgba(99,102,241,0.25); }
 .dialog-btn-confirm:hover { filter: brightness(1.1); transform: translateY(-1px); box-shadow: 0 4px 12px rgba(99,102,241,0.35); }
 .dialog-btn-confirm:active { transform: translateY(0); }
-/* ============================================================
-   PREVENT ACCIDENTAL UI TEXT SELECTION
-   Disables dragging/highlighting on UI components, lobby cards,
-   headers, and backgrounds while preserving text selection in 
-   inputs, notes, flashcards, chat, and PDFs.
-   ============================================================ */
 
-/* Disable selection across general UI chrome and backgrounds */
-body,
-header,
-.header,
-.logo,
-.nav-links,
-.user-badge,
-.user-dropdown-menu,
-.dashboard-header,
-.stat-card,
-.breadcrumb-container,
-.section-header,
-.tile,
-.btn,
-.btn-sm,
-.modal-header,
-.modal-footer,
-.timer-panel,
-.quick-links-panel,
-.accessibility-panel,
-.sr-lobby,
-.sr-lobby-header,
-.sr-lobby-card,
-.sr-feature-item,
-.sr-session-bar,
-.sr-sidebar,
-.sr-sidebar-tabs,
-.sr-ctrl-btn,
-.sr-wb-toolbar,
-.sr-exp-badge,
-.alarm-notification,
-.login-screen,
-.login-card {
+/* ── PREVENT ACCIDENTAL UI TEXT SELECTION ── */
+body, header, .header, .logo, .nav-links, .user-badge, .user-dropdown-menu,
+.dashboard-header, .stat-card, .breadcrumb-container, .section-header, .tile,
+.btn, .btn-sm, .modal-header, .modal-footer, .timer-panel, .quick-links-panel,
+.accessibility-panel, .login-screen, .login-card {
     -webkit-user-select: none !important;
     -moz-user-select: none !important;
     -ms-user-select: none !important;
     user-select: none !important;
 }
 
-/* Explicitly re-enable text selection for actual readable/editable content */
-input,
-textarea,
-select,
-code,
-pre,
-[contenteditable="true"],
-.note-card-content,
-.note-card-title,
-.flashcard-front,
-.flashcard-back,
-.quiz-question,
-.sr-chat-msg,
-.sr-wb-q-textarea,
-.selectable-text {
+input, textarea, select, code, pre, [contenteditable="true"],
+.note-card-content, .note-card-title, .flashcard-front, .flashcard-back,
+.quiz-question, .selectable-text {
     -webkit-user-select: text !important;
     -moz-user-select: text !important;
     -ms-user-select: text !important;
     user-select: text !important;
 }
-/* --- TAURI WEBVIEW 3D FLASHCARD FLIP FIX --- */
-.flashcard-container {
-    perspective: 1000px !important;
-    -webkit-perspective: 1000px !important;
-    width: 100% !important;
-    max-width: 420px !important;
-    height: 240px !important; /* Forces fixed height so card doesn't collapse */
-    margin: 0 auto !important;
-    position: relative !important;
-}
 
-.flashcard {
-    width: 100% !important;
-    height: 100% !important;
-    position: relative !important;
-    transform-style: preserve-3d !important;
-    -webkit-transform-style: preserve-3d !important;
-    transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1) !important;
-    -webkit-transition: -webkit-transform 0.6s cubic-bezier(0.4, 0, 0.2, 1) !important;
-    cursor: pointer !important;
-    border-radius: 16px !important;
-}
+/* ── OPTIONAL VERTICAL NAVBAR OVERRIDE (DESKTOP) ── */
+@media (min-width: 769px) {
+    body.vertical-navbar-mode .header {
+        width: 240px !important;
+        height: 100vh !important;
+        position: fixed !important;
+        top: 0 !important;
+        left: 0 !important;
+        bottom: 0 !important;
+        flex-direction: column !important;
+        justify-content: flex-start !important;
+        align-items: stretch !important;
+        padding: 20px 12px !important;
+        z-index: 1000 !important;
+        border-right: 1px solid var(--line) !important;
+        border-bottom: none !important;
+    }
 
-.flashcard.flipped {
-    transform: rotateY(180deg) !important;
-    -webkit-transform: rotateY(180deg) !important;
-}
+    body.vertical-navbar-mode .header-left {
+        flex-direction: column !important;
+        align-items: flex-start !important;
+        width: 100% !important;
+    }
 
-.flashcard-front, .flashcard-back {
-    position: absolute !important;
-    top: 0 !important; left: 0 !important; 
-    width: 100% !important; height: 100% !important;
-    backface-visibility: hidden !important;
-    -webkit-backface-visibility: hidden !important; /* Prevents back face leakage in WebView */
-    display: flex !important; 
-    align-items: center !important; 
-    justify-content: center !important;
-    padding: 24px !important; 
-    text-align: center !important; 
-    border-radius: 16px !important;
-    box-sizing: border-box !important;
-    background: var(--surface, #1e1f22) !important;
-    border: 1px solid var(--border, #2e3035) !important;
-}
+    body.vertical-navbar-mode .nav-links {
+        position: static !important;
+        left: 0 !important;
+        width: 100% !important;
+        height: auto !important;
+        box-shadow: none !important;
+        padding: 0 !important;
+        margin-top: 20px !important;
+        display: flex !important;
+        flex-direction: column !important;
+        gap: 4px !important;
+    }
 
-.flashcard-back {
-    transform: rotateY(180deg) !important;
-    -webkit-transform: rotateY(180deg) !important;
-}/* ============================================================
-   HEADER & OFF-CANVAS HAMBURGER DRAWER SYSTEM
-   ============================================================ */
+    body.vertical-navbar-mode .header-right {
+        margin-top: auto !important;
+        flex-direction: column !important;
+        width: 100% !important;
+        align-items: stretch !important;
+    }
 
-/* 1. Header is ALWAYS a horizontal bar at top */
-.header, header {
-    background: var(--surface) !important;
-    border-bottom: 1px solid var(--line) !important;
-    padding: 0 1rem !important;
-    display: flex !important;
-    flex-direction: row !important;
-    justify-content: space-between !important;
-    align-items: center !important;
-    position: sticky !important;
-    top: 0 !important;
-    left: 0 !important;
-    right: 0 !important;
-    width: 100% !important;
-    height: 52px !important;
-    z-index: 1000 !important;
-    gap: 1rem !important;
-}
-
-/* 2. Hamburger button visible across all display widths */
-.hamburger-menu, #hamburgerMenu {
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    background: transparent !important;
-    border: 1px solid var(--line) !important;
-    color: var(--fg) !important;
-    width: 32px !important;
-    height: 32px !important;
-    border-radius: 6px !important;
-    cursor: pointer !important;
-    font-size: 0.9rem !important;
-    transition: background 0.15s, color 0.15s !important;
-}
-
-.hamburger-menu:hover, #hamburgerMenu:hover {
-    background: var(--hover) !important;
-    color: var(--accent) !important;
-}
-
-/* 3. Off-Canvas Side Drawer (#navLinks) */
-.nav-links, #navLinks {
-    position: fixed !important;
-    top: 0 !important;
-    left: -270px !important;
-    width: 260px !important;
-    height: 100vh !important;
-    background: var(--surface) !important;
-    border-right: 1px solid var(--line) !important;
-    flex-direction: column !important;
-    padding: 60px 12px 20px 12px !important;
-    gap: 4px !important;
-    z-index: 2000 !important;
-    transition: left 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
-    overflow-y: auto !important;
-    box-shadow: 4px 0 24px rgba(0, 0, 0, 0.3) !important;
-    align-items: stretch !important;
-}
-
-/* Slide in drawer when active */
-.nav-links.sidebar-open {
-    left: 0 !important;
-}
-
-/* Pinned Sidebar mode */
-.nav-links.is-pinned {
-    left: 0 !important;
-    box-shadow: none !important;
-    z-index: 900 !important;
-}
-
-body.sidebar-pinned .header {
-    left: 260px !important;
-    width: calc(100% - 260px) !important;
-}
-
-body.sidebar-pinned #main-content,
-body.sidebar-pinned .container {
-    margin-left: 260px !important;
-    width: calc(100% - 260px) !important;
-    max-width: none !important;
-}
-
-/* Sidebar Drawer Links */
-.nav-link {
-    width: 100% !important;
-    height: 38px !important;
-    padding: 0 12px !important;
-    border-radius: 8px !important;
-    justify-content: flex-start !important;
-    gap: 12px !important;
-    font-size: 0.85rem !important;
-    color: var(--fg2) !important;
-    border: none !important;
-    display: flex !important;
-    align-items: center !important;
-}
-
-.nav-link i {
-    display: inline-flex !important;
-    font-size: 0.95rem !important;
-    width: 20px !important;
-    text-align: center !important;
-}
-
-.nav-link span {
-    display: inline-block !important;
-}
-
-.nav-link::after {
-    display: none !important;
-}
-
-.nav-link:hover, .nav-link.active {
-    background: var(--hover) !important;
-    color: var(--accent) !important;
-}
-
-/* Sidebar Header Controls */
-.sidebar-header {
-    position: absolute !important;
-    top: 14px !important;
-    left: 14px !important;
-    display: flex !important;
-    align-items: center !important;
-    gap: 8px !important;
-    font-weight: 700 !important;
-    font-size: 0.9rem !important;
-    color: var(--fg) !important;
-}
-
-.sidebar-close {
-    position: absolute !important;
-    top: 12px !important;
-    right: 12px !important;
-    background: none !important;
-    border: none !important;
-    color: var(--fg3) !important;
-    font-size: 0.95rem !important;
-    cursor: pointer !important;
-    padding: 4px 8px !important;
-    border-radius: 6px !important;
-    display: flex !important;
-}
-
-.sidebar-close:hover {
-    color: var(--fg) !important;
-    background: var(--hover) !important;
-}
-
-.sidebar-pin-btn {
-    background: none !important;
-    border: none !important;
-    color: var(--fg3) !important;
-    font-size: 0.85rem !important;
-    cursor: pointer !important;
-    padding: 4px !important;
-    margin-left: 8px !important;
-    border-radius: 4px !important;
-    transition: transform 0.2s, color 0.2s !important;
-}
-
-.sidebar-pin-btn:hover, .sidebar-pin-btn.active {
-    color: var(--accent) !important;
-}
-
-.sidebar-pin-btn.active {
-    transform: rotate(-45deg) !important;
-}
-
-/* Screen Dim Overlay */
-.sidebar-overlay {
-    position: fixed !important;
-    inset: 0 !important;
-    background: rgba(0, 0, 0, 0.5) !important;
-    backdrop-filter: blur(2px) !important;
-    opacity: 0 !important;
-    visibility: hidden !important;
-    z-index: 1999 !important;
-    transition: all 0.2s !important;
-}
-
-.sidebar-overlay.active {
-    opacity: 1 !important;
-    visibility: visible !important;
-}
-
-body.sidebar-pinned .sidebar-overlay {
-    display: none !important;
-}
-
-/* ============================================================
-   HEADER & OFF-CANVAS HAMBURGER DRAWER SYSTEM
-   ============================================================ */
-
-/* 1. Header is ALWAYS a horizontal bar at top */
-.header, header {
-    background: var(--surface) !important;
-    border-bottom: 1px solid var(--line) !important;
-    padding: 0 1rem !important;
-    display: flex !important;
-    flex-direction: row !important;
-    justify-content: space-between !important;
-    align-items: center !important;
-    position: sticky !important;
-    top: 0 !important;
-    left: 0 !important;
-    right: 0 !important;
-    width: 100% !important;
-    height: 52px !important;
-    z-index: 1000 !important;
-    gap: 1rem !important;
-}
-
-/* 2. Hamburger button visible across all display widths */
-.hamburger-menu, #hamburgerMenu {
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    background: transparent !important;
-    border: 1px solid var(--line) !important;
-    color: var(--fg) !important;
-    width: 32px !important;
-    height: 32px !important;
-    border-radius: 6px !important;
-    cursor: pointer !important;
-    font-size: 0.9rem !important;
-    transition: background 0.15s, color 0.15s !important;
-}
-
-.hamburger-menu:hover, #hamburgerMenu:hover {
-    background: var(--hover) !important;
-    color: var(--accent) !important;
-}
-
-/* 3. Off-Canvas Side Drawer (#navLinks) */
-.nav-links, #navLinks {
-    position: fixed !important;
-    top: 0 !important;
-    left: -270px !important;
-    width: 260px !important;
-    height: 100vh !important;
-    background: var(--surface) !important;
-    border-right: 1px solid var(--line) !important;
-    flex-direction: column !important;
-    padding: 60px 12px 20px 12px !important;
-    gap: 4px !important;
-    z-index: 2000 !important;
-    transition: left 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
-    overflow-y: auto !important;
-    box-shadow: 4px 0 24px rgba(0, 0, 0, 0.3) !important;
-    align-items: stretch !important;
-}
-
-/* Slide in drawer when active */
-.nav-links.sidebar-open {
-    left: 0 !important;
-}
-
-/* Pinned Sidebar mode */
-.nav-links.is-pinned {
-    left: 0 !important;
-    box-shadow: none !important;
-    z-index: 900 !important;
-}
-
-body.sidebar-pinned .header {
-    left: 260px !important;
-    width: calc(100% - 260px) !important;
-}
-
-body.sidebar-pinned #main-content,
-body.sidebar-pinned .container {
-    margin-left: 260px !important;
-    width: calc(100% - 260px) !important;
-    max-width: none !important;
-}
-
-/* Sidebar Drawer Links */
-.nav-link {
-    width: 100% !important;
-    height: 38px !important;
-    padding: 0 12px !important;
-    border-radius: 8px !important;
-    justify-content: flex-start !important;
-    gap: 12px !important;
-    font-size: 0.85rem !important;
-    color: var(--fg2) !important;
-    border: none !important;
-    display: flex !important;
-    align-items: center !important;
-}
-
-.nav-link i {
-    display: inline-flex !important;
-    font-size: 0.95rem !important;
-    width: 20px !important;
-    text-align: center !important;
-}
-
-.nav-link span {
-    display: inline-block !important;
-}
-
-.nav-link::after {
-    display: none !important;
-}
-
-.nav-link:hover, .nav-link.active {
-    background: var(--hover) !important;
-    color: var(--accent) !important;
-}
-
-/* Sidebar Header Controls */
-.sidebar-header {
-    position: absolute !important;
-    top: 14px !important;
-    left: 14px !important;
-    display: flex !important;
-    align-items: center !important;
-    gap: 8px !important;
-    font-weight: 700 !important;
-    font-size: 0.9rem !important;
-    color: var(--fg) !important;
-}
-
-.sidebar-close {
-    position: absolute !important;
-    top: 12px !important;
-    right: 12px !important;
-    background: none !important;
-    border: none !important;
-    color: var(--fg3) !important;
-    font-size: 0.95rem !important;
-    cursor: pointer !important;
-    padding: 4px 8px !important;
-    border-radius: 6px !important;
-    display: flex !important;
-}
-
-.sidebar-close:hover {
-    color: var(--fg) !important;
-    background: var(--hover) !important;
-}
-
-.sidebar-pin-btn {
-    background: none !important;
-    border: none !important;
-    color: var(--fg3) !important;
-    font-size: 0.85rem !important;
-    cursor: pointer !important;
-    padding: 4px !important;
-    margin-left: 8px !important;
-    border-radius: 4px !important;
-    transition: transform 0.2s, color 0.2s !important;
-}
-
-.sidebar-pin-btn:hover, .sidebar-pin-btn.active {
-    color: var(--accent) !important;
-}
-
-.sidebar-pin-btn.active {
-    transform: rotate(-45deg) !important;
-}
-
-/* Screen Dim Overlay */
-.sidebar-overlay {
-    position: fixed !important;
-    inset: 0 !important;
-    background: rgba(0, 0, 0, 0.5) !important;
-    backdrop-filter: blur(2px) !important;
-    opacity: 0 !important;
-    visibility: hidden !important;
-    z-index: 1999 !important;
-    transition: all 0.2s !important;
-}
-
-.sidebar-overlay.active {
-    opacity: 1 !important;
-    visibility: visible !important;
-}
-
-body.sidebar-pinned .sidebar-overlay {
-    display: none !important;
-}
-
-/* ============================================================
-   TAURI / WEBKIT WEBVIEW 3D FLASHCARD FLIP FIX
-   ============================================================ */
-.flashcard-container {
-    perspective: 1000px !important;
-    -webkit-perspective: 1000px !important;
-    width: 100% !important;
-    max-width: 420px !important;
-    height: 240px !important;
-    margin: 0 auto !important;
-    position: relative !important;
-}
-
-.flashcard {
-    width: 100% !important;
-    height: 100% !important;
-    position: relative !important;
-    transform-style: preserve-3d !important;
-    -webkit-transform-style: preserve-3d !important;
-    transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1) !important;
-    -webkit-transition: -webkit-transform 0.6s cubic-bezier(0.4, 0, 0.2, 1) !important;
-    cursor: pointer !important;
-    border-radius: 16px !important;
-}
-
-.flashcard.flipped {
-    transform: rotateY(180deg) !important;
-    -webkit-transform: rotateY(180deg) !important;
-}
-
-.flashcard-front, .flashcard-back {
-    position: absolute !important;
-    top: 0 !important;
-    left: 0 !important;
-    width: 100% !important;
-    height: 100% !important;
-    backface-visibility: hidden !important;
-    -webkit-backface-visibility: hidden !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    padding: 24px !important;
-    text-align: center !important;
-    border-radius: 16px !important;
-    box-sizing: border-box !important;
-    background: var(--surface) !important;
-    border: 1px solid var(--line) !important;
-}
-
-.flashcard-back {
-    transform: rotateY(180deg) !important;
-    -webkit-transform: rotateY(180deg) !important;
+    body.vertical-navbar-mode #main-content,
+    body.vertical-navbar-mode .container {
+        margin-left: 240px !important;
+        width: calc(100% - 240px) !important;
+        max-width: none !important;
+    }
 }

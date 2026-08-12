@@ -4377,12 +4377,15 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
       setupSettingsToggles();
       setupSettingsActions();
     }
-
     function loadSettingsState() {
       const settings = JSON.parse(localStorage.getItem('questionary-settings') || '{}');
 
-      // Always ensure vertical-navbar-mode is cleared from body
-      document.body.classList.remove('vertical-navbar-mode');
+      const verticalNavToggle = document.getElementById('verticalNavbarToggle');
+      if (verticalNavToggle) {
+        verticalNavToggle.checked = settings.verticalNavbar || false;
+        if (settings.verticalNavbar) document.body.classList.add('vertical-navbar-mode');
+        else document.body.classList.remove('vertical-navbar-mode');
+      }
 
       const compactToggle = document.getElementById('compactModeToggle');
       if (compactToggle) {
@@ -4411,6 +4414,7 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
 
     function saveSettingsState() {
       const settings = {
+        verticalNavbar: document.getElementById('verticalNavbarToggle')?.checked || false,
         compactMode: document.getElementById('compactModeToggle')?.checked || false,
         animations: document.getElementById('animationsToggle')?.checked !== false,
         autoOpenPdfs: document.getElementById('autoPlayToggle')?.checked || false,
@@ -4421,6 +4425,64 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
     }
 
     function setupSettingsToggles() {
+      function setupToggleRow(toggleId, onToggle) {
+        const toggle = document.getElementById(toggleId);
+        if (!toggle) return;
+        const toggleItem = toggle.closest('.toggle-item');
+
+        toggle.addEventListener('change', (e) => {
+          e.stopPropagation();
+          onToggle(toggle.checked);
+          saveSettingsState();
+        });
+
+        if (toggleItem) {
+          toggleItem.style.cursor = 'pointer';
+          toggleItem.addEventListener('click', (e) => {
+            if (e.target === toggle) return;
+            e.preventDefault();
+            e.stopPropagation();
+            toggle.checked = !toggle.checked;
+            onToggle(toggle.checked);
+            saveSettingsState();
+          });
+        }
+      }
+
+      setupToggleRow('verticalNavbarToggle', (checked) => {
+        if (checked) {
+          document.body.classList.add('vertical-navbar-mode');
+          showNotification('Vertical navbar enabled', 'success');
+        } else {
+          document.body.classList.remove('vertical-navbar-mode');
+          closeSidebar();
+          showNotification('Horizontal navbar restored', 'info');
+        }
+      });
+
+      setupToggleRow('compactModeToggle', (checked) => {
+        document.body.classList.toggle('compact-mode', checked);
+        showNotification(checked ? 'Compact mode enabled' : 'Compact mode disabled', 'info');
+      });
+
+      setupToggleRow('animationsToggle', (checked) => {
+        document.body.classList.toggle('reduced-animations', !checked);
+        showNotification(checked ? 'Animations enabled' : 'Animations reduced', 'info');
+      });
+
+      setupToggleRow('autoPlayToggle', (checked) => {
+        showNotification(checked ? 'PDFs will auto-open on click' : 'PDF preview mode', 'info');
+      });
+
+      setupToggleRow('focusModeToggle', (checked) => {
+        document.body.classList.toggle('focus-mode', checked);
+        showNotification(checked ? 'Focus mode enabled' : 'Focus mode disabled', 'info');
+      });
+
+      setupToggleRow('rememberLocationToggle', (checked) => {
+        showNotification(checked ? 'Will remember your last location' : 'Will start at home on launch', 'info');
+      });
+    }
       function setupToggleRow(toggleId, onToggle) {
         const toggle = document.getElementById(toggleId);
         if (!toggle) return;
@@ -5326,4 +5388,3 @@ function applySidebarDrawerStyles() {
     }
     document.addEventListener('DOMContentLoaded', applySidebarDrawerStyles);
     applySidebarDrawerStyles();
-}
