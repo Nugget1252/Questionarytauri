@@ -9,8 +9,8 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet" crossorigin="anonymous" referrerpolicy="no-referrer">
-    <link rel="stylesheet" href="css/styles.css?v=210">
-    <link rel="stylesheet" href="css/features.css?v=211">
+    <link rel="stylesheet" href="css/styles.css?v=215">
+    <link rel="stylesheet" href="css/features.css?v=215">
     <style>
         /* Mobile Safe Area & Android Touch Optimization */
         :root {
@@ -62,6 +62,63 @@
         .stat-icon.streak { background: #ef4444 !important; }
 
         /* ================================================================
+           NAV-LINK & SIDEBAR VISIBILITY FIXES
+           ================================================================ */
+        .hamburger-menu, #hamburgerMenu {
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            cursor: pointer !important;
+        }
+
+        /* Ensure drawer text & icons are ALWAYS visible when drawer is open */
+        .nav-links.sidebar-open .nav-link,
+        .nav-links.is-pinned .nav-link,
+        body.vertical-navbar-mode .nav-link {
+            display: flex !important;
+            align-items: center !important;
+            width: 100% !important;
+            height: 40px !important;
+            padding: 0 12px !important;
+            border-radius: 8px !important;
+            color: var(--fg2, #a0a0ab) !important;
+            text-decoration: none !important;
+            box-sizing: border-box !important;
+        }
+
+        .nav-links.sidebar-open .nav-link i,
+        .nav-links.is-pinned .nav-link i,
+        body.vertical-navbar-mode .nav-link i {
+            display: inline-flex !important;
+            font-size: 0.95rem !important;
+            width: 20px !important;
+            text-align: center !important;
+            margin-right: 10px !important;
+            color: var(--accent, #cf6215) !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+        }
+
+        .nav-links.sidebar-open .nav-link span,
+        .nav-links.is-pinned .nav-link span,
+        body.vertical-navbar-mode .nav-link span {
+            display: inline-block !important;
+            font-size: 0.85rem !important;
+            color: var(--fg, #ededef) !important;
+            font-weight: 500 !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+        }
+
+        .nav-links.sidebar-open .nav-link:hover,
+        .nav-links.sidebar-open .nav-link.active,
+        body.vertical-navbar-mode .nav-link:hover,
+        body.vertical-navbar-mode .nav-link.active {
+            background: var(--hover, #18181b) !important;
+            color: var(--accent, #cf6215) !important;
+        }
+
+        /* ================================================================
            MOBILE RESPONSIVE OVERHAUL (< 768px)
            ================================================================ */
         @media (max-width: 768px) {
@@ -83,10 +140,7 @@
                 gap: 6px !important;
             }
 
-            /* Hide Desktop Navigation & Hamburger in Header on Mobile */
-            .hamburger-menu,
-            .mobile-menu-toggle,
-            .nav-links:not(.sidebar-open) {
+            .mobile-menu-toggle {
                 display: none !important;
             }
 
@@ -342,7 +396,7 @@
                 <a class="nav-link" id="remindersNav"><i class="fas fa-bell"></i><span>Reminders</span></a>
                 <a class="nav-link" id="studyRoomNav"><i class="fas fa-users"></i><span>Study Room</span></a>
                 <a class="nav-link" id="settingsNav"><i class="fas fa-cog"></i><span>Settings</span></a>
-                
+            </nav>
         </div>
         <div class="header-right" id="headerRight">
             <div class="search-container">
