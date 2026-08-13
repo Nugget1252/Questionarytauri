@@ -4651,7 +4651,7 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
         if (sidebarOverlay) sidebarOverlay.classList.toggle('active', isOpen);
       };
 
-      const closeSidebar = () => {
+      function closeSidebar() {
         navLinks.classList.remove('sidebar-open');
         if (sidebarOverlay) sidebarOverlay.classList.remove('active');
       };

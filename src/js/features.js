@@ -2223,8 +2223,11 @@ function initAlarmUI() {
 // Stores custom library metadata in 'userlibrary.db'
 // Stores PDF/Doc binary files in IndexedDB / AppData 'user_library_files/'
 // ================================================================
+// ================================================================
+// USER LIBRARY FILE STORE & DB SERVICE (HOT-RELOAD SAFE)
+// ================================================================
 
-const UserLibraryFileStore = {
+var UserLibraryFileStore = window.UserLibraryFileStore || {
     async saveBytes(blobId, uInt8Array) {
         await new Promise((resolve, reject) => {
             const request = indexedDB.open('QuestionaryUserLibraryFiles', 1);
@@ -2294,7 +2297,7 @@ const UserLibraryFileStore = {
     },
 
     async removeFile(blobId) {
-        new Promise(resolve => {
+        await new Promise(resolve => {
             const request = indexedDB.open('QuestionaryUserLibraryFiles', 1);
             request.onsuccess = e => {
                 const idb = e.target.result;
@@ -2315,8 +2318,9 @@ const UserLibraryFileStore = {
         }
     }
 };
+window.UserLibraryFileStore = UserLibraryFileStore;
 
-const UserLibraryDbService = {
+var UserLibraryDbService = window.UserLibraryDbService || {
     db: null,
     SQL: null,
     currentFolderId: null,
@@ -2324,7 +2328,6 @@ const UserLibraryDbService = {
 
     async init() {
         try {
-            // Share global SQL.js WASM instance (prevents duplicating WebAssembly heap memory)
             if (!window.SQL_INSTANCE) {
                 if (typeof window.initSqlJs === 'undefined') {
                     await new Promise((resolve, reject) => {
@@ -2346,7 +2349,7 @@ const UserLibraryDbService = {
             let savedDb = await this.loadDbFromIndexedDB();
             if (savedDb) {
                 this.db = new this.SQL.Database(savedDb);
-                savedDb = null; // Immediate Garbage Collection
+                savedDb = null;
             } else {
                 this.db = new this.SQL.Database();
             }
@@ -2400,7 +2403,7 @@ const UserLibraryDbService = {
 
     async saveDbToIndexedDB() {
         if (!this.db) return;
-        let data = this.db.export(); // Uint8Array
+        let data = this.db.export();
         return new Promise((resolve, reject) => {
             const request = indexedDB.open('QuestionaryUserLibraryDB', 1);
             request.onupgradeneeded = e => e.target.result.createObjectStore('db_store');
@@ -2409,7 +2412,7 @@ const UserLibraryDbService = {
                 const tx = idb.transaction('db_store', 'readwrite');
                 const putReq = tx.objectStore('db_store').put(data, 'userlibrary.db');
                 putReq.onsuccess = () => {
-                    data = null; // Free export buffer for GC
+                    data = null;
                     resolve();
                 };
                 putReq.onerror = () => {
@@ -2482,7 +2485,7 @@ const UserLibraryDbService = {
         await UserLibraryFileStore.saveBytes(blobId, uInt8Array);
         
         const fileSize = uInt8Array.byteLength || 0;
-        uInt8Array = null; // Free binary buffer for GC
+        uInt8Array = null;
 
         await this.execute(
             "INSERT INTO files (folder_id, name, file_type, blob_id, file_size) VALUES (?, ?, ?, ?, ?)", 
@@ -2513,6 +2516,7 @@ const UserLibraryDbService = {
         }
     }
 };
+window.UserLibraryDbService = UserLibraryDbService;
 
 var libraryEditMode = window.libraryEditMode || false;
 var moveItemState = window.moveItemState || { itemId: null, itemType: null };

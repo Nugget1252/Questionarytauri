@@ -138,6 +138,7 @@
         }
     }
 
+// 1. Wrap injected scripts in IIFE to eliminate 'redeclaration of const' syntax errors
     function applyStoredJS() {
         const stored = getStoredCodeFiles();
         const executionOrder = ['js/features.js', 'js/studyRoom.js', 'js/contentUpdater.js', 'js/app.js'];
@@ -155,13 +156,111 @@
 
                     scriptEl = document.createElement('script');
                     scriptEl.id = scriptId;
-                    scriptEl.textContent = content;
+                    // Wrapped in IIFE so top-level const/let never collide
+                    scriptEl.textContent = `(function(){\ntry {\n${content}\n} catch(e){ console.error('[HotUpdate Execution Error in ${filename}]:', e); }\n})();`;
                     document.head.appendChild(scriptEl);
                 } catch (err) {
                     console.error(`[HotUpdate] Error executing updated ${filename}:`, err);
                 }
             }
         }
+    }
+
+    // 2. CORS-safe update checker using Tauri HTTP or raw.githubusercontent fallback
+    async function checkForCodeUpdates(silent = false) {
+        if (window.codeUpdateState.checking || window.codeUpdateState.downloading) {
+            return null;
+        }
+
+        window.codeUpdateState.checking = true;
+        updateCodeUpdateUI('checking');
+
+        let latestSha = null;
+        let detectedBranch = PRIMARY_BRANCH;
+
+        const branchesToTry = [PRIMARY_BRANCH, FALLBACK_BRANCH];
+
+        for (const branch of branchesToTry) {
+            // A. In Tauri: Use native HTTP (Zero rate-limit, zero CORS)
+            if (window.__TAURI__ && window.__TAURI__.http) {
+                try {
+                    const apiUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/commits/${branch}?t=${Date.now()}`;
+                    const res = await window.__TAURI__.http.fetch(apiUrl, {
+                        method: 'GET',
+                        headers: { 'Accept': 'application/vnd.github.v3+json', 'User-Agent': 'QuestionaryApp' }
+                    });
+                    if (res.ok && res.data && res.data.sha) {
+                        latestSha = res.data.sha;
+                        detectedBranch = branch;
+                        break;
+                    }
+                } catch (e) {}
+            }
+
+            // B. In Web Browser: Try GitHub API
+            if (!latestSha) {
+                try {
+                    const apiUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/commits/${branch}?t=${Date.now()}`;
+                    const res = await fetch(apiUrl, {
+                        cache: 'no-store',
+                        headers: { 'Accept': 'application/vnd.github.v3+json' }
+                    });
+                    if (res.ok) {
+                        const data = await res.json();
+                        if (data && data.sha) {
+                            latestSha = data.sha;
+                            detectedBranch = branch;
+                            break;
+                        }
+                    }
+                } catch (err) {}
+            }
+
+            // C. Fallback: Check package.json on raw.githubusercontent.com (CORS-friendly, no rate limits)
+            if (!latestSha) {
+                try {
+                    const pkgUrl = `https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${branch}/package.json?nocache=${Date.now()}`;
+                    const res = await fetch(pkgUrl, { cache: 'no-store' });
+                    if (res.ok) {
+                        const pkg = await res.json();
+                        if (pkg && (pkg.buildSha || pkg.version)) {
+                            latestSha = pkg.buildSha || `v_${pkg.version}`;
+                            detectedBranch = branch;
+                            break;
+                        }
+                    }
+                } catch (e) {}
+            }
+        }
+
+        window.codeUpdateState.activeBranch = detectedBranch;
+
+        if (!latestSha) {
+            window.codeUpdateState.checking = false;
+            updateCodeUpdateUI('idle');
+            return null;
+        }
+
+        const installedSha = localStorage.getItem(INSTALLED_COMMIT_KEY);
+        console.log(`[HotUpdate] Latest SHA: ${latestSha.substring(0, 7)} | Installed SHA: ${installedSha ? installedSha.substring(0, 7) : 'None'}`);
+
+        if (latestSha !== installedSha) {
+            window.codeUpdateState.available = true;
+            window.codeUpdateState.latestCommitSha = latestSha;
+            window.codeUpdateState.pendingFiles = [...MANAGED_FILES];
+
+            updateCodeUpdateUI('available', MANAGED_FILES.length);
+            if (!silent) notify('New update found! Downloading...', 'success');
+
+            window.codeUpdateState.checking = false;
+            return window.codeUpdateState.pendingFiles;
+        } else {
+            if (!silent) notify('Questionary is up to date!', 'success');
+            updateCodeUpdateUI('idle');
+        }
+
+        window.codeUpdateState.checking = false;
+        return null;
     }
 
     function getViewerUrl(fileUrl) {
