@@ -5,29 +5,30 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
     window._HOT_APP_JS_LOADED = true;
 
     // Top-level variables use var/window scope to allow safe hot-update re-evaluation
-    var currentUser = window.currentUser || null; window.currentUser = currentUser;
-    var path = window.path || []; window.path = path;
-    var currentView = window.currentView || 'home'; window.currentView = currentView;
-    var editMode = window.editMode || false; window.editMode = editMode;
-    var favorites = window.favorites || []; window.favorites = favorites;
-    var notes = window.notes || []; window.notes = notes;
-    var flashcardDecks = window.flashcardDecks || []; window.flashcardDecks = flashcardDecks;
-    var studySessions = window.studySessions || []; window.studySessions = studySessions;
-    var documentProgress = window.documentProgress || {}; window.documentProgress = documentProgress;
-    var quickLinks = window.quickLinks || []; window.quickLinks = quickLinks;
-    var documents = window.documents || {}; window.documents = documents;
-    var studyStats = window.studyStats || { totalTime: 0, streak: 0, lastStudyDate: null, hourlyActivity: {} }; window.studyStats = studyStats;
-    var currentCalendarDate = window.currentCalendarDate || new Date(); window.currentCalendarDate = currentCalendarDate;
-    var currentEditingNote = window.currentEditingNote || null; window.currentEditingNote = currentEditingNote;
-    var currentEditingDeck = window.currentEditingDeck || null; window.currentEditingDeck = currentEditingDeck;
-    var currentStudyDeck = window.currentStudyDeck || null; window.currentStudyDeck = currentStudyDeck;
-    var currentCardIndex = window.currentCardIndex || 0; window.currentCardIndex = currentCardIndex;
+    var currentUser = window.currentUser || null;
+    var path = window.path || [];
+    var currentView = window.currentView || 'home';
+    var editMode = window.editMode || false;
+    var favorites = window.favorites || [];
+    var notes = window.notes || [];
+    var flashcardDecks = window.flashcardDecks || [];
+    var studySessions = window.studySessions || [];
+    var documentProgress = window.documentProgress || {};
+    var quickLinks = window.quickLinks || [];
+    var documents = window.documents || {}; // Deprecated: Kept empty strictly to prevent legacy errors
+    window.documents = documents;
+    var studyStats = window.studyStats || { totalTime: 0, streak: 0, lastStudyDate: null, hourlyActivity: {} };
+    var currentCalendarDate = window.currentCalendarDate || new Date();
+    var currentEditingNote = window.currentEditingNote || null;
+    var currentEditingDeck = window.currentEditingDeck || null;
+    var currentStudyDeck = window.currentStudyDeck || null;
+    var currentCardIndex = window.currentCardIndex || 0;
     var accessibilitySettings = window.accessibilitySettings || {
       highContrast: localStorage.getItem('accessibility-high-contrast') === 'true',
       largeText: localStorage.getItem('accessibility-large-text') === 'true',
       reducedMotion: localStorage.getItem('accessibility-reduced-motion') === 'true',
       enhancedFocus: localStorage.getItem('accessibility-enhanced-focus') === 'true'
-    }; window.accessibilitySettings = accessibilitySettings;
+    };
 
     // ================================================================
     // PREVENT ACCIDENTAL UI TEXT SELECTION ENGINE
@@ -4319,11 +4320,16 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
       const settings = JSON.parse(localStorage.getItem('questionary-settings') || '{}');
 
       const verticalNavToggle = document.getElementById('verticalNavbarToggle');
-      const isVertical = !!settings.verticalNavbar;
       if (verticalNavToggle) {
-        verticalNavToggle.checked = isVertical;
+        verticalNavToggle.checked = settings.verticalNavbar || false;
+        if (settings.verticalNavbar) {
+          document.body.classList.add('vertical-navbar-mode');
+        } else {
+          document.body.classList.remove('vertical-navbar-mode');
+        }
+      } else {
+        document.body.classList.remove('vertical-navbar-mode');
       }
-      document.body.classList.toggle('vertical-navbar-mode', isVertical);
 
       const compactToggle = document.getElementById('compactModeToggle');
       if (compactToggle) {
