@@ -1,29 +1,29 @@
-
 // HOT-UPDATE EXECUTION GUARD (Prevents static script tag from overwriting hot updates)
 if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentScript.id || !document.currentScript.id.includes('hot-js'))) {
     console.log('[HotUpdate] Hot-updated app.js is active. Aborting bundled app.js execution.');
 } else {
     window._HOT_APP_JS_LOADED = true;
 
-    let currentUser = null;
-    let path = [];
-    let currentView = 'home';
-    let editMode = false;
-    let favorites = [];
-    let notes = [];
-    let flashcardDecks = [];
-    let studySessions = [];
-    let documentProgress = {};
-    let quickLinks = [];
-    let documents = {}; // Deprecated: Kept empty strictly to prevent legacy errors
+    // Top-level variables use var/window scope to allow safe hot-update re-evaluation
+    var currentUser = window.currentUser || null;
+    var path = window.path || [];
+    var currentView = window.currentView || 'home';
+    var editMode = window.editMode || false;
+    var favorites = window.favorites || [];
+    var notes = window.notes || [];
+    var flashcardDecks = window.flashcardDecks || [];
+    var studySessions = window.studySessions || [];
+    var documentProgress = window.documentProgress || {};
+    var quickLinks = window.quickLinks || [];
+    var documents = window.documents || {}; // Deprecated: Kept empty strictly to prevent legacy errors
     window.documents = documents;
-    let studyStats = { totalTime: 0, streak: 0, lastStudyDate: null, hourlyActivity: {} };
-    let currentCalendarDate = new Date();
-    let currentEditingNote = null;
-    let currentEditingDeck = null;
-    let currentStudyDeck = null;
-    let currentCardIndex = 0;
-    let accessibilitySettings = {
+    var studyStats = window.studyStats || { totalTime: 0, streak: 0, lastStudyDate: null, hourlyActivity: {} };
+    var currentCalendarDate = window.currentCalendarDate || new Date();
+    var currentEditingNote = window.currentEditingNote || null;
+    var currentEditingDeck = window.currentEditingDeck || null;
+    var currentStudyDeck = window.currentStudyDeck || null;
+    var currentCardIndex = window.currentCardIndex || 0;
+    var accessibilitySettings = window.accessibilitySettings || {
       highContrast: localStorage.getItem('accessibility-high-contrast') === 'true',
       largeText: localStorage.getItem('accessibility-large-text') === 'true',
       reducedMotion: localStorage.getItem('accessibility-reduced-motion') === 'true',
@@ -534,7 +534,7 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
       }
     }
 
-    let timerState = {
+    var timerState = window.timerState || {
       duration: 0,
       remaining: 0,
       interval: null,
@@ -1219,8 +1219,8 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
     }
 
     /* --- Image Viewer --- */
-    let _currentImageBlobUrl = null;
-    let _currentImageName = '';
+    var _currentImageBlobUrl = window._currentImageBlobUrl || null;
+    var _currentImageName = window._currentImageName || '';
     function showImage(url, name) {
       if (!url) return;
       _currentImageName = name || 'Image';
@@ -1481,7 +1481,7 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
       });
     }
 
-    let currentOpenPDF = null;
+    var currentOpenPDF = window.currentOpenPDF || null;
     window.setCurrentPDF = function(url, name) { currentOpenPDF = { url, name }; };
     window.clearCurrentPDF = function() { currentOpenPDF = null; };
 
@@ -1708,6 +1708,7 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
     window.navigateToNote = navigateToNote;
     window.navigateToFlashcard = navigateToFlashcard;
     window.navigateToSession = navigateToSession;
+
 
     function loadNotes() { notes = JSON.parse(localStorage.getItem('questionary-notes') || '[]'); }
     function saveNotes() { localStorage.setItem('questionary-notes', JSON.stringify(notes)); }
@@ -1966,8 +1967,8 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
           const navLinks = document.getElementById('navLinks');
           const sidebarOverlay = document.getElementById('sidebarOverlay');
           if (navLinks) {
-            navLinks.classList.toggle('sidebar-open');
-            sidebarOverlay?.classList.toggle('active');
+            const isOpen = navLinks.classList.toggle('sidebar-open');
+            sidebarOverlay?.classList.toggle('active', isOpen);
           }
         } else {
           showView(view);
@@ -1997,7 +1998,7 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
       console.log('[App] Starting initialization...');
       preventAccidentalSelection();
 
-      // Unconditional 1.5-second Fail-Safe Timer for Loading Screen
+      // Fail-Safe Timer for Loading Screen
       const overlayTimeout = setTimeout(() => {
         const loadingOverlay = document.getElementById('loadingOverlay');
         if (loadingOverlay && loadingOverlay.classList.contains('active')) {
@@ -2019,8 +2020,6 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
       }
 
       await initializeFavorites();
-
-      // Initialize Database Engine with fallback handling
       await DbService.init();
 
       initializeMobileBottomNav();
@@ -2232,38 +2231,8 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
 
       if (backBtn) backBtn.addEventListener('click', handleBackButton);
 
-      mobileMenuToggle && mobileMenuToggle.addEventListener('click', () => {
-        navLinks && navLinks.classList.toggle('active');
-        const icon = mobileMenuToggle.querySelector('i');
-        if (icon) {
-          icon.classList.toggle('fa-bars');
-          icon.classList.toggle('fa-times');
-        }
-      });
-
-      document.addEventListener('click', (e) => {
-        if (navLinks && navLinks.classList.contains('active')) {
-          if (!e.target.closest('.nav-links') && !e.target.closest('.mobile-menu-toggle')) {
-            navLinks.classList.remove('active');
-            const icon = mobileMenuToggle?.querySelector('i');
-            if (icon) {
-              icon.classList.add('fa-bars');
-              icon.classList.remove('fa-times');
-            }
-          }
-        }
-      });
-
       const closeMenuOnClick = () => {
-        if (navLinks && window.innerWidth <= 768) {
-          navLinks.classList.remove('active');
-          const icon = mobileMenuToggle?.querySelector('i');
-          if (icon) {
-            icon.classList.add('fa-bars');
-            icon.classList.remove('fa-times');
-          }
-        }
-        if (document.body.classList.contains('vertical-navbar-mode')) closeSidebar();
+        closeSidebar();
       };
 
       homeNav && homeNav.addEventListener('click', async () => {
@@ -3460,7 +3429,7 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
       e.preventDefault();
     });
 
-    let updateState = {
+    var updateState = window.updateState || {
       available: false,
       version: null,
       update: null,
@@ -3481,7 +3450,7 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
 
       let nativeUpdateFound = false;
 
-      // 1. Try Native Tauri Binary Updater (if configured in tauri.conf.json)
+      // Try Native Tauri Binary Updater
       if (window.__TAURI__ && (window.__TAURI__.updater || window.__TAURI_PLUGIN_UPDATER__)) {
         try {
           showNotification('Checking for native app binary updates...', 'info');
@@ -3502,7 +3471,7 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
         }
       }
 
-      // 2. Fallback to Hot-Code Updater (Direct GitHub live JS/HTML/CSS sync)
+      // Fallback to Hot-Code Updater
       if (window.hotCodeUpdater && typeof window.hotCodeUpdater.check === 'function') {
         try {
           showNotification('Checking for GitHub code updates...', 'info');
@@ -3822,7 +3791,7 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
       });
     }
 
-    let searchHistory = JSON.parse(localStorage.getItem('questionary-search-history') || '[]');
+    var searchHistory = JSON.parse(localStorage.getItem('questionary-search-history') || '[]');
 
     function saveSearchHistory() {
       localStorage.setItem('questionary-search-history', JSON.stringify(searchHistory));
@@ -3897,7 +3866,7 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
     window.useSearchHistory = useSearchHistory;
     window.clearSearchHistory = clearSearchHistory;
 
-    let customTimerPresets = JSON.parse(localStorage.getItem('questionary-timer-presets') || '[]');
+    var customTimerPresets = JSON.parse(localStorage.getItem('questionary-timer-presets') || '[]');
 
     function saveCustomPresets() {
       localStorage.setItem('questionary-timer-presets', JSON.stringify(customTimerPresets));
@@ -4056,7 +4025,7 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
 
     document.addEventListener('DOMContentLoaded', () => setTimeout(initCustomPresets, 100));
 
-    let darkModeSchedule = JSON.parse(localStorage.getItem('questionary-darkmode-schedule') || '{"enabled":false,"darkStart":19,"darkEnd":7}');
+    var darkModeSchedule = JSON.parse(localStorage.getItem('questionary-darkmode-schedule') || '{"enabled":false,"darkStart":19,"darkEnd":7}');
 
     function saveDarkModeSchedule() {
       localStorage.setItem('questionary-darkmode-schedule', JSON.stringify(darkModeSchedule));
@@ -4080,7 +4049,7 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
     setInterval(checkDarkModeSchedule, 60000);
     document.addEventListener('DOMContentLoaded', checkDarkModeSchedule);
 
-    let pageBookmarks = JSON.parse(localStorage.getItem('questionary-page-bookmarks') || '{}');
+    var pageBookmarks = JSON.parse(localStorage.getItem('questionary-page-bookmarks') || '{}');
 
     function savePageBookmarks() {
       localStorage.setItem('questionary-page-bookmarks', JSON.stringify(pageBookmarks));
@@ -4149,21 +4118,6 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
     window.removePageBookmark = removePageBookmark;
     window.goToPage = goToPage;
 
-    function initDocumentPreview() {
-      const existingTooltip = document.getElementById('previewTooltip');
-      if (existingTooltip) existingTooltip.remove();
-    }
-
-    let previewTimeout = null;
-    function showPreviewTooltip(element, url, name) { return; }
-    function hidePreviewTooltip() {
-      clearTimeout(previewTimeout);
-      const tooltip = document.getElementById('previewTooltip');
-      if (tooltip) tooltip.remove();
-    }
-
-    document.addEventListener('DOMContentLoaded', initDocumentPreview);
-
     function generateShareLink(docPath) {
       const readablePath = docPath.join(' > ');
       if (navigator.clipboard) {
@@ -4178,12 +4132,9 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
       return readablePath;
     }
 
-    function handleShareLink() {}
-
     window.generateShareLink = generateShareLink;
-    document.addEventListener('DOMContentLoaded', handleShareLink);
 
-    let printQueue = [];
+    var printQueue = [];
 
     function addToPrintQueue(docPath, url) {
       if (printQueue.some(d => d.url === url)) {
@@ -4246,15 +4197,7 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
     window.removeFromPrintQueue = removeFromPrintQueue;
     window.clearPrintQueue = clearPrintQueue;
 
-    function registerServiceWorker() {
-      if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.register('sw.js')
-        .then(reg => console.log('Service Worker registered'))
-        .catch(err => console.log('Service Worker registration failed:', err));
-      }
-    }
-
-    let pdfViewStartTime = null;
+    var pdfViewStartTime = null;
 
     function trackPdfViewStart() {
       pdfViewStartTime = Date.now();
@@ -4320,9 +4263,7 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
 
       let userDropdown = document.getElementById('userDropdownMenu') || userBadge.querySelector('.user-dropdown-menu');
 
-      // FAIL-SAFE: If HTML in Tauri app binary is outdated and missing userDropdownMenu, dynamically inject it!
       if (!userDropdown) {
-        console.log('[HotUpdate] userDropdownMenu missing in DOM. Dynamically injecting dropdown structure...');
         userDropdown = document.createElement('div');
         userDropdown.className = 'user-dropdown-menu';
         userDropdown.id = 'userDropdownMenu';
@@ -4346,7 +4287,6 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
         userBadge.appendChild(userDropdown);
       }
 
-      // Robust Toggle Handler for Desktop & WebView Touch
       const toggleDropdown = (e) => {
         if (e.target.closest('#userDropdownMenu')) return;
         e.preventDefault();
@@ -4360,10 +4300,8 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
         }
       };
 
-      // Bind directly to element
       userBadge.onclick = toggleDropdown;
 
-      // Close dropdown when clicking outside (Global listener)
       if (!window._userDropdownGlobalClickListener) {
         window._userDropdownGlobalClickListener = true;
         document.addEventListener('click', (e) => {
@@ -4377,20 +4315,27 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
       setupSettingsToggles();
       setupSettingsActions();
     }
+
     function loadSettingsState() {
       const settings = JSON.parse(localStorage.getItem('questionary-settings') || '{}');
 
       const verticalNavToggle = document.getElementById('verticalNavbarToggle');
       if (verticalNavToggle) {
         verticalNavToggle.checked = settings.verticalNavbar || false;
-        if (settings.verticalNavbar) document.body.classList.add('vertical-navbar-mode');
-        else document.body.classList.remove('vertical-navbar-mode');
+        if (settings.verticalNavbar) {
+          document.body.classList.add('vertical-navbar-mode');
+        } else {
+          document.body.classList.remove('vertical-navbar-mode');
+        }
+      } else {
+        document.body.classList.remove('vertical-navbar-mode');
       }
 
       const compactToggle = document.getElementById('compactModeToggle');
       if (compactToggle) {
         compactToggle.checked = settings.compactMode || false;
         if (settings.compactMode) document.body.classList.add('compact-mode');
+        else document.body.classList.remove('compact-mode');
       }
 
       const animationsToggle = document.getElementById('animationsToggle');
@@ -4452,84 +4397,38 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
       setupToggleRow('verticalNavbarToggle', (checked) => {
         if (checked) {
           document.body.classList.add('vertical-navbar-mode');
-          showNotification('Vertical navbar enabled', 'success');
+          if (typeof showNotification === 'function') showNotification('Vertical navbar enabled', 'success');
         } else {
           document.body.classList.remove('vertical-navbar-mode');
           closeSidebar();
-          showNotification('Horizontal navbar restored', 'info');
+          if (typeof showNotification === 'function') showNotification('Horizontal navbar restored', 'info');
         }
       });
 
       setupToggleRow('compactModeToggle', (checked) => {
         document.body.classList.toggle('compact-mode', checked);
-        showNotification(checked ? 'Compact mode enabled' : 'Compact mode disabled', 'info');
+        if (typeof showNotification === 'function') showNotification(checked ? 'Compact mode enabled' : 'Compact mode disabled', 'info');
       });
 
       setupToggleRow('animationsToggle', (checked) => {
         document.body.classList.toggle('reduced-animations', !checked);
-        showNotification(checked ? 'Animations enabled' : 'Animations reduced', 'info');
+        if (typeof showNotification === 'function') showNotification(checked ? 'Animations enabled' : 'Animations reduced', 'info');
       });
 
       setupToggleRow('autoPlayToggle', (checked) => {
-        showNotification(checked ? 'PDFs will auto-open on click' : 'PDF preview mode', 'info');
+        if (typeof showNotification === 'function') showNotification(checked ? 'PDFs will auto-open on click' : 'PDF preview mode', 'info');
       });
 
       setupToggleRow('focusModeToggle', (checked) => {
         document.body.classList.toggle('focus-mode', checked);
-        showNotification(checked ? 'Focus mode enabled' : 'Focus mode disabled', 'info');
+        if (typeof showNotification === 'function') showNotification(checked ? 'Focus mode enabled' : 'Focus mode disabled', 'info');
       });
 
       setupToggleRow('rememberLocationToggle', (checked) => {
-        showNotification(checked ? 'Will remember your last location' : 'Will start at home on launch', 'info');
+        if (typeof showNotification === 'function') showNotification(checked ? 'Will remember your last location' : 'Will start at home on launch', 'info');
       });
     }
-      function setupToggleRow(toggleId, onToggle) {
-        const toggle = document.getElementById(toggleId);
-        if (!toggle) return;
-        const toggleItem = toggle.closest('.toggle-item');
 
-        toggle.addEventListener('change', (e) => {
-          e.stopPropagation();
-          onToggle(toggle.checked);
-          saveSettingsState();
-        });
-
-        if (toggleItem) {
-          toggleItem.style.cursor = 'pointer';
-          toggleItem.addEventListener('click', (e) => {
-            if (e.target === toggle) return;
-            e.preventDefault();
-            e.stopPropagation();
-            toggle.checked = !toggle.checked;
-            onToggle(toggle.checked);
-            saveSettingsState();
-          });
-        }
-      }
-
-      setupToggleRow('compactModeToggle', (checked) => {
-        document.body.classList.toggle('compact-mode', checked);
-        showNotification(checked ? 'Compact mode enabled' : 'Compact mode disabled', 'info');
-      });
-
-      setupToggleRow('animationsToggle', (checked) => {
-        document.body.classList.toggle('reduced-animations', !checked);
-        showNotification(checked ? 'Animations enabled' : 'Animations reduced', 'info');
-      });
-
-      setupToggleRow('autoPlayToggle', (checked) => {
-        showNotification(checked ? 'PDFs will auto-open on click' : 'PDF preview mode', 'info');
-      });
-
-      setupToggleRow('focusModeToggle', (checked) => {
-        document.body.classList.toggle('focus-mode', checked);
-        showNotification(checked ? 'Focus mode enabled' : 'Focus mode disabled', 'info');
-      });
-
-      setupToggleRow('rememberLocationToggle', (checked) => {
-        showNotification(checked ? 'Will remember your last location' : 'Will start at home on launch', 'info');
-      });
-    }
     function setupSettingsActions() {
       const clearDataBtn = document.getElementById('clearDataBtn');
       if (clearDataBtn) {
@@ -4577,40 +4476,6 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
         });
       }
 
-      const importDataBtn = document.getElementById('importDataBtn');
-      if (importDataBtn) {
-        importDataBtn.addEventListener('click', (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          const input = document.createElement('input');
-          input.type = 'file';
-          input.accept = '.json';
-          input.onchange = (event) => {
-            const file = event.target.files[0];
-            if (!file) return;
-
-            const reader = new FileReader();
-            reader.onload = (e) => {
-              try {
-                const data = JSON.parse(e.target.result);
-                Object.keys(data).forEach(key => {
-                  if (key.startsWith('questionary-')) {
-                    localStorage.setItem(key, data[key]);
-                  }
-                });
-                showNotification('Data imported successfully! Reloading...', 'success');
-                setTimeout(() => location.reload(), 1000);
-              } catch (err) {
-                showNotification('Failed to import data: Invalid file', 'error');
-              }
-            };
-            reader.readAsText(file);
-          };
-          input.click();
-          document.getElementById('userBadge')?.classList.remove('active');
-        });
-      }
-
       const logoutBtn = document.getElementById('logoutBtn');
       if (logoutBtn) {
         logoutBtn.addEventListener('click', (e) => {
@@ -4640,13 +4505,6 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
       }
     }
 
-    function getKeyboardShortcuts() {
-      return getAllKeybindEntries();
-    }
-
-    /* ================================================================
-    *   KEYBINDS SYSTEM — Configurable keyboard shortcuts
-    *   ================================================================ */
     const DEFAULT_KEYBINDS = {
       focusSearch:   { key: '/', ctrl: false, alt: false, shift: false, label: 'Focus Search' },
       newNote:       { key: 'n', ctrl: false, alt: false, shift: false, label: 'New Note' },
@@ -4682,19 +4540,12 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
       window._keybinds = binds;
     }
 
-function resetKeybinds() {
+    function resetKeybinds() {
       localStorage.removeItem('questionary-keybinds');
       const binds = loadKeybinds();
       renderKeybindsSettings();
       if (typeof showNotification === 'function') showNotification('Keyboard shortcuts reset to defaults.', 'info');
       return binds;
-    }
-
-    function getAllKeybindEntries() {
-      const binds = window._keybinds || loadKeybinds();
-      return Object.entries(binds).map(([id, b]) => ({
-        id, key: formatKeybindDisplay(b), desc: b.label
-      }));
     }
 
     function formatKeybindDisplay(b) {
@@ -4744,7 +4595,7 @@ function resetKeybinds() {
       });
     }
 
-    let _capturingBind = null;
+    var _capturingBind = null;
     function startKeybindCapture(btn) {
       if (_capturingBind) {
         _capturingBind.classList.remove('kb-listening');
@@ -4779,192 +4630,9 @@ function resetKeybinds() {
       document.addEventListener('keydown', onKey, true);
     }
 
-    /* --- Study Room Settings & Media --- */
-    window.initStudyRoomMediaSettings = async function() {
-      const pttToggle = document.getElementById('pttToggle');
-      if (pttToggle) {
-        pttToggle.checked = localStorage.getItem('questionary-ptt-enabled') === 'true';
-        pttToggle.onchange = (e) => {
-          localStorage.setItem('questionary-ptt-enabled', e.target.checked);
-        };
-      }
-
-      try {
-        try {
-          const tempStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
-          tempStream.getTracks().forEach(t => t.stop());
-        } catch (e) {
-          console.warn("Media permissions not granted upfront.", e);
-        }
-
-        const devices = await navigator.mediaDevices.enumerateDevices();
-        const audioSelect = document.getElementById('audioInputSelect');
-        const audioOutSelect = document.getElementById('audioOutputSelect');
-        const videoSelect = document.getElementById('videoInputSelect');
-        if (!audioSelect || !videoSelect) return;
-
-        audioSelect.innerHTML = '<option value="">Default</option>';
-        if (audioOutSelect) audioOutSelect.innerHTML = '<option value="">Default</option>';
-        videoSelect.innerHTML = '<option value="">Default</option>';
-
-        devices.forEach(device => {
-          if (device.kind === 'audioinput') {
-            const opt = document.createElement('option');
-            opt.value = device.deviceId;
-            opt.text = device.label || `Microphone ${audioSelect.length}`;
-            audioSelect.appendChild(opt);
-          } else if (device.kind === 'audiooutput' && audioOutSelect) {
-            const opt = document.createElement('option');
-            opt.value = device.deviceId;
-            opt.text = device.label || `Speaker ${audioOutSelect.length}`;
-            audioOutSelect.appendChild(opt);
-          } else if (device.kind === 'videoinput') {
-            const opt = document.createElement('option');
-            opt.value = device.deviceId;
-            opt.text = device.label || `Camera ${videoSelect.length}`;
-            videoSelect.appendChild(opt);
-          }
-        });
-
-        const savedAudio = localStorage.getItem('questionary-audio-id');
-        const savedAudioOut = localStorage.getItem('questionary-audio-out-id');
-        const savedVideo = localStorage.getItem('questionary-video-id');
-        if (savedAudio) audioSelect.value = savedAudio;
-        if (savedAudioOut && audioOutSelect) audioOutSelect.value = savedAudioOut;
-        if (savedVideo) videoSelect.value = savedVideo;
-
-        audioSelect.onchange = (e) => localStorage.setItem('questionary-audio-id', e.target.value);
-        if (audioOutSelect) audioOutSelect.onchange = (e) => {
-          localStorage.setItem('questionary-audio-out-id', e.target.value);
-          if (typeof window.srUpdateAudioOutput === 'function') window.srUpdateAudioOutput(e.target.value);
-        };
-        videoSelect.onchange = (e) => localStorage.setItem('questionary-video-id', e.target.value);
-      } catch (err) {
-        console.warn('Could not enumerate media devices:', err);
-      }
-    };
-
-    window.testSpeaker = function() {
-      const audioId = document.getElementById('audioOutputSelect')?.value;
-      const audio = new Audio('assets/sounds/bell.mp3');
-      if (audioId && typeof audio.setSinkId === 'function') {
-        audio.setSinkId(audioId).catch(console.error);
-      }
-      audio.play().catch(console.error);
-    };
-
-    let _testMicStream = null;
-    let _testMicAudioCtx = null;
-    let _testMicInterval = null;
-    window.testMicrophone = async function() {
-      const btn = document.getElementById('testMicBtn');
-      const row = document.getElementById('micTestVolumeRow');
-      const bar = document.getElementById('micTestVolumeBar');
-      if (_testMicStream) {
-        _testMicStream.getTracks().forEach(t => t.stop());
-        _testMicStream = null;
-        if (_testMicAudioCtx) _testMicAudioCtx.close();
-        clearInterval(_testMicInterval);
-        btn.innerHTML = '<i class="fas fa-microphone"></i> Test';
-        row.style.display = 'none';
-        return;
-      }
-
-      try {
-        const audioId = document.getElementById('audioInputSelect')?.value;
-        const constraints = { audio: audioId ? { deviceId: { exact: audioId } } : true };
-        _testMicStream = await navigator.mediaDevices.getUserMedia(constraints);
-
-        btn.innerHTML = '<i class="fas fa-stop"></i> Stop';
-        row.style.display = 'flex';
-
-        _testMicAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        const source = _testMicAudioCtx.createMediaStreamSource(_testMicStream);
-        const analyser = _testMicAudioCtx.createAnalyser();
-        analyser.fftSize = 256;
-        source.connect(analyser);
-        const dataArray = new Uint8Array(analyser.frequencyBinCount);
-
-        _testMicInterval = setInterval(() => {
-          analyser.getByteFrequencyData(dataArray);
-          let sum = 0;
-          for(let i=0; i<dataArray.length; i++) sum += dataArray[i];
-          let avg = sum / dataArray.length;
-          let percent = Math.min(100, Math.round((avg / 128) * 100));
-          if (bar) bar.style.width = percent + '%';
-        }, 50);
-      } catch (e) {
-        console.error(e);
-        if (typeof showNotification === 'function') showNotification('Mic access denied during test', 'error');
-      }
-    };
-
-    let _testCamStream = null;
-    window.testCamera = async function() {
-      const btn = document.getElementById('testCamBtn');
-      const container = document.getElementById('camTestContainer');
-      const video = document.getElementById('camTestVideo');
-      if (_testCamStream) {
-        _testCamStream.getTracks().forEach(t => t.stop());
-        _testCamStream = null;
-        video.srcObject = null;
-        container.style.display = 'none';
-        btn.innerHTML = '<i class="fas fa-video"></i> Test';
-        return;
-      }
-
-      try {
-        const videoId = document.getElementById('videoInputSelect')?.value;
-        const constraints = { video: videoId ? { deviceId: { exact: videoId } } : true };
-        _testCamStream = await navigator.mediaDevices.getUserMedia(constraints);
-        video.srcObject = _testCamStream;
-        container.style.display = 'block';
-        btn.innerHTML = '<i class="fas fa-stop"></i> Stop';
-      } catch (e) {
-        console.error(e);
-        if (typeof showNotification === 'function') showNotification('Camera access denied during test', 'error');
-      }
-    };
-
-    let _pttIsPressed = false;
-    document.addEventListener('keydown', (e) => {
-      const pttEnabled = localStorage.getItem('questionary-ptt-enabled') === 'true';
-      if (pttEnabled && keybindMatches(e, 'pushToTalk') && !_pttIsPressed) {
-        const isInputFocused = e.target.closest('input, textarea, [contenteditable]');
-        if (isInputFocused) return;
-        e.preventDefault();
-        _pttIsPressed = true;
-        if (typeof window.srSetMicrophoneState === 'function') {
-          window.srSetMicrophoneState(true);
-        }
-      }
-    });
-    document.addEventListener('keyup', (e) => {
-      const pttEnabled = localStorage.getItem('questionary-ptt-enabled') === 'true';
-      if (pttEnabled && keybindMatches(e, 'pushToTalk') && _pttIsPressed) {
-        const isInputFocused = e.target.closest('input, textarea, [contenteditable]');
-        if (isInputFocused) return;
-        e.preventDefault();
-        _pttIsPressed = false;
-        if (typeof window.srSetMicrophoneState === 'function') {
-          window.srSetMicrophoneState(false);
-        }
-      }
-    });
-
-    /* --- Initialize keybinds on load --- */
     loadKeybinds();
-
     window.renderKeybindsSettings = renderKeybindsSettings;
     window.resetKeybinds = resetKeybinds;
-
-    function closeSidebar() {
-      const navLinks = document.getElementById('navLinks');
-      if (navLinks && !navLinks.classList.contains('is-pinned')) {
-        navLinks.classList.remove('sidebar-open');
-        document.getElementById('sidebarOverlay')?.classList.remove('active');
-      }
-    }
 
     function initHamburgerMenu() {
       const hamburgerBtn = document.getElementById('hamburgerMenu');
@@ -4975,58 +4643,32 @@ function resetKeybinds() {
 
       if (!navLinks) return;
 
-      // Pin / Unpin Button Handler
-      let sidebarHeader = navLinks.querySelector('.sidebar-header');
-      if (sidebarHeader && !document.getElementById('sidebarPin')) {
-        const pinBtn = document.createElement('button');
-        pinBtn.id = 'sidebarPin';
-        pinBtn.className = 'sidebar-pin-btn';
-        pinBtn.title = 'Pin Sidebar';
-        pinBtn.innerHTML = '<i class="fas fa-thumbtack"></i>';
-        sidebarHeader.appendChild(pinBtn);
-
-        pinBtn.addEventListener('click', (e) => {
-          e.stopPropagation();
-          const isPinned = navLinks.classList.toggle('is-pinned');
-          document.body.classList.toggle('sidebar-pinned', isPinned);
-          localStorage.setItem('questionary-sidebar-pinned', isPinned);
-          pinBtn.classList.toggle('active', isPinned);
-          if (typeof showNotification === 'function') {
-            showNotification(isPinned ? 'Sidebar Pinned' : 'Sidebar Unpinned', 'info');
-          }
-        });
-
-        const savedPin = localStorage.getItem('questionary-sidebar-pinned') === 'true';
-        if (savedPin) {
-          navLinks.classList.add('is-pinned');
-          document.body.classList.add('sidebar-pinned');
-          pinBtn.classList.add('active');
-        }
-      }
-
       const toggleSidebar = (e) => {
         if (e) e.stopPropagation();
-        if (navLinks.classList.contains('is-pinned')) return;
         const isOpen = navLinks.classList.toggle('sidebar-open');
         if (sidebarOverlay) sidebarOverlay.classList.toggle('active', isOpen);
       };
 
-      const closeDrawer = () => {
-        if (navLinks.classList.contains('is-pinned')) return;
+      const closeSidebar = () => {
         navLinks.classList.remove('sidebar-open');
         if (sidebarOverlay) sidebarOverlay.classList.remove('active');
       };
 
       if (hamburgerBtn) hamburgerBtn.onclick = toggleSidebar;
       if (mobileMenuToggle) mobileMenuToggle.onclick = toggleSidebar;
-      if (sidebarClose) sidebarClose.onclick = closeDrawer;
-      if (sidebarOverlay) sidebarOverlay.onclick = closeDrawer;
+      if (sidebarClose) sidebarClose.onclick = closeSidebar;
+      if (sidebarOverlay) sidebarOverlay.onclick = closeSidebar;
 
       navLinks.querySelectorAll('.nav-link').forEach(link => {
         link.addEventListener('click', () => {
-          closeDrawer();
+          closeSidebar();
         });
       });
+    }
+
+    function closeSidebar() {
+      document.getElementById('navLinks')?.classList.remove('sidebar-open');
+      document.getElementById('sidebarOverlay')?.classList.remove('active');
     }
 
     document.addEventListener('DOMContentLoaded', () => {
@@ -5034,7 +4676,6 @@ function resetKeybinds() {
       initHamburgerMenu();
     });
 
-    // Listener for PDF Viewer 'Open in New Window' messages
     window.addEventListener('message', async function(e) {
         if (e.data && e.data.type === 'openInNewWindow' && e.data.url) {
             openUrlInExternalWindow(e.data.url);
@@ -5044,7 +4685,6 @@ function resetKeybinds() {
     async function openUrlInExternalWindow(url) {
         if (!url) return;
         
-        // 1. Try Tauri Shell Plugin (Native Desktop / Android)
         try {
             if (window.__TAURI__ && window.__TAURI__.shell && typeof window.__TAURI__.shell.open === 'function') {
                 await window.__TAURI__.shell.open(url);
@@ -5059,7 +4699,6 @@ function resetKeybinds() {
             console.warn('[Tauri Shell Open Error]:', err);
         }
 
-        // 2. Fallback for Web Browsers & WebViews
         try {
             const a = document.createElement('a');
             a.href = url;
@@ -5075,7 +4714,6 @@ function resetKeybinds() {
     }
     window.openUrlInExternalWindow = openUrlInExternalWindow;
 
-    // 1. GLOBAL EVENT DELEGATION (Fixes Reset Buttons everywhere)
     document.addEventListener('click', (e) => {
       const resetBtn = e.target.closest('#resetCodeCacheBtn, #resetCodeCacheBtnSettings, .reset-cache-btn');
       if (resetBtn) {
@@ -5104,21 +4742,6 @@ function resetKeybinds() {
       }
     });
 
-    // 2. INJECT RESET BUTTON ONLY INTO SETTINGS TAB (Removed from Navbar)
-    function injectHotUIElements() {
-      const dataActions = document.querySelector('.data-actions');
-      if (dataActions && !document.getElementById('resetCodeCacheBtnSettings')) {
-        const resetBtn = document.createElement('button');
-        resetBtn.id = 'resetCodeCacheBtnSettings';
-        resetBtn.className = 'btn btn-primary btn-sm reset-cache-btn';
-        resetBtn.style.cssText = 'background: var(--accent, #cf6215); color: white; margin-top: 8px;';
-        resetBtn.innerHTML = '<i class="fas fa-sync-alt"></i> Reset Code Cache & Force Sync';
-        dataActions.appendChild(resetBtn);
-      }
-    }
-    document.addEventListener('DOMContentLoaded', injectHotUIElements);
-
-    // 3. HOME SCREEN FORCE SYNC BUTTON
     function initHomeSyncButton() {
       const syncBtn = document.getElementById('homeSyncBtn');
       if (syncBtn && !syncBtn.dataset.initialized) {
@@ -5152,239 +4775,4 @@ function resetKeybinds() {
     }
     document.addEventListener('DOMContentLoaded', initHomeSyncButton);
     setTimeout(initHomeSyncButton, 1000);
-
-    // 4. NAVBAR DYNAMIC SCALING FOR 1366x768 & LAPTOP DISPLAYS
-    function applyNavbarResponsiveFix() {
-      if (!document.getElementById('navbar-responsive-fix')) {
-        const style = document.createElement('style');
-        style.id = 'navbar-responsive-fix';
-        style.textContent = `
-          @media (min-width: 769px) and (max-width: 1400px) {
-            .header, header {
-              padding: 0 10px !important;
-              gap: 6px !important;
-            }
-            .logo {
-              font-size: 1.05rem !important;
-            }
-            .nav-links {
-              gap: 2px !important;
-              flex-wrap: nowrap !important;
-            }
-            .nav-link {
-              padding: 5px 7px !important;
-              font-size: 0.78rem !important;
-              white-space: nowrap !important;
-            }
-            .nav-link i {
-              margin-right: 3px !important;
-              font-size: 0.8rem !important;
-            }
-            .user-badge {
-              padding: 4px 8px !important;
-            }
-          }
-        `;
-        (document.head || document.documentElement).appendChild(style);
-      }
-    }
-    document.addEventListener('DOMContentLoaded', applyNavbarResponsiveFix);
-    applyNavbarResponsiveFix();
-
-function applySidebarDrawerStyles() {
-      if (!document.getElementById('sidebar-drawer-styles')) {
-        const style = document.createElement('style');
-        style.id = 'sidebar-drawer-styles';
-        style.textContent = `
-          /* --- HAMBURGER ICON --- */
-          .hamburger-menu, #hamburgerMenu {
-            display: flex !important;
-            align-items: center !important;
-            justify-content: center !important;
-            background: transparent !important;
-            border: 1px solid var(--border, #27272a) !important;
-            color: var(--fg, #ededef) !important;
-            width: 32px !important;
-            height: 32px !important;
-            border-radius: 6px !important;
-            cursor: pointer !important;
-            font-size: 0.9rem !important;
-            transition: background 0.15s !important;
-          }
-          .hamburger-menu:hover, #hamburgerMenu:hover {
-            background: var(--hover, #18181b) !important;
-            color: var(--accent, #cf6215) !important;
-          }
-
-          /* --- OFF-CANVAS SIDE DRAWER (UNPINNED) --- */
-          .nav-links, #navLinks {
-            position: fixed !important;
-            top: 0 !important;
-            left: -270px !important;
-            width: 260px !important;
-            height: 100vh !important;
-            background: var(--surface, #18181b) !important;
-            border-right: 1px solid var(--border, #27272a) !important;
-            flex-direction: column !important;
-            padding: 60px 12px 20px 12px !important;
-            gap: 4px !important;
-            z-index: 2000 !important;
-            transition: left 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
-            overflow-y: auto !important;
-            box-shadow: 4px 0 24px rgba(0,0,0,0.4) !important;
-          }
-
-          .nav-links.sidebar-open {
-            left: 0 !important;
-          }
-
-          /* --- PINNED SIDEBAR MODE --- */
-          .nav-links.is-pinned {
-            left: 0 !important;
-            box-shadow: none !important;
-            z-index: 900 !important;
-          }
-
-          body.sidebar-pinned .header {
-            left: 260px !important;
-            width: calc(100% - 260px) !important;
-          }
-
-          body.sidebar-pinned #main-content,
-          body.sidebar-pinned .container {
-            margin-left: 260px !important;
-            width: calc(100% - 260px) !important;
-            max-width: none !important;
-          }
-
-          /* --- DRAWER LINKS --- */
-          .nav-link {
-            width: 100% !important;
-            height: 38px !important;
-            padding: 0 12px !important;
-            border-radius: 8px !important;
-            justify-content: flex-start !important;
-            gap: 12px !important;
-            font-size: 0.85rem !important;
-            color: var(--text-secondary, #a0a0ab) !important;
-            border: none !important;
-          }
-          .nav-link i {
-            display: inline-flex !important;
-            font-size: 0.95rem !important;
-            width: 20px !important;
-            text-align: center !important;
-          }
-          .nav-link span {
-            display: inline-block !important;
-          }
-          .nav-link::after {
-            display: none !important;
-          }
-          .nav-link:hover, .nav-link.active {
-            background: var(--surface-hover, #222) !important;
-            color: var(--accent, #cf6215) !important;
-          }
-
-          /* --- SIDEBAR HEADER & CONTROLS --- */
-          .sidebar-header {
-            position: absolute !important;
-            top: 14px !important;
-            left: 14px !important;
-            display: flex !important;
-            align-items: center !important;
-            gap: 8px !important;
-            font-weight: 700 !important;
-            font-size: 0.9rem !important;
-            color: var(--fg, #ededef) !important;
-          }
-
-          .sidebar-close {
-            position: absolute !important;
-            top: 12px !important;
-            right: 12px !important;
-            background: none !important;
-            border: none !important;
-            color: var(--fg3, #52525b) !important;
-            font-size: 0.95rem !important;
-            cursor: pointer !important;
-            padding: 4px 8px !important;
-            border-radius: 6px !important;
-            display: flex !important;
-          }
-          .sidebar-close:hover {
-            color: var(--fg, #fff) !important;
-            background: var(--hover, #222) !important;
-          }
-
-          .sidebar-pin-btn {
-            background: none !important;
-            border: none !important;
-            color: var(--fg3, #52525b) !important;
-            font-size: 0.85rem !important;
-            cursor: pointer !important;
-            padding: 4px !important;
-            margin-left: 8px !important;
-            border-radius: 4px !important;
-            transition: transform 0.2s, color 0.2s !important;
-          }
-          .sidebar-pin-btn:hover {
-            color: var(--accent, #cf6215) !important;
-          }
-          .sidebar-pin-btn.active {
-            color: var(--accent, #cf6215) !important;
-            transform: rotate(-45deg) !important;
-          }
-
-          /* --- DIM OVERLAY --- */
-          .sidebar-overlay {
-            position: fixed !important;
-            inset: 0 !important;
-            background: rgba(0,0,0,0.5) !important;
-            backdrop-filter: blur(2px) !important;
-            opacity: 0 !important;
-            visibility: hidden !important;
-            z-index: 1999 !important;
-            transition: all 0.2s !important;
-          }
-          .sidebar-overlay.active {
-            opacity: 1 !important;
-            visibility: visible !important;
-          }
-          body.sidebar-pinned .sidebar-overlay {
-            display: none !important;
-          }
-
-          /* WEBVIEW 3D FLASHCARD FLIP FIX */
-          .flashcard-container {
-            perspective: 1000px !important;
-            -webkit-perspective: 1000px !important;
-          }
-          .flashcard {
-            transform-style: preserve-3d !important;
-            -webkit-transform-style: preserve-3d !important;
-            transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1) !important;
-            -webkit-transition: -webkit-transform 0.5s cubic-bezier(0.4, 0, 0.2, 1) !important;
-            position: relative !important;
-          }
-          .flashcard.flipped {
-            transform: rotateY(180deg) !important;
-            -webkit-transform: rotateY(180deg) !important;
-          }
-          .flashcard-front, .flashcard-back {
-            backface-visibility: hidden !important;
-            -webkit-backface-visibility: hidden !important;
-            position: absolute !important;
-            top: 0 !important; left: 0 !important;
-            width: 100% !important; height: 100% !important;
-          }
-          .flashcard-back {
-            transform: rotateY(180deg) !important;
-            -webkit-transform: rotateY(180deg) !important;
-          }
-        `;
-        (document.head || document.documentElement).appendChild(style);
-      }
-    }
-    document.addEventListener('DOMContentLoaded', applySidebarDrawerStyles);
-    applySidebarDrawerStyles();
+}
