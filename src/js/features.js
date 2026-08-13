@@ -3687,3 +3687,125 @@ if (document.readyState === 'loading') {
 } else {
     initEnhancedFeatures();
 }
+/// ============================================
+// BULLETPROOF THEME SWITCHER
+// ============================================
+function toggleTheme() {
+    const currentTheme = document.documentElement.getAttribute('data-theme') || localStorage.getItem('questionary-theme') || 'dark';
+    const newTheme = (currentTheme === 'dark') ? 'light' : 'dark';
+    
+    // 1. Apply to HTML tag so styles.css switches instantly
+    document.documentElement.setAttribute('data-theme', newTheme);
+    localStorage.setItem('questionary-theme', newTheme);
+    localStorage.setItem('theme', newTheme);
+    
+    // 2. Update Icon
+    const themeIcon = document.getElementById('themeIcon');
+    if (themeIcon) {
+        themeIcon.className = (newTheme === 'dark') ? 'fas fa-sun' : 'fas fa-moon';
+    }
+
+    // 3. Sync Settings Modal buttons if open
+    document.querySelectorAll('.mode-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.mode === newTheme);
+    });
+
+    if (typeof showNotification === 'function') {
+        showNotification(`Switched to ${newTheme} mode`, 'info');
+    }
+}
+
+function setTheme(themeName) {
+    if (themeName !== 'light' && themeName !== 'dark') themeName = 'dark';
+    document.documentElement.setAttribute('data-theme', themeName);
+    localStorage.setItem('questionary-theme', themeName);
+    localStorage.setItem('theme', themeName);
+    
+    const themeIcon = document.getElementById('themeIcon');
+    if (themeIcon) {
+        themeIcon.className = (themeName === 'dark') ? 'fas fa-sun' : 'fas fa-moon';
+    }
+}
+
+// ============================================
+// BULLETPROOF ACCESSIBILITY SYSTEM
+// ============================================
+function initAccessibility() {
+    // Prevent multiple listener bindings
+    if (window._accessibilityInitialized) return;
+    window._accessibilityInitialized = true;
+
+    const accessToggle = document.getElementById('accessibilityToggle');
+    const accessPanel = document.getElementById('accessibilityPanel');
+    const themeToggleBtn = document.getElementById('themeToggle');
+
+    // Attach Theme Toggle click
+    if (themeToggleBtn) {
+        themeToggleBtn.onclick = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            toggleTheme();
+        };
+    }
+
+    // Open/Close Accessibility Popup
+    if (accessToggle && accessPanel) {
+        accessToggle.onclick = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            accessPanel.classList.toggle('active');
+        };
+
+        document.addEventListener('click', (e) => {
+            if (accessPanel.classList.contains('active') && 
+                !accessPanel.contains(e.target) && 
+                !accessToggle.contains(e.target)) {
+                accessPanel.classList.remove('active');
+            }
+        });
+
+        accessPanel.onclick = (e) => e.stopPropagation();
+    }
+
+    // The 4 Accessibility Features
+    const options = [
+        { id: 'highContrastToggle', className: 'high-contrast', key: 'q_acc_contrast' },
+        { id: 'largeTextToggle', className: 'large-text', key: 'q_acc_large' },
+        { id: 'reducedMotionToggle', className: 'reduced-motion', key: 'q_acc_motion' },
+        { id: 'enhancedFocusToggle', className: 'enhanced-focus', key: 'q_acc_focus' }
+    ];
+
+    options.forEach(opt => {
+        const row = document.getElementById(opt.id);
+        if (!row) return;
+
+        const switchKnob = row.querySelector('.accessibility-switch');
+        
+        // Restore from storage (defaults to false if never set)
+        const isSavedActive = localStorage.getItem(opt.key) === 'true';
+        if (isSavedActive) {
+            document.body.classList.add(opt.className);
+            if (switchKnob) switchKnob.classList.add('active');
+        } else {
+            document.body.classList.remove(opt.className);
+            if (switchKnob) switchKnob.classList.remove('active');
+        }
+
+        // Single clean click handler per row
+        row.onclick = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+
+            const isActive = document.body.classList.toggle(opt.className);
+            if (switchKnob) switchKnob.classList.toggle('active', isActive);
+            localStorage.setItem(opt.key, isActive ? 'true' : 'false');
+        };
+    });
+}
+
+// Initialize on page load
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initAccessibility);
+} else {
+    initAccessibility();
+}

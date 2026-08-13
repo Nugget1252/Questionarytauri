@@ -151,8 +151,9 @@ function getFileTypeCategory(fileName) {
 // ============================================
 // 1. PDF BOOKMARKS & PAGE TRACKING
 // ============================================
-let pdfBookmarks = JSON.parse(localStorage.getItem('questionary-pdf-bookmarks') || '{}');
-let currentPdfUrl = null;
+var pdfBookmarks = window.pdfBookmarks || JSON.parse(localStorage.getItem('questionary-pdf-bookmarks') || '{}');
+window.pdfBookmarks = pdfBookmarks;
+var currentPdfUrl = window.currentPdfUrl || null;
 
 function savePdfBookmarks() {
     localStorage.setItem('questionary-pdf-bookmarks', JSON.stringify(pdfBookmarks));
@@ -315,10 +316,10 @@ function closePdfViewer() {
 // ============================================
 // 2. TEXT, MARKDOWN, DOCX & IMAGE VIEWERS
 // ============================================
-let _currentTextRaw = '';
-let _currentTextName = '';
-let _currentDocxBlob = null;
-let _currentDocxName = '';
+var _currentTextRaw = window._currentTextRaw || '';
+var _currentTextName = window._currentTextName || '';
+var _currentDocxBlob = window._currentDocxBlob || null;
+var _currentDocxName = window._currentDocxName || '';
 
 async function showTextFile(urlOrBlob, fileName) {
     _currentTextName = fileName || 'Document.txt';
@@ -497,7 +498,8 @@ async function openAnyDocument(urlOrBlob, fileName) {
 // ============================================
 // 3. PDF ANNOTATIONS & HIGHLIGHTING
 // ============================================
-let pdfAnnotations = JSON.parse(localStorage.getItem('questionary-pdf-annotations') || '{}');
+var pdfAnnotations = window.pdfAnnotations || JSON.parse(localStorage.getItem('questionary-pdf-annotations') || '{}');
+window.pdfAnnotations = pdfAnnotations;
 
 function savePdfAnnotations() {
     localStorage.setItem('questionary-pdf-annotations', JSON.stringify(pdfAnnotations));
@@ -538,7 +540,7 @@ function deletePdfAnnotation(pdfUrl, annotationId) {
 // ============================================
 // 4. QUIZ MODE FROM FLASHCARDS
 // ============================================
-let quizState = {
+var quizState = window.quizState || {
     active: false,
     deckId: null,
     questions: [],
@@ -549,6 +551,7 @@ let quizState = {
     startTime: null,
     timeLimit: null
 };
+window.quizState = quizState;
 
 function startQuiz(deckId, mode = 'multiple-choice', timeLimit = null) {
     const decks = window.flashcardDecks || JSON.parse(localStorage.getItem('questionary-flashcards') || '[]');
@@ -816,7 +819,8 @@ function closeQuizModal() {
 // ============================================
 // 5. STUDY REMINDERS WITH NOTIFICATIONS
 // ============================================
-let studyReminders = JSON.parse(localStorage.getItem('questionary-reminders') || '[]');
+var studyReminders = window.studyReminders || JSON.parse(localStorage.getItem('questionary-reminders') || '[]');
+window.studyReminders = studyReminders;
 
 function saveReminders() {
     localStorage.setItem('questionary-reminders', JSON.stringify(studyReminders));
@@ -948,7 +952,7 @@ function initReminders() {
 // ============================================
 // 6. THEMES — Light / Dark + Custom Theme Builder
 // ============================================
-const defaultCustomTheme = {
+var defaultCustomTheme = window.defaultCustomTheme || {
     bg: '#f7f7f8', surface: '#ffffff', fg: '#18181b', accent: '#cf6215',
     navbar: '#ffffff', btnIcon: '#cf6215', line: '#e4e4e7',
     folder1: '#cf6215', folder2: '#0891b2', folder3: '#16a34a',
@@ -1178,8 +1182,10 @@ function renderThemeSelector() {
 // ============================================
 // 7. TAGGING SYSTEM
 // ============================================
-let tags = JSON.parse(localStorage.getItem('questionary-tags') || '[]');
-let itemTags = JSON.parse(localStorage.getItem('questionary-item-tags') || '{}');
+var tags = window.tags || JSON.parse(localStorage.getItem('questionary-tags') || '[]');
+window.tags = tags;
+var itemTags = window.itemTags || JSON.parse(localStorage.getItem('questionary-item-tags') || '{}');
+window.itemTags = itemTags;
 
 (function cleanupOrphanedItemTags() {
     const validTagIds = new Set(tags.map(t => t.id));
@@ -1299,12 +1305,13 @@ function renderTagsManager() {
 // ============================================
 // 8. VOICE NOTES RECORDER
 // ============================================
-let mediaRecorder = null;
-let audioChunks = [];
-let voiceNotes = JSON.parse(localStorage.getItem('questionary-voice-notes') || '[]');
-let currentAudio = null;
-let recordingStartTime = null;
-let recordingTimerInterval = null;
+var mediaRecorder = window.mediaRecorder || null;
+var audioChunks = window.audioChunks || [];
+var voiceNotes = window.voiceNotes || JSON.parse(localStorage.getItem('questionary-voice-notes') || '[]');
+window.voiceNotes = voiceNotes;
+var currentAudio = window.currentAudio || null;
+var recordingStartTime = window.recordingStartTime || null;
+var recordingTimerInterval = window.recordingTimerInterval || null;
 
 function saveVoiceNotes() {
     localStorage.setItem('questionary-voice-notes', JSON.stringify(voiceNotes));
@@ -1591,7 +1598,8 @@ function importData(data) {
 // ============================================
 // 10. CUSTOMIZABLE DASHBOARD
 // ============================================
-let dashboardLayout = JSON.parse(localStorage.getItem('questionary-dashboard-layout') || '{"widgets":["documents","favorites","recent","streak"],"visible":{"documents":true,"favorites":true,"recent":true,"streak":true}}');
+var dashboardLayout = window.dashboardLayout || JSON.parse(localStorage.getItem('questionary-dashboard-layout') || '{"widgets":["documents","favorites","recent","streak"],"visible":{"documents":true,"favorites":true,"recent":true,"streak":true}}');
+window.dashboardLayout = dashboardLayout;
 
 function saveDashboardLayout() {
     localStorage.setItem('questionary-dashboard-layout', JSON.stringify(dashboardLayout));
@@ -2010,15 +2018,16 @@ async function importPdfFile(file) {
 // ============================================
 // 13. ALARM SOUND SYSTEM (Web Audio API)
 // ============================================
-let alarmSettings = JSON.parse(localStorage.getItem('questionary-alarm-settings') || '{}');
+var alarmSettings = window.alarmSettings || JSON.parse(localStorage.getItem('questionary-alarm-settings') || '{}');
+window.alarmSettings = alarmSettings;
 if (!alarmSettings.sound) alarmSettings.sound = 'classic';
 if (!alarmSettings.volume) alarmSettings.volume = 70;
 
-let currentAlarmAudio = null;
-let alarmAudioContext = null;
-let alarmIntervalId = null;
+var currentAlarmAudio = window.currentAlarmAudio || null;
+var alarmAudioContext = window.alarmAudioContext || null;
+var alarmIntervalId = window.alarmIntervalId || null;
 
-const alarmPatterns = {
+var alarmPatterns = window.alarmPatterns || {
     classic: { frequencies: [880, 0, 880, 0, 880, 0, 0], durations: [120, 80, 120, 80, 120, 80, 400], type: 'square' },
     gentle: { frequencies: [392, 440, 523, 587, 659, 784, 880], durations: [250, 250, 250, 250, 300, 300, 500], type: 'sine' },
     urgent: { frequencies: [1047, 0, 1047, 0, 1319, 0, 1319, 0, 1568, 0], durations: [60, 60, 60, 60, 60, 60, 60, 60, 60, 300], type: 'square' },
@@ -2505,12 +2514,12 @@ const UserLibraryDbService = {
     }
 };
 
-let libraryEditMode = false;
-let moveItemState = { itemId: null, itemType: null };
-let selectedFolderColor = '#3b82f6';
-let selectedMoveDestinationId = null;
+var libraryEditMode = window.libraryEditMode || false;
+var moveItemState = window.moveItemState || { itemId: null, itemType: null };
+var selectedFolderColor = window.selectedFolderColor || '#3b82f6';
+var selectedMoveDestinationId = window.selectedMoveDestinationId || null;
 
-let draggedLibraryItem = null;
+var draggedLibraryItem = window.draggedLibraryItem || null;
 
 function toggleLibraryEditMode() {
     libraryEditMode = !libraryEditMode;
@@ -2955,7 +2964,7 @@ function initLibraryDragDrop() {
 // ============================================
 // 15. TAGS SECTION & TAGGING ITEMS
 // ============================================
-let currentTaggingItem = null;
+var currentTaggingItem = window.currentTaggingItem || null;
 
 function openTagItemModal(itemId, itemName, itemType) {
     currentTaggingItem = { id: itemId, name: itemName, type: itemType };
@@ -3167,7 +3176,8 @@ function navigateToTaggedItem(itemId) {
 // ============================================
 // 16. PDF POSITION MEMORY
 // ============================================
-let pdfPositions = JSON.parse(localStorage.getItem('questionary-pdf-positions') || '{}');
+var pdfPositions = window.pdfPositions || JSON.parse(localStorage.getItem('questionary-pdf-positions') || '{}');
+window.pdfPositions = pdfPositions;
 
 function savePdfPosition(pdfUrl, position) {
     pdfPositions[pdfUrl] = {

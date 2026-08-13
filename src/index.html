@@ -396,28 +396,30 @@
                 <a class="nav-link" id="settingsNav"><i class="fas fa-cog"></i><span>Settings</span></a>
             </nav>
         </div>
-        <div class="header-right" id="headerRight">
+<div class="header-right" id="headerRight">
             <div class="search-container">
                 <i class="fas fa-search search-icon"></i>
                 <input type="text" class="search-input" id="globalSearch" placeholder="Search...">
             </div>
-            <button class="update-check-btn" id="checkUpdatesBtn" title="Check for App Updates (Right-click to Force Re-sync)">
-                <i class="fas fa-sync-alt"></i>
-            </button>
-            <button class="content-update-btn" id="contentUpdateBtn" title="Check for New Content">
-                <i class="fas fa-cloud-download-alt"></i>
-            </button>
-            <button class="accessibility-toggle" id="accessibilityToggle" title="Accessibility Options">
-                <i class="fas fa-universal-access"></i>
-            </button>
-            <button class="theme-toggle" id="themeToggle" title="Toggle Theme">
-                <i class="fas fa-moon" id="themeIcon"></i>
-            </button>
+            
+            <div class="header-actions-row">
+                <button class="update-check-btn" id="checkUpdatesBtn" title="Check for App Updates (Right-click to Force Re-sync)">
+                    <i class="fas fa-sync-alt"></i>
+                </button>
+                <button class="accessibility-toggle" id="accessibilityToggle" title="Accessibility Options">
+                    <i class="fas fa-universal-access"></i>
+                </button>
+                <button class="theme-toggle" id="themeToggle" title="Toggle Theme">
+                    <i class="fas fa-moon" id="themeIcon"></i>
+                </button>
+            </div>
+
             <div class="user-badge" id="userBadge">
                 <i class="fas fa-user"></i>
                 <span id="username-display">User</span>
                 <span id="adminBadge" class="admin-badge" style="display:none;">ADMIN</span>
                 <i class="fas fa-chevron-down user-dropdown-arrow"></i>
+
                 
                 <div class="user-dropdown-menu" id="userDropdownMenu">
                     <div class="user-dropdown-header">

@@ -176,6 +176,7 @@ body {
 .mobile-menu-toggle, #mobileMenuToggle { display: none !important; }
 
 /* ── HORIZONTAL NAVBAR (DESKTOP: min-width 769px & body:not(.vertical-navbar-mode)) ── */
+/* ── HORIZONTAL NAVBAR (DESKTOP: min-width 769px & body:not(.vertical-navbar-mode)) ── */
 @media (min-width: 769px) {
     body:not(.vertical-navbar-mode) .nav-links,
     body:not(.vertical-navbar-mode) #navLinks {
@@ -183,11 +184,11 @@ body {
         left: auto !important;
         top: auto !important;
         width: auto !important;
-        height: auto !important;
+        height: 100% !important;
         display: flex !important;
         flex-direction: row !important;
         align-items: center !important;
-        gap: 4px !important;
+        gap: 6px !important;
         background: transparent !important;
         border: none !important;
         box-shadow: none !important;
@@ -211,35 +212,37 @@ body {
         display: none !important;
     }
 
+    /* Tab Base with smooth hover */
     body:not(.vertical-navbar-mode) .nav-link {
-        font-size: 0.78rem !important;
+        font-size: 0.8rem !important;
         font-weight: 500 !important;
-        padding: 0 8px !important;
-        height: 32px !important;
-        color: var(--fg3) !important;
+        padding: 0 12px !important;
+        height: 34px !important;
+        color: var(--fg2) !important;
         background: transparent !important;
         position: relative !important;
-        border-radius: 4px !important;
+        border-radius: 6px !important;
+        transition: all 0.2s ease !important;
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
     }
 
-    body:not(.vertical-navbar-mode) .nav-link span {
-        font-size: 0.78rem !important;
-        color: inherit !important;
-    }
-
+    /* Tab Hover Effect */
     body:not(.vertical-navbar-mode) .nav-link:hover {
         color: var(--fg) !important;
-        background: transparent !important;
+        background: var(--hover) !important;
     }
 
     body:not(.vertical-navbar-mode) .nav-link:hover span {
         color: var(--fg) !important;
     }
 
+    /* Tab Active State + Bottom Underline Bar */
     body:not(.vertical-navbar-mode) .nav-link.active {
         color: var(--accent) !important;
         font-weight: 600 !important;
-        background: transparent !important;
+        background: var(--accent-light) !important;
     }
 
     body:not(.vertical-navbar-mode) .nav-link.active span {
@@ -247,27 +250,24 @@ body {
         font-weight: 600 !important;
     }
 
+    /* The glowing underline indicator */
     body:not(.vertical-navbar-mode) .nav-link.active::after {
         content: "" !important;
         position: absolute !important;
-        bottom: -8px !important;
-        left: 4px !important;
-        right: 4px !important;
-        height: 2px !important;
+        bottom: 0px !important;
+        left: 8px !important;
+        right: 8px !important;
+        height: 2.5px !important;
         background: var(--accent) !important;
-        border-radius: 2px !important;
+        border-radius: 3px 3px 0 0 !important;
     }
 
     body:not(.vertical-navbar-mode) .sidebar-header,
-    body:not(.vertical-navbar-mode) .sidebar-close {
-        display: none !important;
-    }
-
+    body:not(.vertical-navbar-mode) .sidebar-close,
     body:not(.vertical-navbar-mode) .sidebar-overlay {
         display: none !important;
     }
 }
-
 /* ── OFF-CANVAS SLIDE DRAWER (MOBILE: max-width 768px & body:not(.vertical-navbar-mode)) ── */
 @media (max-width: 768px) {
     body:not(.vertical-navbar-mode) .nav-links,
@@ -1224,38 +1224,146 @@ body {
 #subjectChart,#accessChart { background: var(--hover); border-radius: 6px; padding: 0.65rem; width: 100%; min-height: 130px; }
 .recent-activity-list { max-height: 320px; overflow-y: auto; }
 
-/* ── ACCESSIBILITY ── */
+//* ── ACCESSIBILITY PANEL ── */
 .accessibility-panel {
-    position: fixed; top: 48px; right: 16px; background: var(--bg);
-    border: 1px solid var(--line); border-radius: 8px; padding: 0.85rem;
-    min-width: 240px; z-index: 1000; display: none; flex-direction: column; gap: 0.6rem;
+    position: fixed;
+    top: 56px;
+    right: 16px;
+    background: var(--surface) !important;
+    border: 1px solid var(--line) !important;
+    border-radius: 12px !important;
+    padding: 1rem !important;
+    min-width: 260px !important;
+    z-index: 10001 !important;
+    display: none;
+    flex-direction: column;
+    gap: 0.6rem;
+    box-shadow: var(--shadow-lg) !important;
 }
-.accessibility-panel.active { display: flex; }
-.accessibility-panel h3 { margin: 0 0 0.35rem; font-size: 0.85rem; font-weight: 600; color: var(--fg); display: flex; align-items: center; gap: 0.4rem; }
+
+body.vertical-navbar-mode .accessibility-panel {
+    top: auto !important;
+    bottom: 75px !important;
+    left: 260px !important;
+    right: auto !important;
+}
+
+.accessibility-panel.active {
+    display: flex !important;
+}
+
+.accessibility-panel h3 {
+    margin: 0 0 0.4rem;
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: var(--fg);
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
 .accessibility-option {
-    display: flex; justify-content: space-between; align-items: center;
-    padding: 0.45rem 0.55rem; background: var(--hover); border-radius: 6px;
-    cursor: pointer; transition: background 0.1s;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.6rem 0.75rem;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+    user-select: none;
 }
-.accessibility-option:hover { background: var(--line); }
-.accessibility-option-label { font-size: 0.8rem; color: var(--fg); font-weight: 500; }
+
+.accessibility-option:hover {
+    background: var(--hover);
+    border-color: var(--accent);
+}
+
+.accessibility-option-label {
+    font-size: 0.82rem;
+    color: var(--fg);
+    font-weight: 500;
+    pointer-events: none;
+}
+
+/* Switch Knob & Slide Animation */
 .accessibility-switch {
-    width: 36px; height: 20px; background: var(--line); border: none;
-    border-radius: 10px; position: relative; cursor: pointer; transition: background 0.15s;
+    width: 38px;
+    height: 22px;
+    background: var(--line);
+    border-radius: 12px;
+    position: relative;
+    transition: background 0.2s ease;
+    pointer-events: none;
+    flex-shrink: 0;
 }
+
 .accessibility-switch::after {
-    content: ''; position: absolute; width: 14px; height: 14px;
-    background: white; border-radius: 50%; top: 3px; left: 3px; transition: transform 0.15s;
+    content: '';
+    position: absolute;
+    width: 16px;
+    height: 16px;
+    background: #ffffff;
+    border-radius: 50%;
+    top: 3px;
+    left: 3px;
+    transition: transform 0.2s ease;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
 }
-.accessibility-switch.active { background: var(--accent); }
-.accessibility-switch.active::after { transform: translateX(16px); }
 
-body.high-contrast { --fg: #000 !important; --fg2: #333 !important; --bg: #fff !important; --line: #000 !important; }
-[data-theme="dark"] body.high-contrast { --fg: #fff !important; --fg2: #ddd !important; --bg: #000 !important; --line: #fff !important; }
-body.large-text,html.large-text body { font-size: 1.1rem !important; }
-body.reduced-motion *,html.reduced-motion * { animation: none !important; transition: none !important; }
-body.enhanced-focus *:focus,html.enhanced-focus *:focus { outline: 2px solid var(--fg) !important; outline-offset: 2px !important; }
+.accessibility-switch.active {
+    background: var(--accent, #cf6215) !important;
+}
 
+.accessibility-switch.active::after {
+    transform: translateX(16px);
+}
+
+/* ── SAFE ACCESSIBILITY MODES (Will NOT break layout or themes) ── */
+
+/* 1. High Contrast: Theme-aware contrast boost without clobbering theme switcher */
+html[data-theme="light"] body.high-contrast {
+    --fg: #000000;
+    --fg2: #111111;
+    --line: #000000;
+    --border: #000000;
+}
+html[data-theme="dark"] body.high-contrast {
+    --bg: #000000;
+    --surface: #09090b;
+    --fg: #ffffff;
+    --fg2: #ffffff;
+    --line: #444444;
+    --border: #555555;
+}
+
+/* 2. Large Text: Scaled safely without destroying headers or grids */
+body.large-text {
+    font-size: 16px;
+}
+body.large-text p,
+body.large-text span,
+body.large-text .nav-link span,
+body.large-text .tile-text,
+body.large-text .stat-value {
+    font-size: 1.08em !important;
+}
+
+/* 3. Reduced Motion */
+body.reduced-motion *,
+body.reduced-motion *::before,
+body.reduced-motion *::after {
+    animation-duration: 0.001s !important;
+    transition-duration: 0.001s !important;
+}
+
+/* 4. Enhanced Focus */
+body.enhanced-focus :focus,
+body.enhanced-focus :focus-visible {
+    outline: 3px solid var(--accent, #cf6215) !important;
+    outline-offset: 2px !important;
+}
 /* ── TIMER ── */
 .timer-panel {
     position: fixed; bottom: 16px; right: 16px; width: 270px;
@@ -1992,4 +2100,88 @@ input, textarea, select, code, pre, [contenteditable="true"],
     body.vertical-navbar-mode .sidebar-overlay {
         display: none !important;
     }
+}
+/* Base horizontal container for header action icons */
+.header-actions-row {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+/* Vertical Navbar Mode overrides */
+body.vertical-navbar-mode .header-actions-row {
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    width: 100% !important;
+    padding: 4px 0 !important;
+    gap: 6px !important;
+}
+
+body.vertical-navbar-mode .header-actions-row button {
+    flex: 1 !important;
+    height: 34px !important;
+    border-radius: 8px !important;
+    border: 1px solid var(--line) !important;
+    background: var(--bg) !important;
+    color: var(--fg2) !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+}
+
+body.vertical-navbar-mode .header-actions-row button:hover {
+    background: var(--hover) !important;
+    color: var(--accent) !important;
+    border-color: var(--accent) !important;
+}
+/* ── HORIZONTAL ACTION ROW (Sync, Accessibility, Theme) ── */
+.header-actions-row {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+body.vertical-navbar-mode .header-actions-row {
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    width: 100% !important;
+    padding: 6px 0 !important;
+    gap: 8px !important;
+}
+
+body.vertical-navbar-mode .header-actions-row button {
+    flex: 1 !important;
+    height: 36px !important;
+    border-radius: 8px !important;
+    border: 1px solid var(--line) !important;
+    background: var(--surface) !important;
+    color: var(--fg2) !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    cursor: pointer !important;
+    transition: all 0.15s ease !important;
+}
+
+body.vertical-navbar-mode .header-actions-row button:hover {
+    background: var(--hover) !important;
+    color: var(--accent) !important;
+    border-color: var(--accent) !important;
+}
+
+/* Accessibility Panel Position Fix */
+.accessibility-panel {
+    z-index: 10001 !important;
+    box-shadow: var(--shadow-lg) !important;
+}
+
+body.vertical-navbar-mode .accessibility-panel {
+    top: auto !important;
+    bottom: 80px !important;
+    left: 260px !important;
+    right: auto !important;
 }
