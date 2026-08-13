@@ -3729,74 +3729,80 @@ function setTheme(themeName) {
 // ============================================
 // CLEAN ACCESSIBILITY CONTROLLER (KILLS CONFLICTS)
 // ============================================
-function initAccessibility() {
-    const panel = document.getElementById('accessibilityPanel');
-    const toggleBtn = document.getElementById('accessibilityToggle');
-    if (!panel || !toggleBtn) return;
+// ================================================================
+// UNBREAKABLE ACCESSIBILITY CONTROLLER (Global Capture Delegation)
+// ================================================================
+const ACCESSIBILITY_MAP = {
+    'highContrastToggle': { className: 'high-contrast', key: 'q_acc_contrast' },
+    'largeTextToggle': { className: 'large-text', key: 'q_acc_large' },
+    'reducedMotionToggle': { className: 'reduced-motion', key: 'q_acc_motion' },
+    'enhancedFocusToggle': { className: 'enhanced-focus', key: 'q_acc_focus' }
+};
 
-    // 1. Single Toggle Handler for the Menu Popup
-    toggleBtn.onclick = (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        panel.classList.toggle('active');
-    };
+// Sync switch visuals with actual body classes
+function syncAccessibilityUI() {
+    Object.keys(ACCESSIBILITY_MAP).forEach(id => {
+        const config = ACCESSIBILITY_MAP[id];
+        const isSaved = localStorage.getItem(config.key) === 'true';
+        const optionEl = document.getElementById(id);
+        const switchEl = optionEl ? optionEl.querySelector('.accessibility-switch') : null;
 
-    document.addEventListener('click', (e) => {
-        if (panel.classList.contains('active') && !panel.contains(e.target) && !toggleBtn.contains(e.target)) {
-            panel.classList.remove('active');
+        document.body.classList.toggle(config.className, isSaved);
+        if (switchEl) {
+            switchEl.classList.toggle('active', isSaved);
         }
-    });
-
-    panel.onclick = (e) => e.stopPropagation();
-
-    // 2. The 4 Options
-    const options = [
-        { id: 'highContrastToggle', className: 'high-contrast', key: 'q_acc_contrast' },
-        { id: 'largeTextToggle', className: 'large-text', key: 'q_acc_large' },
-        { id: 'reducedMotionToggle', className: 'reduced-motion', key: 'q_acc_motion' },
-        { id: 'enhancedFocusToggle', className: 'enhanced-focus', key: 'q_acc_focus' }
-    ];
-
-    options.forEach(opt => {
-        const oldRow = document.getElementById(opt.id);
-        if (!oldRow) return;
-
-        // Clone node wipes out duplicate listeners from app.js!
-        const row = oldRow.cloneNode(true);
-        oldRow.parentNode.replaceChild(row, oldRow);
-
-        const switchKnob = row.querySelector('.accessibility-switch');
-
-        // Check saved setting (defaults to OFF/false)
-        const isSaved = localStorage.getItem(opt.key) === 'true';
-        document.body.classList.toggle(opt.className, isSaved);
-        if (switchKnob) switchKnob.classList.toggle('active', isSaved);
-
-        // One clean listener
-        row.addEventListener('click', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-
-            const isCurrentlyActive = document.body.classList.contains(opt.className);
-            const newState = !isCurrentlyActive;
-
-            // Toggle Class on body
-            document.body.classList.toggle(opt.className, newState);
-
-            // Toggle Switch Visual
-            if (switchKnob) {
-                switchKnob.classList.toggle('active', newState);
-            }
-
-            // Save state
-            localStorage.setItem(opt.key, newState ? 'true' : 'false');
-        });
     });
 }
 
-// Run immediately
+// Global Capture Listener (immune to DOM reloads and script conflicts)
+document.addEventListener('click', function(e) {
+    // 1. Accessibility Header Button (Open / Close Menu)
+    const toggleBtn = e.target.closest('#accessibilityToggle');
+    if (toggleBtn) {
+        e.preventDefault();
+        e.stopPropagation();
+        const panel = document.getElementById('accessibilityPanel');
+        if (panel) {
+            panel.classList.toggle('active');
+            syncAccessibilityUI();
+        }
+        return;
+    }
+
+    // 2. Accessibility Options Inside Menu
+    const optionEl = e.target.closest('.accessibility-option');
+    if (optionEl && ACCESSIBILITY_MAP[optionEl.id]) {
+        e.preventDefault();
+        e.stopPropagation(); // Stops app.js from interfering
+
+        const config = ACCESSIBILITY_MAP[optionEl.id];
+        const switchEl = optionEl.querySelector('.accessibility-switch');
+        const isCurrentlyActive = document.body.classList.contains(config.className);
+        const nextState = !isCurrentlyActive;
+
+        // Toggle visual effect on body
+        document.body.classList.toggle(config.className, nextState);
+
+        // Toggle orange switch
+        if (switchEl) {
+            switchEl.classList.toggle('active', nextState);
+        }
+
+        // Save state
+        localStorage.setItem(config.key, nextState ? 'true' : 'false');
+        return;
+    }
+
+    // 3. Click Outside Panel to Close
+    const panel = document.getElementById('accessibilityPanel');
+    if (panel && panel.classList.contains('active') && !panel.contains(e.target)) {
+        panel.classList.remove('active');
+    }
+}, true); // `true` = Capture Phase (Runs first before anything else)
+
+// Run on page load
 if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initAccessibility);
+    document.addEventListener('DOMContentLoaded', syncAccessibilityUI);
 } else {
-    initAccessibility();
+    syncAccessibilityUI();
 }
