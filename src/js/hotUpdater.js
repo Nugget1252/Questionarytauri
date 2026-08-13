@@ -13,7 +13,6 @@
     const CODE_FILES_KEY = 'questionary-code-files';
     const INSTALLED_COMMIT_KEY = 'questionary-installed-commit-sha';
     
-    // index.html is now tracked and managed
     const MANAGED_FILES = [
         'index.html',
         'css/styles.css',
@@ -36,12 +35,12 @@
         pendingFiles: []
     };
 
-    function canShowNotification() {
-        const appEl = document.getElementById('app');
-        const loginEl = document.getElementById('loginScreen');
-        const isAppVisible = appEl && appEl.style.display !== 'none';
-        const isLoginVisible = loginEl && loginEl.style.display !== 'none';
-        return (isAppVisible || !isLoginVisible) && window.currentUser !== null;
+    function notify(message, type = 'info') {
+        if (typeof window.showNotification === 'function') {
+            window.showNotification(message, type);
+        } else {
+            console.log(`[HotUpdate - ${type.toUpperCase()}] ${message}`);
+        }
     }
 
     function getStoredCodeFiles() {
@@ -61,18 +60,10 @@
         localStorage.removeItem(CODE_FILES_KEY);
         localStorage.removeItem(INSTALLED_COMMIT_KEY);
         delete window._HOT_APP_JS_LOADED;
-        console.log('[HotUpdate] Hot-code cache purged successfully.');
+        console.log('[HotUpdate] Cache cleared. Force re-syncing from GitHub...');
+        notify('Cache cleared. Fetching latest files...', 'info');
         
-        if (canShowNotification() && typeof showNotification === 'function') {
-            showNotification('Hot-code cache cleared. Re-checking GitHub...', 'info');
-        }
-        
-        const pending = await checkForCodeUpdates(false);
-        if (pending && pending.length > 0) {
-            await downloadCodeUpdates();
-        } else {
-            location.reload();
-        }
+        await downloadCodeUpdates(true);
     }
 
     // ================================================================
@@ -95,7 +86,7 @@
                 console.log('[HotUpdate] Hot-patched header/nav from updated index.html');
             }
 
-            // 2. Sync main app container, login screen, accessibility panel
+            // 2. Sync core app containers
             const targets = ['app', 'loginScreen', 'loadingOverlay', 'accessibilityPanel', 'quickLinksPanel', 'timerPanel'];
             targets.forEach(id => {
                 const newEl = newDoc.getElementById(id);
@@ -106,7 +97,7 @@
                 }
             });
 
-            // 3. Sync all modal structures
+            // 3. Sync modals
             const newModals = newDoc.querySelectorAll('.modal-overlay');
             newModals.forEach(newModal => {
                 if (newModal.id) {
@@ -147,7 +138,6 @@
         }
     }
 
-    // Execute stored JS scripts in order of dependency & set hot-update flags
     function applyStoredJS() {
         const stored = getStoredCodeFiles();
         const executionOrder = ['js/features.js', 'js/studyRoom.js', 'js/contentUpdater.js', 'js/app.js'];
@@ -205,7 +195,7 @@
                 try {
                     const res = await fetch(url, { cache: 'no-store' });
                     if (res.ok) {
-                        console.log(`[HotUpdate] Successfully fetched ${relativePath} from: ${url}`);
+                        console.log(`[HotUpdate] Fetched ${relativePath} from: ${url}`);
                         return res;
                     }
                 } catch (e) {}
@@ -226,6 +216,8 @@
         let detectedBranch = PRIMARY_BRANCH;
 
         const branchesToTry = [PRIMARY_BRANCH, FALLBACK_BRANCH];
+
+        // 1. Try GitHub API
         for (const branch of branchesToTry) {
             try {
                 const apiUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/commits/${branch}?t=${Date.now()}`;
@@ -245,15 +237,17 @@
             } catch (err) {}
         }
 
+        // 2. Un-rate-limited fallback: Check GitHub Atom Feed if API is rate-limited (403)
         if (!latestSha) {
             for (const branch of branchesToTry) {
                 try {
-                    const cdnUrl = `https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${branch}/package.json?t=${Date.now()}`;
-                    const res = await fetch(cdnUrl, { cache: 'no-store' });
+                    const feedUrl = `https://github.com/${REPO_OWNER}/${REPO_NAME}/commits/${branch}.atom?t=${Date.now()}`;
+                    const res = await fetch(feedUrl, { cache: 'no-store' });
                     if (res.ok) {
-                        const pkg = await res.json();
-                        if (pkg && (pkg.version || pkg.buildSha)) {
-                            latestSha = pkg.buildSha || `version-${pkg.version}`;
+                        const xmlText = await res.text();
+                        const match = xmlText.match(/Commit\/([a-f0-9]{40})/i);
+                        if (match && match[1]) {
+                            latestSha = match[1];
                             detectedBranch = branch;
                             break;
                         }
@@ -267,14 +261,12 @@
         if (!latestSha) {
             window.codeUpdateState.checking = false;
             updateCodeUpdateUI('idle');
-            if (!silent && canShowNotification() && typeof showNotification === 'function') {
-                showNotification('Could not check for updates. Check connection.', 'error');
-            }
+            if (!silent) notify('Could not reach GitHub updates. Check connection.', 'error');
             return null;
         }
 
         const installedSha = localStorage.getItem(INSTALLED_COMMIT_KEY);
-        console.log(`[HotUpdate] Latest SHA: ${latestSha.substring(0, 7)} | Installed SHA: ${installedSha?.substring(0, 7) || 'None'}`);
+        console.log(`[HotUpdate] Latest: ${latestSha.substring(0, 7)} | Installed: ${installedSha ? installedSha.substring(0, 7) : 'None'}`);
 
         if (latestSha !== installedSha) {
             window.codeUpdateState.available = true;
@@ -283,16 +275,11 @@
 
             updateCodeUpdateUI('available', MANAGED_FILES.length);
 
-            if (!silent && canShowNotification() && typeof showNotification === 'function') {
-                showNotification('New update detected! Downloading update...', 'success');
-            }
-
+            if (!silent) notify('New update found! Downloading...', 'success');
             window.codeUpdateState.checking = false;
             return window.codeUpdateState.pendingFiles;
         } else {
-            if (!silent && canShowNotification() && typeof showNotification === 'function') {
-                showNotification('Questionary is up to date!', 'success');
-            }
+            if (!silent) notify('Questionary is already up to date!', 'success');
             updateCodeUpdateUI('idle');
         }
 
@@ -300,20 +287,17 @@
         return null;
     }
 
-    async function downloadCodeUpdates() {
+    async function downloadCodeUpdates(force = false) {
         if (window.codeUpdateState.downloading) return;
 
-        if (!window.codeUpdateState.latestCommitSha) {
+        if (!window.codeUpdateState.latestCommitSha && !force) {
             const pending = await checkForCodeUpdates(false);
             if (!pending) return;
         }
 
         window.codeUpdateState.downloading = true;
         updateCodeUpdateUI('downloading');
-
-        if (canShowNotification() && typeof showNotification === 'function') {
-            showNotification('Downloading and applying updates...', 'info');
-        }
+        notify('Downloading updates from GitHub...', 'info');
 
         const storedFiles = getStoredCodeFiles();
         let downloadedCount = 0;
@@ -323,7 +307,10 @@
         for (const fileRelPath of MANAGED_FILES) {
             try {
                 const res = await fetchFileFromRepo(fileRelPath);
-                if (!res) continue;
+                if (!res) {
+                    console.warn(`[HotUpdate] Could not fetch ${fileRelPath}`);
+                    continue;
+                }
 
                 if (fileRelPath.endsWith('.db')) {
                     const arrayBuffer = await res.arrayBuffer();
@@ -335,13 +322,6 @@
                             await window.DbService.saveToIndexedDB();
                             dbUpdated = true;
                             downloadedCount++;
-                        }
-
-                        if (window.__TAURI__ && window.__TAURI__.fs) {
-                            try {
-                                const { writeBinaryFile, BaseDirectory } = window.__TAURI__.fs;
-                                await writeBinaryFile('questionary.db', uInt8Array, { dir: BaseDirectory.AppData });
-                            } catch (e) {}
                         }
                     }
                 } else {
@@ -355,54 +335,30 @@
                         } else if (fileRelPath.endsWith('.js') || fileRelPath.endsWith('.html')) {
                             requiresReload = true;
                         }
-
-                        if (window.__TAURI__ && window.__TAURI__.fs) {
-                            try {
-                                const { writeTextFile, BaseDirectory } = window.__TAURI__.fs;
-                                await writeTextFile(fileRelPath, content, { dir: BaseDirectory.AppData });
-                            } catch (e) {}
-                        }
                     }
                 }
             } catch (error) {
-                console.error(`[HotUpdate] Sync failed for ${fileRelPath}:`, error);
+                console.error(`[HotUpdate] Sync error for ${fileRelPath}:`, error);
             }
         }
 
-        if (downloadedCount >= 2) {
+        if (downloadedCount >= 1) {
             saveStoredCodeFiles(storedFiles);
-            localStorage.setItem(INSTALLED_COMMIT_KEY, window.codeUpdateState.latestCommitSha);
-            console.log(`[HotUpdate] Commit ${window.codeUpdateState.latestCommitSha.substring(0, 7)} installed successfully!`);
+            if (window.codeUpdateState.latestCommitSha) {
+                localStorage.setItem(INSTALLED_COMMIT_KEY, window.codeUpdateState.latestCommitSha);
+            }
+            console.log(`[HotUpdate] Updated ${downloadedCount} files successfully!`);
+            notify(`Update installed (${downloadedCount} files)! Reloading...`, 'success');
+            setTimeout(() => location.reload(), 1000);
         } else {
             console.error('[HotUpdate] Critical files failed to download.');
-            if (canShowNotification() && typeof showNotification === 'function') {
-                showNotification('Update download failed. Please check connection.', 'error');
-            }
+            notify('Update download failed. Check network.', 'error');
             window.codeUpdateState.downloading = false;
             updateCodeUpdateUI('idle');
-            return;
-        }
-
-        window.codeUpdateState.downloading = false;
-        window.codeUpdateState.available = false;
-
-        updateCodeUpdateUI('idle');
-
-        if (dbUpdated && typeof window.renderTiles === 'function') {
-            window.renderTiles();
-        }
-
-        if (requiresReload) {
-            if (canShowNotification() && typeof showNotification === 'function') {
-                showNotification('Update installed! Reloading...', 'success');
-            }
-            setTimeout(() => location.reload(), 1000);
-        } else if (canShowNotification() && typeof showNotification === 'function') {
-            showNotification('Updated successfully!', 'success');
         }
     }
 
-    function updateCodeUpdateUI(state, count = 0) {
+    function updateCodeUpdateUI(state) {
         const btn = document.getElementById('checkUpdatesBtn');
         if (!btn) return;
 
@@ -430,37 +386,50 @@
         }
     }
 
-    function attachContextMenuReset() {
+    // Attach Left-Click (Check & Download) AND Right-Click (Force Clear & Re-sync)
+    function attachButtonListeners() {
         const btn = document.getElementById('checkUpdatesBtn');
-        if (btn && !btn.dataset.resetAttached) {
-            btn.dataset.resetAttached = 'true';
+        if (btn && !btn.dataset.listenersAttached) {
+            btn.dataset.listenersAttached = 'true';
+
+            // Left-Click: Check for updates & download
+            btn.addEventListener('click', async (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const pending = await checkForCodeUpdates(false);
+                if (pending && pending.length > 0) {
+                    await downloadCodeUpdates();
+                }
+            });
+
+            // Right-Click: Force purge cache & re-download everything
             btn.addEventListener('contextmenu', (e) => {
                 e.preventDefault();
-                if (typeof window.showConfirm === 'function') {
-                    window.showConfirm('Force-clear hot code cache and re-sync from GitHub?', {
-                        title: 'Force Re-sync Code',
-                        confirmText: 'Clear & Re-sync',
-                        type: 'warning'
-                    }).then(yes => {
-                        if (yes) resetCache();
-                    });
-                } else if (confirm('Force-clear hot code cache and re-sync from GitHub?')) {
+                e.stopPropagation();
+                if (confirm('Force-clear cache and re-download all latest files from GitHub?')) {
                     resetCache();
                 }
+            });
+        }
+
+        // Home page force sync button
+        const homeSyncBtn = document.getElementById('homeSyncBtn');
+        if (homeSyncBtn && !homeSyncBtn.dataset.listenersAttached) {
+            homeSyncBtn.dataset.listenersAttached = 'true';
+            homeSyncBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                resetCache();
             });
         }
     }
 
     async function initHotUpdater() {
-        // 1. Hot-patch DOM elements from updated index.html FIRST
         applyStoredHTML();
-        // 2. Apply updated styles
         applyStoredCSS();
-        // 3. Execute updated scripts so they bind to the new DOM
         applyStoredJS();
-        
-        attachContextMenuReset();
+        attachButtonListeners();
 
+        // Check for updates automatically 3 seconds after launch
         setTimeout(async () => {
             const pending = await checkForCodeUpdates(true);
             if (pending && pending.length > 0) {
@@ -473,6 +442,7 @@
         check: checkForCodeUpdates,
         download: downloadCodeUpdates,
         resetCache: resetCache,
+        forceSync: () => downloadCodeUpdates(true),
         applyStoredHTML,
         applyStoredCSS,
         applyStoredJS,
