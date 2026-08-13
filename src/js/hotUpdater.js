@@ -1,5 +1,5 @@
 /* ================================================================
- *   ZERO-CONFIG HOT UPDATER ENGINE (Guaranteed Script Overriding)
+ *   ZERO-CONFIG HOT UPDATER ENGINE (Guaranteed Script & DOM Overriding)
  *   Repository: Nugget1252/Questionarytauri
  *   ================================================================ */
 (function() {
@@ -13,7 +13,9 @@
     const CODE_FILES_KEY = 'questionary-code-files';
     const INSTALLED_COMMIT_KEY = 'questionary-installed-commit-sha';
     
+    // index.html is now tracked and managed
     const MANAGED_FILES = [
+        'index.html',
         'css/styles.css',
         'css/features.css',
         'js/app.js',
@@ -70,6 +72,56 @@
             await downloadCodeUpdates();
         } else {
             location.reload();
+        }
+    }
+
+    // ================================================================
+    // LIVE DOM HOT-PATCHER (Updates index.html elements before JS runs)
+    // ================================================================
+    function applyStoredHTML() {
+        const stored = getStoredCodeFiles();
+        const storedHtml = stored['index.html'];
+        if (!storedHtml || storedHtml.trim().length < 100) return;
+
+        try {
+            const parser = new DOMParser();
+            const newDoc = parser.parseFromString(storedHtml, 'text/html');
+
+            // 1. Sync header / navbar markup
+            const newHeader = newDoc.querySelector('header.header') || newDoc.querySelector('.header');
+            const curHeader = document.querySelector('header.header') || document.querySelector('.header');
+            if (newHeader && curHeader && newHeader.innerHTML !== curHeader.innerHTML) {
+                curHeader.innerHTML = newHeader.innerHTML;
+                console.log('[HotUpdate] Hot-patched header/nav from updated index.html');
+            }
+
+            // 2. Sync main app container, login screen, accessibility panel
+            const targets = ['app', 'loginScreen', 'loadingOverlay', 'accessibilityPanel', 'quickLinksPanel', 'timerPanel'];
+            targets.forEach(id => {
+                const newEl = newDoc.getElementById(id);
+                const curEl = document.getElementById(id);
+                if (newEl && curEl && newEl.innerHTML !== curEl.innerHTML) {
+                    curEl.innerHTML = newEl.innerHTML;
+                    console.log(`[HotUpdate] Hot-patched #${id} from updated index.html`);
+                }
+            });
+
+            // 3. Sync all modal structures
+            const newModals = newDoc.querySelectorAll('.modal-overlay');
+            newModals.forEach(newModal => {
+                if (newModal.id) {
+                    const curModal = document.getElementById(newModal.id);
+                    if (curModal) {
+                        if (curModal.innerHTML !== newModal.innerHTML) {
+                            curModal.innerHTML = newModal.innerHTML;
+                        }
+                    } else {
+                        document.body.appendChild(document.importNode(newModal, true));
+                    }
+                }
+            });
+        } catch (err) {
+            console.error('[HotUpdate] Error hot-patching HTML:', err);
         }
     }
 
@@ -400,8 +452,13 @@
     }
 
     async function initHotUpdater() {
+        // 1. Hot-patch DOM elements from updated index.html FIRST
+        applyStoredHTML();
+        // 2. Apply updated styles
         applyStoredCSS();
+        // 3. Execute updated scripts so they bind to the new DOM
         applyStoredJS();
+        
         attachContextMenuReset();
 
         setTimeout(async () => {
@@ -416,6 +473,7 @@
         check: checkForCodeUpdates,
         download: downloadCodeUpdates,
         resetCache: resetCache,
+        applyStoredHTML,
         applyStoredCSS,
         applyStoredJS,
         getViewerUrl,
