@@ -71,34 +71,35 @@
             cursor: pointer !important;
         }
 
-        /* Ensure drawer text & icons are ALWAYS visible when drawer is open */
+        .nav-link,
         .nav-links.sidebar-open .nav-link,
         .nav-links.is-pinned .nav-link,
         body.vertical-navbar-mode .nav-link {
             display: flex !important;
             align-items: center !important;
-            width: 100% !important;
-            height: 40px !important;
-            padding: 0 12px !important;
+            height: 36px !important;
+            padding: 0 10px !important;
             border-radius: 8px !important;
             color: var(--fg2, #a0a0ab) !important;
             text-decoration: none !important;
             box-sizing: border-box !important;
         }
 
+        .nav-link i,
         .nav-links.sidebar-open .nav-link i,
         .nav-links.is-pinned .nav-link i,
         body.vertical-navbar-mode .nav-link i {
             display: inline-flex !important;
-            font-size: 0.95rem !important;
+            font-size: 0.9rem !important;
             width: 20px !important;
             text-align: center !important;
-            margin-right: 10px !important;
+            margin-right: 6px !important;
             color: var(--accent, #cf6215) !important;
             visibility: visible !important;
             opacity: 1 !important;
         }
 
+        .nav-link span,
         .nav-links.sidebar-open .nav-link span,
         .nav-links.is-pinned .nav-link span,
         body.vertical-navbar-mode .nav-link span {
@@ -110,6 +111,8 @@
             opacity: 1 !important;
         }
 
+        .nav-link:hover,
+        .nav-link.active,
         .nav-links.sidebar-open .nav-link:hover,
         .nav-links.sidebar-open .nav-link.active,
         body.vertical-navbar-mode .nav-link:hover,
