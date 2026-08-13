@@ -2,19 +2,7 @@ const CONTENT_MANIFEST_URL = 'https://raw.githubusercontent.com/Nugget1252/Quest
 const LOCAL_MANIFEST_KEY = 'questionary-local-manifest';
 const DOWNLOADED_DOCS_KEY = 'questionary-downloaded-docs';
 
-let contentUpdateState = {
-    checking: false,
-    downloading: false,
-    available: false,
-    remoteManifest: null,
-    pendingDownloads: [],
-    downloadProgress: 0,
-    currentFile: '',
-    totalFiles: 0,
-    completedFiles: 0,
-    totalBytes: 0,
-    downloadedBytes: 0
-};
+var contentUpdateState = window.contentUpdateState || { checking: false, downloading: false, progress: 0 };
 
 async function getDownloadedDocsPath() {
     if (window.__TAURI__) {

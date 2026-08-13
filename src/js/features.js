@@ -317,7 +317,7 @@ function closePdfViewer() {
 // ============================================
 let _currentTextRaw = '';
 let _currentTextName = '';
-let _currentDocxBlob = null;
+var _currentDocxBlob = window._currentDocxBlob || null;
 let _currentDocxName = '';
 
 async function showTextFile(urlOrBlob, fileName) {

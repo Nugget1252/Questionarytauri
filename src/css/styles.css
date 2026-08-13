@@ -157,27 +157,19 @@ body {
 .mobile-menu-toggle,#mobileMenuToggle { display: none; }
 
 /* ── OFF-CANVAS HAMBURGER DRAWER (#navLinks) ── */
-body:not(.vertical-navbar-mode) .header .nav-links,
+body:not(.vertical-navbar-mode) .nav-links,
 body:not(.vertical-navbar-mode) #navLinks {
-    position: fixed !important;
-    top: 0 !important;
-    left: -300px !important;
-    width: 270px !important;
-    height: 100vh !important;
-    background: var(--surface) !important;
-    border-right: 1px solid var(--line) !important;
-    display: flex !important;
-    flex-direction: column !important;
-    padding: 56px 12px 20px 12px !important;
-    gap: 4px !important;
-    z-index: 10000 !important;
-    transition: left 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
-    overflow-y: auto !important;
-    box-shadow: 4px 0 24px rgba(0, 0, 0, 0.4) !important;
-    align-items: stretch !important;
+    position: fixed !important; top: 0 !important; left: -300px !important;
+    width: 270px !important; height: 100vh !important;
+    background: var(--surface) !important; border-right: 1px solid var(--line) !important;
+    display: flex !important; flex-direction: column !important;
+    padding: 56px 12px 20px 12px !important; gap: 4px !important;
+    z-index: 10000 !important; transition: left 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    overflow-y: auto !important; box-shadow: 4px 0 24px rgba(0, 0, 0, 0.4) !important;
 }
 
-body:not(.vertical-navbar-mode) .header .nav-links.sidebar-open {
+body:not(.vertical-navbar-mode) .nav-links.sidebar-open,
+body:not(.vertical-navbar-mode) #navLinks.sidebar-open {
     left: 0 !important;
 }
 
@@ -1660,11 +1652,6 @@ body.focus-mode::after {
 @keyframes pulse { 0%,100% { box-shadow: none; } 50% { box-shadow: 0 0 0 4px rgba(0,0,0,0.08); } }
 
 /* ── RESPONSIVE ── */
-
-/* --- Wide: collapse nav text to icons --- */
-@media (max-width: 1100px) {
-    .nav-link { padding: 0 0.5rem; font-size: 0.75rem; }
-}
 @media (max-width: 960px) {
     .search-input { width: 140px; }
     .search-input:focus { width: 180px; }
@@ -1676,7 +1663,6 @@ body.focus-mode::after {
     .stat-card { min-width: 120px; padding: 0.7rem 0.9rem; }
 }
 @media (max-width: 768px) {
-    .header { height: auto; min-height: 44px; padding: 0.4rem 0.85rem; flex-wrap: wrap; gap: 0.5rem; }
     .header-left { gap: 0.5rem; }
     .container { padding: 0.85rem; }
     .dashboard-header { gap: 0.5rem; }
