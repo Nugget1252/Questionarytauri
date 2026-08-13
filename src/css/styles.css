@@ -2128,42 +2128,7 @@ input, textarea, select, code, pre, [contenteditable="true"],
         display: none !important;
     }
 }
-/* Base horizontal container for header action icons */
-.header-actions-row {
-    display: flex;
-    align-items: center;
-    gap: 0.35rem;
-}
-
-/* Vertical Navbar Mode overrides */
-body.vertical-navbar-mode .header-actions-row {
-    display: flex !important;
-    flex-direction: row !important;
-    align-items: center !important;
-    justify-content: space-between !important;
-    width: 100% !important;
-    padding: 4px 0 !important;
-    gap: 6px !important;
-}
-
-body.vertical-navbar-mode .header-actions-row button {
-    flex: 1 !important;
-    height: 34px !important;
-    border-radius: 8px !important;
-    border: 1px solid var(--line) !important;
-    background: var(--bg) !important;
-    color: var(--fg2) !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-}
-
-body.vertical-navbar-mode .header-actions-row button:hover {
-    background: var(--hover) !important;
-    color: var(--accent) !important;
-    border-color: var(--accent) !important;
-}
-/* ── HORIZONTAL ACTION ROW (Sync, Accessibility, Theme) ── */
+/* ── HORIZONTAL ACTION ROW ── */
 .header-actions-row {
     display: flex;
     align-items: center;
@@ -2198,17 +2163,4 @@ body.vertical-navbar-mode .header-actions-row button:hover {
     background: var(--hover) !important;
     color: var(--accent) !important;
     border-color: var(--accent) !important;
-}
-
-/* Accessibility Panel Position Fix */
-.accessibility-panel {
-    z-index: 10001 !important;
-    box-shadow: var(--shadow-lg) !important;
-}
-
-body.vertical-navbar-mode .accessibility-panel {
-    top: auto !important;
-    bottom: 80px !important;
-    left: 260px !important;
-    right: auto !important;
 }
