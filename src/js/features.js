@@ -3726,48 +3726,30 @@ function setTheme(themeName) {
         themeIcon.className = (themeName === 'dark') ? 'fas fa-sun' : 'fas fa-moon';
     }
 }
-
 // ============================================
-// BULLETPROOF ACCESSIBILITY SYSTEM
+// CLEAN ACCESSIBILITY CONTROLLER (KILLS CONFLICTS)
 // ============================================
 function initAccessibility() {
-    // Prevent multiple listener bindings
-    if (window._accessibilityInitialized) return;
-    window._accessibilityInitialized = true;
+    const panel = document.getElementById('accessibilityPanel');
+    const toggleBtn = document.getElementById('accessibilityToggle');
+    if (!panel || !toggleBtn) return;
 
-    const accessToggle = document.getElementById('accessibilityToggle');
-    const accessPanel = document.getElementById('accessibilityPanel');
-    const themeToggleBtn = document.getElementById('themeToggle');
+    // 1. Single Toggle Handler for the Menu Popup
+    toggleBtn.onclick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        panel.classList.toggle('active');
+    };
 
-    // Attach Theme Toggle click
-    if (themeToggleBtn) {
-        themeToggleBtn.onclick = (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            toggleTheme();
-        };
-    }
+    document.addEventListener('click', (e) => {
+        if (panel.classList.contains('active') && !panel.contains(e.target) && !toggleBtn.contains(e.target)) {
+            panel.classList.remove('active');
+        }
+    });
 
-    // Open/Close Accessibility Popup
-    if (accessToggle && accessPanel) {
-        accessToggle.onclick = (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            accessPanel.classList.toggle('active');
-        };
+    panel.onclick = (e) => e.stopPropagation();
 
-        document.addEventListener('click', (e) => {
-            if (accessPanel.classList.contains('active') && 
-                !accessPanel.contains(e.target) && 
-                !accessToggle.contains(e.target)) {
-                accessPanel.classList.remove('active');
-            }
-        });
-
-        accessPanel.onclick = (e) => e.stopPropagation();
-    }
-
-    // The 4 Accessibility Features
+    // 2. The 4 Options
     const options = [
         { id: 'highContrastToggle', className: 'high-contrast', key: 'q_acc_contrast' },
         { id: 'largeTextToggle', className: 'large-text', key: 'q_acc_large' },
@@ -3776,34 +3758,43 @@ function initAccessibility() {
     ];
 
     options.forEach(opt => {
-        const row = document.getElementById(opt.id);
-        if (!row) return;
+        const oldRow = document.getElementById(opt.id);
+        if (!oldRow) return;
+
+        // Clone node wipes out duplicate listeners from app.js!
+        const row = oldRow.cloneNode(true);
+        oldRow.parentNode.replaceChild(row, oldRow);
 
         const switchKnob = row.querySelector('.accessibility-switch');
-        
-        // Restore from storage (defaults to false if never set)
-        const isSavedActive = localStorage.getItem(opt.key) === 'true';
-        if (isSavedActive) {
-            document.body.classList.add(opt.className);
-            if (switchKnob) switchKnob.classList.add('active');
-        } else {
-            document.body.classList.remove(opt.className);
-            if (switchKnob) switchKnob.classList.remove('active');
-        }
 
-        // Single clean click handler per row
-        row.onclick = (e) => {
+        // Check saved setting (defaults to OFF/false)
+        const isSaved = localStorage.getItem(opt.key) === 'true';
+        document.body.classList.toggle(opt.className, isSaved);
+        if (switchKnob) switchKnob.classList.toggle('active', isSaved);
+
+        // One clean listener
+        row.addEventListener('click', (e) => {
             e.preventDefault();
             e.stopPropagation();
 
-            const isActive = document.body.classList.toggle(opt.className);
-            if (switchKnob) switchKnob.classList.toggle('active', isActive);
-            localStorage.setItem(opt.key, isActive ? 'true' : 'false');
-        };
+            const isCurrentlyActive = document.body.classList.contains(opt.className);
+            const newState = !isCurrentlyActive;
+
+            // Toggle Class on body
+            document.body.classList.toggle(opt.className, newState);
+
+            // Toggle Switch Visual
+            if (switchKnob) {
+                switchKnob.classList.toggle('active', newState);
+            }
+
+            // Save state
+            localStorage.setItem(opt.key, newState ? 'true' : 'false');
+        });
     });
 }
 
-// Initialize on page load
+// Run immediately
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', initAccessibility);
 } else {
