@@ -203,6 +203,10 @@ body {
         display: none !important;
     }
 
+    body:not(.vertical-navbar-mode) .nav-link i {
+        display: none !important;
+    }
+
     body:not(.vertical-navbar-mode) .sidebar-header,
     body:not(.vertical-navbar-mode) .sidebar-close {
         display: none !important;
