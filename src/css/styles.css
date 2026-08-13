@@ -203,8 +203,59 @@ body {
         display: none !important;
     }
 
+    body:not(.vertical-navbar-mode) .logo span {
+        display: none !important;
+    }
+
     body:not(.vertical-navbar-mode) .nav-link i {
         display: none !important;
+    }
+
+    body:not(.vertical-navbar-mode) .nav-link {
+        font-size: 0.78rem !important;
+        font-weight: 500 !important;
+        padding: 0 8px !important;
+        height: 32px !important;
+        color: var(--fg3) !important;
+        background: transparent !important;
+        position: relative !important;
+        border-radius: 4px !important;
+    }
+
+    body:not(.vertical-navbar-mode) .nav-link span {
+        font-size: 0.78rem !important;
+        color: inherit !important;
+    }
+
+    body:not(.vertical-navbar-mode) .nav-link:hover {
+        color: var(--fg) !important;
+        background: transparent !important;
+    }
+
+    body:not(.vertical-navbar-mode) .nav-link:hover span {
+        color: var(--fg) !important;
+    }
+
+    body:not(.vertical-navbar-mode) .nav-link.active {
+        color: var(--accent) !important;
+        font-weight: 600 !important;
+        background: transparent !important;
+    }
+
+    body:not(.vertical-navbar-mode) .nav-link.active span {
+        color: var(--accent) !important;
+        font-weight: 600 !important;
+    }
+
+    body:not(.vertical-navbar-mode) .nav-link.active::after {
+        content: "" !important;
+        position: absolute !important;
+        bottom: -8px !important;
+        left: 4px !important;
+        right: 4px !important;
+        height: 2px !important;
+        background: var(--accent) !important;
+        border-radius: 2px !important;
     }
 
     body:not(.vertical-navbar-mode) .sidebar-header,
