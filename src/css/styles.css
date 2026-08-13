@@ -103,7 +103,7 @@ body {
 #favoritesSection,#recentSection,#analyticsSection,#plannerSection,
 #flashcardsSection,#notesSection,#progressSection,#searchResults { display: none; }
 
-/* ── HEADER ── */
+/* ── HEADER (Top horizontal bar — default for all breakpoints) ── */
 .header, header {
     background: var(--surface) !important;
     border-bottom: 1px solid var(--line) !important;
@@ -122,8 +122,20 @@ body {
     z-index: 1000 !important;
     gap: 1rem !important;
     box-sizing: border-box !important;
+    /* Critical: clip #navLinks so it never bleeds inline into the header bar */
+    overflow: hidden !important;
 }
-.header-left { display: flex !important; align-items: center !important; gap: 0.85rem !important; flex: 1 !important; min-width: 0 !important; }
+
+/* header-left: just hamburger + logo in horizontal mode */
+.header-left {
+    display: flex !important;
+    align-items: center !important;
+    gap: 0.75rem !important;
+    flex-shrink: 0 !important;
+    min-width: 0 !important;
+    overflow: hidden !important;
+}
+
 .logo {
     font-size: 0.8rem; font-weight: 700; color: var(--fg);
     white-space: nowrap; display: flex; align-items: center;
@@ -154,9 +166,12 @@ body {
     border-color: var(--accent) !important;
 }
 
-.mobile-menu-toggle,#mobileMenuToggle { display: none; }
+.mobile-menu-toggle, #mobileMenuToggle { display: none !important; }
 
-/* ── OFF-CANVAS HAMBURGER DRAWER (#navLinks) ── */
+/* ── OFF-CANVAS SLIDE DRAWER (#navLinks) — horizontal mode only ──
+   #navLinks lives inside .header-left in the DOM, but position:fixed
+   tears it out of flow — the header overflow:hidden hides the 0px
+   dimensional shell that remains. */
 body:not(.vertical-navbar-mode) .nav-links,
 body:not(.vertical-navbar-mode) #navLinks {
     position: fixed !important;
@@ -168,12 +183,13 @@ body:not(.vertical-navbar-mode) #navLinks {
     border-right: 1px solid var(--line) !important;
     display: flex !important;
     flex-direction: column !important;
-    padding: 56px 12px 20px 12px !important;
+    padding: 56px 12px 20px !important;
     gap: 4px !important;
     z-index: 10000 !important;
     transition: left 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
     overflow-y: auto !important;
-    box-shadow: 4px 0 24px rgba(0, 0, 0, 0.4) !important;
+    overflow-x: hidden !important;
+    box-shadow: 4px 0 24px rgba(0,0,0,0.3) !important;
     align-items: stretch !important;
 }
 
@@ -182,7 +198,7 @@ body:not(.vertical-navbar-mode) #navLinks.sidebar-open {
     left: 0 !important;
 }
 
-/* Sidebar Drawer Header Controls */
+/* Sidebar drawer header strip */
 .sidebar-header {
     position: absolute !important;
     top: 16px !important;
@@ -193,16 +209,17 @@ body:not(.vertical-navbar-mode) #navLinks.sidebar-open {
     font-weight: 700 !important;
     font-size: 0.9rem !important;
     color: var(--accent) !important;
+    pointer-events: none !important;
 }
 
 .sidebar-close, #sidebarClose {
     position: absolute !important;
-    top: 14px !important;
-    right: 14px !important;
+    top: 12px !important;
+    right: 12px !important;
     background: var(--hover) !important;
     border: 1px solid var(--line) !important;
     color: var(--fg) !important;
-    font-size: 0.9rem !important;
+    font-size: 0.85rem !important;
     cursor: pointer !important;
     width: 28px !important;
     height: 28px !important;
@@ -210,9 +227,10 @@ body:not(.vertical-navbar-mode) #navLinks.sidebar-open {
     display: flex !important;
     align-items: center !important;
     justify-content: center !important;
+    z-index: 1 !important;
 }
 
-/* DRAWER NAV LINKS: Force text and icons to be 100% visible */
+/* ── NAV LINKS — always show icons + text ── */
 .nav-link {
     display: flex !important;
     align-items: center !important;
@@ -226,13 +244,14 @@ body:not(.vertical-navbar-mode) #navLinks.sidebar-open {
     font-size: 0.88rem !important;
     font-weight: 500 !important;
     gap: 12px !important;
-    transition: all 0.15s ease !important;
+    transition: background 0.15s ease, color 0.15s ease !important;
     box-sizing: border-box !important;
     cursor: pointer !important;
     border: none !important;
     background: transparent !important;
+    white-space: nowrap !important;
+    flex-shrink: 0 !important;
 }
-
 .nav-link i {
     display: inline-flex !important;
     align-items: center !important;
@@ -245,7 +264,6 @@ body:not(.vertical-navbar-mode) #navLinks.sidebar-open {
     opacity: 1 !important;
     flex-shrink: 0 !important;
 }
-
 .nav-link span {
     display: inline-block !important;
     font-size: 0.88rem !important;
@@ -255,33 +273,32 @@ body:not(.vertical-navbar-mode) #navLinks.sidebar-open {
     opacity: 1 !important;
     white-space: nowrap !important;
 }
-
 .nav-link:hover, .nav-link.active {
     background: var(--hover) !important;
     color: var(--accent) !important;
 }
-
 .nav-link.active span {
     font-weight: 700 !important;
     color: var(--accent) !important;
 }
 
-/* Screen Dim Overlay for Sidebar Drawer */
+/* ── SIDEBAR DIM OVERLAY ──
+   No backdrop-filter: WebKit renders blur even at opacity:0 causing
+   the permanent frosted-glass effect. Plain semi-transparent bg only. */
 .sidebar-overlay {
     position: fixed !important;
     inset: 0 !important;
-    background: rgba(0, 0, 0, 0.6) !important;
-    backdrop-filter: blur(3px) !important;
-    -webkit-backdrop-filter: blur(3px) !important;
+    background: rgba(0,0,0,0.5) !important;
     opacity: 0 !important;
     visibility: hidden !important;
     z-index: 9999 !important;
-    transition: all 0.25s ease !important;
+    transition: opacity 0.25s ease, visibility 0.25s ease !important;
+    pointer-events: none !important;
 }
-
 .sidebar-overlay.active {
     opacity: 1 !important;
     visibility: visible !important;
+    pointer-events: auto !important;
 }
 
 .header-right { display: flex; align-items: center; gap: 0.35rem; flex-shrink: 0; }
@@ -1661,10 +1678,8 @@ body.focus-mode::after {
 
 /* ── RESPONSIVE ── */
 
-/* --- Wide: collapse nav text to icons --- */
-@media (max-width: 1100px) {
-    .nav-link { padding: 0 0.5rem; font-size: 0.75rem; }
-}
+/* 1100px: no longer collapses nav — drawer handles nav at all widths */
+
 @media (max-width: 960px) {
     .search-input { width: 140px; }
     .search-input:focus { width: 180px; }
@@ -1697,9 +1712,6 @@ body.focus-mode::after {
 }
 @media (max-width: 600px) {
     .header-right { gap: 0.2rem; }
-    .search-container { order: 10; flex-basis: 100%; }
-    .search-input { width: 100%; }
-    .search-input:focus { width: 100%; }
     .dashboard-header { flex-direction: column; align-items: stretch; }
     .stat-card { min-width: 0; flex: 1; }
 }
@@ -1790,42 +1802,50 @@ input, textarea, select, code, pre, [contenteditable="true"],
         border-right: 1px solid var(--line) !important;
         border-bottom: none !important;
         background: var(--surface) !important;
-        overflow-y: auto !important;
-        overflow-x: hidden !important;
+        /* Do NOT put overflow-y here — it clips the user dropdown */
+        overflow: visible !important;
     }
 
+    /* The left column scrolls independently, not the header */
     body.vertical-navbar-mode .header-left {
         flex-direction: column !important;
         align-items: flex-start !important;
         width: 100% !important;
-        flex: 0 0 auto !important;
+        flex: 1 1 auto !important;
+        overflow-y: auto !important;
+        overflow-x: hidden !important;
+        min-height: 0 !important;
+        scrollbar-width: none !important;
     }
+    body.vertical-navbar-mode .header-left::-webkit-scrollbar { display: none !important; }
 
-    body.vertical-navbar-mode .hamburger-menu {
+    body.vertical-navbar-mode .hamburger-menu,
+    body.vertical-navbar-mode #hamburgerMenu {
         display: none !important;
     }
 
     body.vertical-navbar-mode .logo span {
         display: inline-block !important;
-        font-size: 1.1rem !important;
+        font-size: 1rem !important;
     }
 
     body.vertical-navbar-mode .nav-links,
     body.vertical-navbar-mode #navLinks {
         position: static !important;
-        left: 0 !important;
+        left: auto !important;
         width: 100% !important;
         height: auto !important;
         box-shadow: none !important;
         padding: 0 !important;
-        margin-top: 20px !important;
-        margin-bottom: 20px !important;
+        margin-top: 16px !important;
+        margin-bottom: 0 !important;
         display: flex !important;
         flex-direction: column !important;
         gap: 4px !important;
         z-index: 1 !important;
         background: transparent !important;
         border-right: none !important;
+        transition: none !important;
     }
 
     body.vertical-navbar-mode .sidebar-header,
@@ -1834,30 +1854,36 @@ input, textarea, select, code, pre, [contenteditable="true"],
     }
 
     body.vertical-navbar-mode .header-right {
-        margin-top: auto !important;
         flex-direction: column !important;
         width: 100% !important;
         align-items: stretch !important;
-        gap: 10px !important;
-        padding-top: 16px !important;
+        gap: 8px !important;
+        padding-top: 12px !important;
         border-top: 1px solid var(--line) !important;
+        flex-shrink: 0 !important;
+        /* Keep overflow visible so dropdown opens upward correctly */
+        overflow: visible !important;
     }
 
-    body.vertical-navbar-mode .search-container {
-        width: 100% !important;
-    }
-
-    body.vertical-navbar-mode .search-input {
-        width: 100% !important;
-    }
+    body.vertical-navbar-mode .search-container { width: 100% !important; }
+    body.vertical-navbar-mode .search-input { width: 100% !important; }
 
     body.vertical-navbar-mode .user-badge {
         width: 100% !important;
         justify-content: space-between !important;
     }
-
     body.vertical-navbar-mode .user-badge span:not(.admin-badge):not(.user-dropdown-arrow) {
         display: inline-block !important;
+    }
+
+    /* In vertical mode the dropdown opens upward and to the right, not clipped */
+    body.vertical-navbar-mode .user-dropdown-menu {
+        top: auto !important;
+        bottom: calc(100% + 6px) !important;
+        right: auto !important;
+        left: 0 !important;
+        width: 260px !important;
+        max-height: 80vh !important;
     }
 
     body.vertical-navbar-mode #main-content,
