@@ -4643,6 +4643,8 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
 
       if (!navLinks) return;
 
+      closeSidebar();
+
       const toggleSidebar = (e) => {
         if (e) e.stopPropagation();
         const isOpen = navLinks.classList.toggle('sidebar-open');

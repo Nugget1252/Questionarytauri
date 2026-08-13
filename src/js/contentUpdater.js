@@ -1,6 +1,6 @@
-const CONTENT_MANIFEST_URL = 'https://raw.githubusercontent.com/Nugget1252/Questionarytauri/beta/content-manifest.json';
-const LOCAL_MANIFEST_KEY = 'questionary-local-manifest';
-const DOWNLOADED_DOCS_KEY = 'questionary-downloaded-docs';
+var CONTENT_MANIFEST_URL = window.CONTENT_MANIFEST_URL || 'https://raw.githubusercontent.com/Nugget1252/Questionarytauri/beta/content-manifest.json';
+var LOCAL_MANIFEST_KEY = window.LOCAL_MANIFEST_KEY || 'questionary-local-manifest';
+var DOWNLOADED_DOCS_KEY = window.DOWNLOADED_DOCS_KEY || 'questionary-downloaded-docs';
 
 var contentUpdateState = window.contentUpdateState || {
     checking: false,
