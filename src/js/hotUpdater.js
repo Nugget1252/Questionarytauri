@@ -1,5 +1,5 @@
 /* ================================================================
- *   ZERO-CONFIG HOT UPDATER ENGINE (Guaranteed Script & DOM Overriding)
+ *   ZERO-CONFIG HOT UPDATER ENGINE (CORS-Proof Multi-CDN Pipeline)
  *   Repository: Nugget1252/Questionarytauri
  *   ================================================================ */
 (function() {
@@ -67,7 +67,7 @@
     }
 
     // ================================================================
-    // LIVE DOM HOT-PATCHER (Updates index.html elements before JS runs)
+    // 1. LIVE DOM HOT-PATCHER
     // ================================================================
     function applyStoredHTML() {
         const stored = getStoredCodeFiles();
@@ -78,7 +78,6 @@
             const parser = new DOMParser();
             const newDoc = parser.parseFromString(storedHtml, 'text/html');
 
-            // 1. Sync header / navbar markup
             const newHeader = newDoc.querySelector('header.header') || newDoc.querySelector('.header');
             const curHeader = document.querySelector('header.header') || document.querySelector('.header');
             if (newHeader && curHeader && newHeader.innerHTML !== curHeader.innerHTML) {
@@ -86,7 +85,6 @@
                 console.log('[HotUpdate] Hot-patched header/nav from updated index.html');
             }
 
-            // 2. Sync core app containers
             const targets = ['app', 'loginScreen', 'loadingOverlay', 'accessibilityPanel', 'quickLinksPanel', 'timerPanel'];
             targets.forEach(id => {
                 const newEl = newDoc.getElementById(id);
@@ -97,7 +95,6 @@
                 }
             });
 
-            // 3. Sync modals
             const newModals = newDoc.querySelectorAll('.modal-overlay');
             newModals.forEach(newModal => {
                 if (newModal.id) {
@@ -116,6 +113,9 @@
         }
     }
 
+    // ================================================================
+    // 2. LIVE CSS HOT-PATCHER
+    // ================================================================
     function applyHotCSS(filename, content) {
         if (!content || content.length < 10) return;
         const styleId = `hot-css-${filename.replace(/[^a-zA-Z0-9]/g, '-')}`;
@@ -138,10 +138,10 @@
         }
     }
 
-    // Override guard: Set to return during local development so local edits are always loaded
+    // ================================================================
+    // 3. LIVE JS HOT-EXECUTOR (Isolated IIFEs)
+    // ================================================================
     function applyStoredJS() {
-        return; // Prevents stale cached scripts from overriding local files
-
         const stored = getStoredCodeFiles();
         const executionOrder = ['js/features.js', 'js/studyRoom.js', 'js/contentUpdater.js', 'js/app.js'];
 
@@ -167,7 +167,71 @@
         }
     }
 
-    // Unified Multi-Tier Update Checker (Tauri Native HTTP -> GitHub API -> Atom Feed -> package.json)
+    // ================================================================
+    // 4. CORS-PROOF FILE FETCHER (jsDelivr + GitHub API + Tauri HTTP)
+    // ================================================================
+    async function fetchFileFromRepo(relativePath) {
+        const branch = window.codeUpdateState.activeBranch || PRIMARY_BRANCH;
+        const cacheBuster = Date.now();
+
+        const paths = [
+            relativePath,
+            `src/${relativePath}`,
+            relativePath.replace(/^js\//, ''),
+            relativePath.replace(/^css\//, ''),
+            `src/${relativePath.replace(/^js\//, '')}`,
+            `src/${relativePath.replace(/^css\//, '')}`
+        ];
+        const uniquePaths = [...new Set(paths)];
+
+        // Tier 1: jsDelivr Open CDN (100% CORS-Allowed on file:// and WebViews)
+        for (const p of uniquePaths) {
+            const cdnUrl = `https://cdn.jsdelivr.net/gh/${REPO_OWNER}/${REPO_NAME}@${branch}/${p}?t=${cacheBuster}`;
+            try {
+                const res = await fetch(cdnUrl, { cache: 'no-store' });
+                if (res.ok) {
+                    console.log(`[HotUpdate] Downloaded ${relativePath} via jsDelivr CDN`);
+                    return res;
+                }
+            } catch (e) {}
+        }
+
+        // Tier 2: Tauri Native HTTP Plugin (if compiled in Tauri)
+        if (window.__TAURI__ && window.__TAURI__.http) {
+            for (const p of uniquePaths) {
+                const rawUrl = `https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${branch}/${p}?nocache=${cacheBuster}`;
+                try {
+                    const isDb = relativePath.endsWith('.db');
+                    const res = await window.__TAURI__.http.fetch(rawUrl, {
+                        method: 'GET',
+                        responseType: isDb ? 3 : 2
+                    });
+                    if (res.ok && res.data) {
+                        return {
+                            ok: true,
+                            text: async () => typeof res.data === 'string' ? res.data : new TextDecoder().decode(new Uint8Array(res.data)),
+                            arrayBuffer: async () => isDb ? new Uint8Array(res.data).buffer : new TextEncoder().encode(res.data).buffer
+                        };
+                    }
+                } catch (e) {}
+            }
+        }
+
+        // Tier 3: Direct Raw GitHub Fetch
+        for (const p of uniquePaths) {
+            const rawUrl = `https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${branch}/${p}?nocache=${cacheBuster}`;
+            try {
+                const res = await fetch(rawUrl, { cache: 'no-store' });
+                if (res.ok) return res;
+            } catch (e) {}
+        }
+
+        return null;
+    }
+
+    // ================================================================
+    // 5. UPDATE CHECKER
+    // ================================================================
     async function checkForCodeUpdates(silent = false) {
         if (window.codeUpdateState.checking || window.codeUpdateState.downloading) {
             return null;
@@ -178,46 +242,27 @@
 
         let latestSha = null;
         let detectedBranch = PRIMARY_BRANCH;
-
         const branchesToTry = [PRIMARY_BRANCH, FALLBACK_BRANCH];
 
         for (const branch of branchesToTry) {
-            // 1. Tauri Native HTTP (Bypasses browser CORS & rate limits)
-            if (window.__TAURI__ && window.__TAURI__.http) {
-                try {
-                    const apiUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/commits/${branch}?t=${Date.now()}`;
-                    const res = await window.__TAURI__.http.fetch(apiUrl, {
-                        method: 'GET',
-                        headers: { 'Accept': 'application/vnd.github.v3+json', 'User-Agent': 'QuestionaryApp' }
-                    });
-                    if (res.ok && res.data && res.data.sha) {
-                        latestSha = res.data.sha;
+            // A. Check GitHub API
+            try {
+                const apiUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/commits/${branch}?t=${Date.now()}`;
+                const res = await fetch(apiUrl, {
+                    cache: 'no-store',
+                    headers: { 'Accept': 'application/vnd.github.v3+json' }
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data && data.sha) {
+                        latestSha = data.sha;
                         detectedBranch = branch;
                         break;
                     }
-                } catch (e) {}
-            }
+                }
+            } catch (err) {}
 
-            // 2. Standard Web GitHub API
-            if (!latestSha) {
-                try {
-                    const apiUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/commits/${branch}?t=${Date.now()}`;
-                    const res = await fetch(apiUrl, {
-                        cache: 'no-store',
-                        headers: { 'Accept': 'application/vnd.github.v3+json' }
-                    });
-                    if (res.ok) {
-                        const data = await res.json();
-                        if (data && data.sha) {
-                            latestSha = data.sha;
-                            detectedBranch = branch;
-                            break;
-                        }
-                    }
-                } catch (err) {}
-            }
-
-            // 3. Atom Feed Fallback (Rate-limit 403 bypass)
+            // B. Un-rate-limited Atom Feed Fallback
             if (!latestSha) {
                 try {
                     const feedUrl = `https://github.com/${REPO_OWNER}/${REPO_NAME}/commits/${branch}.atom?t=${Date.now()}`;
@@ -233,22 +278,6 @@
                     }
                 } catch (e) {}
             }
-
-            // 4. Raw package.json Fallback
-            if (!latestSha) {
-                try {
-                    const pkgUrl = `https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${branch}/package.json?nocache=${Date.now()}`;
-                    const res = await fetch(pkgUrl, { cache: 'no-store' });
-                    if (res.ok) {
-                        const pkg = await res.json();
-                        if (pkg && (pkg.buildSha || pkg.version)) {
-                            latestSha = pkg.buildSha || `v_${pkg.version}`;
-                            detectedBranch = branch;
-                            break;
-                        }
-                    }
-                } catch (e) {}
-            }
         }
 
         window.codeUpdateState.activeBranch = detectedBranch;
@@ -256,7 +285,7 @@
         if (!latestSha) {
             window.codeUpdateState.checking = false;
             updateCodeUpdateUI('idle');
-            if (!silent) notify('Could not reach GitHub updates. Check connection.', 'error');
+            if (!silent) notify('Could not reach GitHub updates.', 'error');
             return null;
         }
 
@@ -274,7 +303,7 @@
             window.codeUpdateState.checking = false;
             return window.codeUpdateState.pendingFiles;
         } else {
-            if (!silent) notify('Questionary is already up to date!', 'success');
+            if (!silent) notify('Questionary is up to date!', 'success');
             updateCodeUpdateUI('idle');
         }
 
@@ -282,46 +311,9 @@
         return null;
     }
 
-    function getViewerUrl(fileUrl) {
-        const stored = getStoredCodeFiles();
-        if (stored['pdfviewer.html'] && stored['pdfviewer.html'].includes('pdfjsLib')) {
-            const blob = new Blob([stored['pdfviewer.html']], { type: 'text/html' });
-            return URL.createObjectURL(blob) + '#file=' + encodeURIComponent(fileUrl);
-        }
-        return 'pdfviewer.html?file=' + encodeURIComponent(fileUrl);
-    }
-
-    async function fetchFileFromRepo(relativePath) {
-        const branches = [window.codeUpdateState.activeBranch, PRIMARY_BRANCH, FALLBACK_BRANCH];
-        const uniqueBranches = [...new Set(branches)];
-
-        const pathVariants = [
-            relativePath,
-            `src/${relativePath}`,
-            relativePath.replace(/^js\//, ''),
-            relativePath.replace(/^css\//, ''),
-            `src/${relativePath.replace(/^js\//, '')}`,
-            `src/${relativePath.replace(/^css\//, '')}`
-        ];
-        const uniquePaths = [...new Set(pathVariants)];
-
-        const cacheBuster = Date.now() + '_' + Math.random().toString(36).substring(2, 7);
-
-        for (const branch of uniqueBranches) {
-            for (const pathVar of uniquePaths) {
-                const url = `https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${branch}/${pathVar}?nocache=${cacheBuster}`;
-                try {
-                    const res = await fetch(url, { cache: 'no-store' });
-                    if (res.ok) {
-                        console.log(`[HotUpdate] Fetched ${relativePath} from: ${url}`);
-                        return res;
-                    }
-                } catch (e) {}
-            }
-        }
-        return null;
-    }
-
+    // ================================================================
+    // 6. DOWNLOADER & APPLIER
+    // ================================================================
     async function downloadCodeUpdates(force = false) {
         if (window.codeUpdateState.downloading) return;
 
@@ -336,7 +328,6 @@
 
         const storedFiles = getStoredCodeFiles();
         let downloadedCount = 0;
-        let requiresReload = false;
 
         for (const fileRelPath of MANAGED_FILES) {
             try {
@@ -365,8 +356,6 @@
 
                         if (fileRelPath.endsWith('.css')) {
                             applyHotCSS(fileRelPath, content);
-                        } else if (fileRelPath.endsWith('.js') || fileRelPath.endsWith('.html')) {
-                            requiresReload = true;
                         }
                     }
                 }
@@ -380,9 +369,9 @@
             if (window.codeUpdateState.latestCommitSha) {
                 localStorage.setItem(INSTALLED_COMMIT_KEY, window.codeUpdateState.latestCommitSha);
             }
-            console.log(`[HotUpdate] Updated ${downloadedCount} files successfully!`);
+            console.log(`[HotUpdate] Successfully downloaded ${downloadedCount} files!`);
             notify(`Update installed (${downloadedCount} files)! Reloading...`, 'success');
-            setTimeout(() => location.reload(), 1000);
+            setTimeout(() => location.reload(), 800);
         } else {
             console.error('[HotUpdate] Critical files failed to download.');
             notify('Update download failed. Check network.', 'error');
@@ -452,11 +441,28 @@
         }
     }
 
+    function getViewerUrl(fileUrl) {
+        const stored = getStoredCodeFiles();
+        if (stored['pdfviewer.html'] && stored['pdfviewer.html'].includes('pdfjsLib')) {
+            const blob = new Blob([stored['pdfviewer.html']], { type: 'text/html' });
+            return URL.createObjectURL(blob) + '#file=' + encodeURIComponent(fileUrl);
+        }
+        return 'pdfviewer.html?file=' + encodeURIComponent(fileUrl);
+    }
+
     async function initHotUpdater() {
         applyStoredHTML();
         applyStoredCSS();
         applyStoredJS();
         attachButtonListeners();
+
+        // Check for updates 3 seconds after boot
+        setTimeout(async () => {
+            const pending = await checkForCodeUpdates(true);
+            if (pending && pending.length > 0) {
+                await downloadCodeUpdates();
+            }
+        }, 3000);
     }
 
     window.hotCodeUpdater = {
