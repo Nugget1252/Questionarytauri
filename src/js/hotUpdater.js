@@ -138,8 +138,10 @@
         }
     }
 
-// 1. Wrap injected scripts in IIFE to eliminate 'redeclaration of const' syntax errors
+    // Override guard: Set to return during local development so local edits are always loaded
     function applyStoredJS() {
+        return; // Prevents stale cached scripts from overriding local files
+
         const stored = getStoredCodeFiles();
         const executionOrder = ['js/features.js', 'js/studyRoom.js', 'js/contentUpdater.js', 'js/app.js'];
 
@@ -156,7 +158,6 @@
 
                     scriptEl = document.createElement('script');
                     scriptEl.id = scriptId;
-                    // Wrapped in IIFE so top-level const/let never collide
                     scriptEl.textContent = `(function(){\ntry {\n${content}\n} catch(e){ console.error('[HotUpdate Execution Error in ${filename}]:', e); }\n})();`;
                     document.head.appendChild(scriptEl);
                 } catch (err) {
@@ -166,7 +167,7 @@
         }
     }
 
-    // 2. CORS-safe update checker using Tauri HTTP or raw.githubusercontent fallback
+    // Unified Multi-Tier Update Checker (Tauri Native HTTP -> GitHub API -> Atom Feed -> package.json)
     async function checkForCodeUpdates(silent = false) {
         if (window.codeUpdateState.checking || window.codeUpdateState.downloading) {
             return null;
@@ -181,7 +182,7 @@
         const branchesToTry = [PRIMARY_BRANCH, FALLBACK_BRANCH];
 
         for (const branch of branchesToTry) {
-            // A. In Tauri: Use native HTTP (Zero rate-limit, zero CORS)
+            // 1. Tauri Native HTTP (Bypasses browser CORS & rate limits)
             if (window.__TAURI__ && window.__TAURI__.http) {
                 try {
                     const apiUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/commits/${branch}?t=${Date.now()}`;
@@ -197,7 +198,7 @@
                 } catch (e) {}
             }
 
-            // B. In Web Browser: Try GitHub API
+            // 2. Standard Web GitHub API
             if (!latestSha) {
                 try {
                     const apiUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/commits/${branch}?t=${Date.now()}`;
@@ -216,7 +217,24 @@
                 } catch (err) {}
             }
 
-            // C. Fallback: Check package.json on raw.githubusercontent.com (CORS-friendly, no rate limits)
+            // 3. Atom Feed Fallback (Rate-limit 403 bypass)
+            if (!latestSha) {
+                try {
+                    const feedUrl = `https://github.com/${REPO_OWNER}/${REPO_NAME}/commits/${branch}.atom?t=${Date.now()}`;
+                    const res = await fetch(feedUrl, { cache: 'no-store' });
+                    if (res.ok) {
+                        const xmlText = await res.text();
+                        const match = xmlText.match(/Commit\/([a-f0-9]{40})/i);
+                        if (match && match[1]) {
+                            latestSha = match[1];
+                            detectedBranch = branch;
+                            break;
+                        }
+                    }
+                } catch (e) {}
+            }
+
+            // 4. Raw package.json Fallback
             if (!latestSha) {
                 try {
                     const pkgUrl = `https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${branch}/package.json?nocache=${Date.now()}`;
@@ -238,11 +256,12 @@
         if (!latestSha) {
             window.codeUpdateState.checking = false;
             updateCodeUpdateUI('idle');
+            if (!silent) notify('Could not reach GitHub updates. Check connection.', 'error');
             return null;
         }
 
         const installedSha = localStorage.getItem(INSTALLED_COMMIT_KEY);
-        console.log(`[HotUpdate] Latest SHA: ${latestSha.substring(0, 7)} | Installed SHA: ${installedSha ? installedSha.substring(0, 7) : 'None'}`);
+        console.log(`[HotUpdate] Latest: ${latestSha.substring(0, 7)} | Installed: ${installedSha ? installedSha.substring(0, 7) : 'None'}`);
 
         if (latestSha !== installedSha) {
             window.codeUpdateState.available = true;
@@ -255,7 +274,7 @@
             window.codeUpdateState.checking = false;
             return window.codeUpdateState.pendingFiles;
         } else {
-            if (!silent) notify('Questionary is up to date!', 'success');
+            if (!silent) notify('Questionary is already up to date!', 'success');
             updateCodeUpdateUI('idle');
         }
 
@@ -303,89 +322,6 @@
         return null;
     }
 
-    async function checkForCodeUpdates(silent = false) {
-        if (window.codeUpdateState.checking || window.codeUpdateState.downloading) {
-            return null;
-        }
-
-        window.codeUpdateState.checking = true;
-        updateCodeUpdateUI('checking');
-
-        let latestSha = null;
-        let detectedBranch = PRIMARY_BRANCH;
-
-        const branchesToTry = [PRIMARY_BRANCH, FALLBACK_BRANCH];
-
-        // 1. Try GitHub API
-        for (const branch of branchesToTry) {
-            try {
-                const apiUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/commits/${branch}?t=${Date.now()}`;
-                const res = await fetch(apiUrl, {
-                    cache: 'no-store',
-                    headers: { 'Accept': 'application/vnd.github.v3+json' }
-                });
-
-                if (res.ok) {
-                    const data = await res.json();
-                    if (data && data.sha) {
-                        latestSha = data.sha;
-                        detectedBranch = branch;
-                        break;
-                    }
-                }
-            } catch (err) {}
-        }
-
-        // 2. Un-rate-limited fallback: Check GitHub Atom Feed if API is rate-limited (403)
-        if (!latestSha) {
-            for (const branch of branchesToTry) {
-                try {
-                    const feedUrl = `https://github.com/${REPO_OWNER}/${REPO_NAME}/commits/${branch}.atom?t=${Date.now()}`;
-                    const res = await fetch(feedUrl, { cache: 'no-store' });
-                    if (res.ok) {
-                        const xmlText = await res.text();
-                        const match = xmlText.match(/Commit\/([a-f0-9]{40})/i);
-                        if (match && match[1]) {
-                            latestSha = match[1];
-                            detectedBranch = branch;
-                            break;
-                        }
-                    }
-                } catch (e) {}
-            }
-        }
-
-        window.codeUpdateState.activeBranch = detectedBranch;
-
-        if (!latestSha) {
-            window.codeUpdateState.checking = false;
-            updateCodeUpdateUI('idle');
-            if (!silent) notify('Could not reach GitHub updates. Check connection.', 'error');
-            return null;
-        }
-
-        const installedSha = localStorage.getItem(INSTALLED_COMMIT_KEY);
-        console.log(`[HotUpdate] Latest: ${latestSha.substring(0, 7)} | Installed: ${installedSha ? installedSha.substring(0, 7) : 'None'}`);
-
-        if (latestSha !== installedSha) {
-            window.codeUpdateState.available = true;
-            window.codeUpdateState.latestCommitSha = latestSha;
-            window.codeUpdateState.pendingFiles = [...MANAGED_FILES];
-
-            updateCodeUpdateUI('available', MANAGED_FILES.length);
-
-            if (!silent) notify('New update found! Downloading...', 'success');
-            window.codeUpdateState.checking = false;
-            return window.codeUpdateState.pendingFiles;
-        } else {
-            if (!silent) notify('Questionary is already up to date!', 'success');
-            updateCodeUpdateUI('idle');
-        }
-
-        window.codeUpdateState.checking = false;
-        return null;
-    }
-
     async function downloadCodeUpdates(force = false) {
         if (window.codeUpdateState.downloading) return;
 
@@ -401,7 +337,6 @@
         const storedFiles = getStoredCodeFiles();
         let downloadedCount = 0;
         let requiresReload = false;
-        let dbUpdated = false;
 
         for (const fileRelPath of MANAGED_FILES) {
             try {
@@ -419,7 +354,6 @@
                         if (window.DbService && window.DbService.SQL) {
                             window.DbService.db = new window.DbService.SQL.Database(uInt8Array);
                             await window.DbService.saveToIndexedDB();
-                            dbUpdated = true;
                             downloadedCount++;
                         }
                     }
@@ -485,13 +419,11 @@
         }
     }
 
-    // Attach Left-Click (Check & Download) AND Right-Click (Force Clear & Re-sync)
     function attachButtonListeners() {
         const btn = document.getElementById('checkUpdatesBtn');
         if (btn && !btn.dataset.listenersAttached) {
             btn.dataset.listenersAttached = 'true';
 
-            // Left-Click: Check for updates & download
             btn.addEventListener('click', async (e) => {
                 e.preventDefault();
                 e.stopPropagation();
@@ -501,7 +433,6 @@
                 }
             });
 
-            // Right-Click: Force purge cache & re-download everything
             btn.addEventListener('contextmenu', (e) => {
                 e.preventDefault();
                 e.stopPropagation();
@@ -511,7 +442,6 @@
             });
         }
 
-        // Home page force sync button
         const homeSyncBtn = document.getElementById('homeSyncBtn');
         if (homeSyncBtn && !homeSyncBtn.dataset.listenersAttached) {
             homeSyncBtn.dataset.listenersAttached = 'true';
@@ -527,14 +457,6 @@
         applyStoredCSS();
         applyStoredJS();
         attachButtonListeners();
-
-        // Check for updates automatically 3 seconds after launch
-        setTimeout(async () => {
-            const pending = await checkForCodeUpdates(true);
-            if (pending && pending.length > 0) {
-                await downloadCodeUpdates();
-            }
-        }, 3000);
     }
 
     window.hotCodeUpdater = {
