@@ -1,47 +1,103 @@
-
+/* ================================================================
+   QUESTIONARY — STUDY ROOM ENGINE 2.0 (SUPERCHARGED)
+   Real-Time Collaborative WebRTC, Whiteboard 2.0, Audio/Video & Pomodoro
+   ================================================================ */
 
 (function () {
   'use strict';
 
-  /* ---------- constants ---------- */
+  /* ---------- Constants ---------- */
   const MAX_PARTICIPANTS = 8;
-  const PROGRESS_SYNC_INTERVAL = 10000; // 10 s
+  const PROGRESS_SYNC_INTERVAL = 8000; // 8s
   const ROOM_CODE_LENGTH = 10;
   const ROOM_CODE_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-  const DEFAULT_RELAY_URL = normalizeRelayUrl(
-    (window.QUESTIONARY_RELAY_URL || '').trim() ||
-    localStorage.getItem('questionary-relay-url') ||
-    'peerjs-server'
-  );
 
-  /* ---------- state ---------- */
-  let ws = null;              // WebSocket connection or PeerJSRoomHub
-  let myId = '';              // client-id assigned by the relay server
-  let peers = {};             // peerId → { nickname, goal, seconds, peerJsId }
-  let serverPort = 0;         // port the relay is running on (host only)
-  let roomAddress = '';       // "ip:port" or "10-char code" displayed to host for sharing
+  /* ---------- Web Audio Synthesizer (No external asset files needed) ---------- */
+  const SoundFX = {
+    ctx: null,
+    init() {
+      if (!this.ctx) {
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        if (AudioContext) this.ctx = new AudioContext();
+      }
+      if (this.ctx && this.ctx.state === 'suspended') {
+        this.ctx.resume().catch(() => {});
+      }
+    },
+    playTone(freq, type = 'sine', duration = 0.15, gain = 0.1) {
+      try {
+        this.init();
+        if (!this.ctx) return;
+        const osc = this.ctx.createOscillator();
+        const g = this.ctx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
+        g.gain.setValueAtTime(gain, this.ctx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.0001, this.ctx.currentTime + duration);
+        osc.connect(g);
+        g.connect(this.ctx.destination);
+        osc.start();
+        osc.stop(this.ctx.currentTime + duration);
+      } catch (e) {}
+    },
+    playJoin() {
+      this.playTone(440, 'sine', 0.1, 0.08);
+      setTimeout(() => this.playTone(880, 'sine', 0.2, 0.08), 100);
+    },
+    playLeave() {
+      this.playTone(660, 'sine', 0.1, 0.08);
+      setTimeout(() => this.playTone(330, 'sine', 0.2, 0.08), 100);
+    },
+    playPop() {
+      this.playTone(800, 'triangle', 0.06, 0.08);
+    },
+    playChime() {
+      this.playTone(523.25, 'sine', 0.2, 0.1); // C5
+      setTimeout(() => this.playTone(659.25, 'sine', 0.3, 0.1), 120); // E5
+      setTimeout(() => this.playTone(783.99, 'sine', 0.4, 0.1), 240); // G5
+    },
+    playHandRaise() {
+      this.playTone(350, 'triangle', 0.1, 0.1);
+      setTimeout(() => this.playTone(700, 'triangle', 0.25, 0.1), 100);
+    }
+  };
+
+  /* ---------- Core State ---------- */
+  let ws = null;              // PeerJSRoomHub instance
+  let myId = '';              // Assigned user ID
+  let peers = {};             // peerId -> { nickname, goal, seconds, peerJsId, handRaised, speaking }
+  let roomAddress = '';       // 10-char code
   let isHost = false;
   let nickname = '';
   let roomPassword = '';
+  let roomLocked = false;
+  let handRaised = false;
+  let unreadChatCount = 0;
+  let activeTab = 'chat';
+
+  /* ---------- Timer & Pomodoro State ---------- */
   let studyTimer = null;
   let studySeconds = 0;
   let studyGoal = '';
+  let pomoMode = 'stopwatch'; // 'stopwatch' | 'focus' | 'break'
+  let pomoRemaining = 25 * 60;
+  let pomoRunning = false;
+
+  /* ---------- Chat Messages ---------- */
   let chatMessages = [];
   let sessionActive = false;
-  let internetMode = false;   // true when using a public relay server
-  let relayUrl = '';           // full relay WS URL, e.g. wss://relay.example.com
-  let internetRoomId = '';     // room id on the public relay
 
-  /* ---------- webrtc state ---------- */
+  /* ---------- WebRTC Media Streams ---------- */
   let localScreenStream = null;
   let localMediaStream = null;
   let micActive = false;
   let camActive = false;
-  let peerMediaConnections = {}; 
-  let peerConnections = {}; 
-  const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:global.stun.twilio.com:3478' }] };
+  let pttActive = false;
+  let audioContext = null;
+  let localAudioAnalyser = null;
+  let speakingCheckInterval = null;
 
-  /* ---------- whiteboard state ---------- */
+  /* ---------- Whiteboard 2.0 State ---------- */
   let wbActive = false;
   let wbCanvas = null;
   let wbCtx = null;
@@ -51,36 +107,40 @@
   let wbPanning = false;
   let wbColor = '#ffffff';
   let wbPenSize = 3;
-  let wbEraserSize = 20;
-  let wbHighlighterSize = 18;
-  let wbTool = 'pen';
-  let wbStrokes = [];     // stroke commands for undo (lightweight, no pixel data)
+  let wbEraserSize = 24;
+  let wbHighlighterSize = 20;
+  let wbTool = 'pen'; // 'pen' | 'highlighter' | 'eraser' | 'line' | 'arrow' | 'rect' | 'circle' | 'text' | 'block-erase' | 'pan'
+  let wbGridStyle = 'dots'; // 'none' | 'dots' | 'grid'
+  let wbStrokes = [];
   let wbRedoStrokes = [];
   let wbQuestions = [];
   let wbNextQId = 1;
-  let wbBlockStart = null;
+  let wbShapeStart = null;
   let wbBlockRect = null;
-  let wbFullscreen = false;
+  let wbRemoteCursors = {};   // userId -> { x, y, name, color, lastSeen }
 
-  /* --- infinite canvas: pan & zoom --- */
-  let wbCanvasW = 4096;   // dynamic — grows as needed
+  /* --- Infinite Canvas Coordinates --- */
+  let wbCanvasW = 4096;
   let wbCanvasH = 4096;
   let wbZoom = 1;
   let wbPanX = 0;
   let wbPanY = 0;
   let wbPanStart = null;
   let wbSpaceDown = false;
+  let _liveStrokePoints = [];
+  let _lastLiveBroadcast = 0;
 
   /* ================================================================
-     HELPERS
+     HELPERS & FORMATTERS
      ================================================================ */
   function fmtTime(sec) {
-    const h = Math.floor(sec / 3600);
-    const m = Math.floor((sec % 3600) / 60);
-    const s = sec % 60;
+    const s = Math.max(0, Math.floor(sec));
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const remS = s % 60;
     return h > 0
-      ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
-      : `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+      ? `${h}:${String(m).padStart(2, '0')}:${String(remS).padStart(2, '0')}`
+      : `${String(m).padStart(2, '0')}:${String(remS).padStart(2, '0')}`;
   }
 
   function escapeHTML(str) {
@@ -90,42 +150,8 @@
     return d.innerHTML;
   }
 
-  function capitalize(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
+  function capitalize(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : ''; }
 
-  /* ---------- room code encoding ---------- */
-
-  /* Legacy LAN codes (kept for backward parsing only): XXXX-XXXX-XX */
-  function encodeRoomCode(ip, port) {
-    const o = ip.split('.').map(Number);
-    const n = (BigInt(o[0]) << 40n) | (BigInt(o[1]) << 32n) |
-              (BigInt(o[2]) << 24n) | (BigInt(o[3]) << 16n) | BigInt(port);
-    let code = n.toString(36).toUpperCase();
-    while (code.length < 10) code = '0' + code;
-    return code.slice(0, 4) + '-' + code.slice(4, 8) + '-' + code.slice(8);
-  }
-
-  function decodeRoomCode(code) {
-    const clean = code.replace(/[-\s]/g, '').toLowerCase();
-    if (!/^[0-9a-z]{6,12}$/.test(clean)) return null;
-    let num = 0n;
-    for (const ch of clean) {
-      const d = parseInt(ch, 36);
-      if (isNaN(d)) return null;
-      num = num * 36n + BigInt(d);
-    }
-    const port = Number(num & 0xFFFFn);
-    num >>= 16n;
-    const ip = [
-      Number((num >> 24n) & 0xFFn),
-      Number((num >> 16n) & 0xFFn),
-      Number((num >> 8n) & 0xFFn),
-      Number(num & 0xFFn)
-    ].join('.');
-    if (port === 0 || port > 65535) return null;
-    return { ip, port };
-  }
-
-  /* Internet room codes: 10-character alphanumeric code */
   function generateRoomId() {
     let id = '';
     for (let i = 0; i < ROOM_CODE_LENGTH; i++) {
@@ -137,40 +163,28 @@
   function normalizeRoomCode(raw) {
     if (!raw) return '';
     const code = raw.toUpperCase().replace(/[^A-Z0-9]/g, '');
-    if (code.length !== ROOM_CODE_LENGTH) return '';
-    return code;
+    return code.length === ROOM_CODE_LENGTH ? code : '';
   }
 
-  function normalizeRelayUrl(input) {
-    let s = (input || '').trim();
-    if (!s) return '';
-    if (!/^wss?:\/\//i.test(s)) {
-      s = 'wss://' + s;
+  function notify(msg, type = 'info') {
+    if (typeof window.showNotification === 'function') {
+      window.showNotification(msg, type);
+    } else {
+      console.log(`[StudyRoom - ${type.toUpperCase()}] ${msg}`);
     }
-    return s.replace(/\/+$/, '');
   }
 
   /* ================================================================
-     TAURI INVOKE HELPER
-     ================================================================ */
-  async function tauriInvoke(cmd, args) {
-    if (window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke) {
-      return window.__TAURI__.core.invoke(cmd, args);
-    }
-    return null;
-  }
-
-  /* ================================================================
-     WEBSOCKET & PEERJS HUB LAYER
+     PEERJS ROOM HUB (Host-Coordinated P2P Network)
      ================================================================ */
   class PeerJSRoomHub {
     constructor() {
-      this.readyState = 0; // CONNECTING
+      this.readyState = 0;
       this.peer = null;
       this.hostConn = null;
-      this.connections = new Map();     // peerJsId -> DataConnection (Host side)
-      this.peerJsToUser = new Map();    // peerJsId -> userId
-      this.userToPeerJs = new Map();    // userId -> peerJsId
+      this.connections = new Map();     // peerJsId -> DataConnection
+      this.peerJsToUser = new Map();
+      this.userToPeerJs = new Map();
       this.nextUserNum = 1;
       this.onmessage = null;
       this.onopen = null;
@@ -179,9 +193,9 @@
       this.calls = [];
     }
 
-    init(address) {
+    init(targetRoomId) {
       return new Promise((resolve, reject) => {
-        const pOpts = {
+        const iceConfig = {
           config: {
             iceServers: [
               { urls: 'stun:stun.l.google.com:19302' },
@@ -190,30 +204,26 @@
           }
         };
 
-        const targetPeerId = 'qroom-' + internetRoomId.toLowerCase();
+        const targetPeerId = 'qroom-' + targetRoomId.toLowerCase();
 
         if (isHost) {
-          console.log('[PeerJS Hub] Starting host with ID:', targetPeerId);
-          this.peer = new Peer(targetPeerId, pOpts);
+          this.peer = new Peer(targetPeerId, iceConfig);
         } else {
-          console.log('[PeerJS Hub] Starting client peer...');
-          this.peer = new Peer(pOpts);
+          this.peer = new Peer(iceConfig);
         }
 
         this.peer.on('open', (id) => {
-          console.log('[PeerJS Hub] Local peer opened with ID:', id);
           if (isHost) {
-            this.readyState = 1; // OPEN
+            this.readyState = 1;
             this.peerJsToUser.set(id, 'usr_host');
             this.userToPeerJs.set('usr_host', id);
             if (this.onopen) this.onopen();
             resolve();
           } else {
-            console.log('[PeerJS Hub] Client connecting to host:', targetPeerId);
             this.hostConn = this.peer.connect(targetPeerId, { reliable: true });
 
             this.hostConn.on('open', () => {
-              this.readyState = 1; // OPEN
+              this.readyState = 1;
               if (this.onopen) this.onopen();
               resolve();
             });
@@ -231,7 +241,7 @@
             });
 
             this.hostConn.on('close', () => {
-              this.readyState = 3; // CLOSED
+              this.readyState = 3;
               if (this.onclose) this.onclose();
             });
           }
@@ -248,7 +258,7 @@
                 const msg = typeof raw === 'string' ? JSON.parse(raw) : raw;
                 this.handleHostIncoming(conn, msg);
               } catch (e) {
-                console.error('[Hub Host Error parsing data]:', e);
+                console.error('[Host Data Parse Error]:', e);
               }
             });
 
@@ -258,18 +268,17 @@
           });
         }
 
-        // Handle incoming media calls (Screenshare & Camera)
+        // Incoming audio/video call answering
         this.peer.on('call', (call) => {
           this.calls.push(call);
-          call.answer(); // Answer without mic/video to view incoming stream
+          call.answer(); // Answer to receive stream
           call.on('stream', (remoteStream) => {
             const callerUserId = this.peerJsToUser.get(call.peer) || call.peer;
-            renderRemoteVideo(callerUserId, remoteStream);
+            handleRemoteStream(callerUserId, remoteStream, call.metadata?.type || 'media');
           });
         });
 
         this.peer.on('error', (err) => {
-          console.error('[PeerJS Hub Error]:', err);
           if (this.onerror) this.onerror(err);
           reject(err);
         });
@@ -283,14 +292,10 @@
         }
         return;
       }
-
-      // Host self-sends
       try {
         const msg = typeof str === 'string' ? JSON.parse(str) : str;
         this.handleHostIncoming(null, msg);
-      } catch (e) {
-        console.error('[Host Self Send Error]:', e);
-      }
+      } catch (e) {}
     }
 
     handleHostIncoming(senderConn, msg) {
@@ -306,10 +311,16 @@
       }
 
       if (msg.action === 'join') {
+        if (roomLocked) {
+          if (senderConn) senderConn.send(JSON.stringify({ action: 'auth-fail', reason: 'Room is currently locked by the host.' }));
+          return;
+        }
         if (roomPassword && msg.password !== roomPassword) {
-          if (senderConn) {
-            senderConn.send(JSON.stringify({ action: 'auth-fail', reason: 'Incorrect password.' }));
-          }
+          if (senderConn) senderConn.send(JSON.stringify({ action: 'auth-fail', reason: 'Incorrect room password.' }));
+          return;
+        }
+        if (this.connections.size >= MAX_PARTICIPANTS) {
+          if (senderConn) senderConn.send(JSON.stringify({ action: 'auth-fail', reason: 'Study room is full (max 8 participants).' }));
           return;
         }
 
@@ -317,28 +328,23 @@
         this.peerJsToUser.set(senderPeerJsId, newUserId);
         this.userToPeerJs.set(newUserId, senderPeerJsId);
 
-        // Build list of existing peers to send to joining client
         const currentPeersList = [];
         for (const [uId, pId] of this.userToPeerJs.entries()) {
           if (uId !== newUserId) {
-            const nick = uId === 'usr_host' ? nickname : (peers[uId]?.nickname || 'Participant');
+            const nick = uId === 'usr_host' ? nickname : (peers[uId]?.nickname || 'Student');
             currentPeersList.push({ id: uId, nickname: nick, peerJsId: pId });
           }
         }
 
         if (senderConn) {
           senderConn.send(JSON.stringify({ action: 'welcome', id: newUserId }));
-          senderConn.send(JSON.stringify({ action: 'joined', peers: currentPeersList }));
+          senderConn.send(JSON.stringify({ action: 'joined', peers: currentPeersList, locked: roomLocked }));
         }
 
-        // Broadcast new peer join to all other clients
         const joinNotice = { action: 'peer-joined', id: newUserId, nickname: msg.nickname, peerJsId: senderPeerJsId };
         this.broadcastToAll(joinNotice, newUserId);
 
-        // Process locally on host
-        if (this.onmessage) {
-          this.onmessage({ data: JSON.stringify(joinNotice) });
-        }
+        if (this.onmessage) this.onmessage({ data: JSON.stringify(joinNotice) });
         return;
       }
 
@@ -383,14 +389,12 @@
 
         const leaveNotice = { action: 'peer-left', id: uId };
         this.broadcastToAll(leaveNotice);
-        if (this.onmessage) {
-          this.onmessage({ data: JSON.stringify(leaveNotice) });
-        }
+        if (this.onmessage) this.onmessage({ data: JSON.stringify(leaveNotice) });
       }
     }
 
     close() {
-      this.readyState = 3; // CLOSED
+      this.readyState = 3;
       this.calls.forEach(c => { try { c.close(); } catch(e) {} });
       this.calls = [];
       this.connections.forEach(conn => conn.close());
@@ -405,24 +409,20 @@
     }
   }
 
-  function connectWebSocket(address) {
-    if (window.navigator && window.navigator.mediaDevices && !window.navigator.mediaDevices.getUserMedia) {
-      window.navigator.mediaDevices.getUserMedia = () => Promise.resolve(null);
-    }
-    
+  function connectHub(targetRoomId) {
     ws = new PeerJSRoomHub();
     ws.onopen = () => {};
     ws.onclose = () => handleDisconnect();
-    ws.onerror = () => {};
+    ws.onerror = (err) => console.warn('[Hub Error]:', err);
     ws.onmessage = (event) => {
       try { handleServerMessage(JSON.parse(event.data)); }
       catch(e) {}
     };
-    return ws.init(address);
+    return ws.init(targetRoomId);
   }
 
   function sendToServer(obj) {
-    if (ws && ws.readyState === 1) { // 1 = OPEN
+    if (ws && ws.readyState === 1) {
       ws.send(JSON.stringify(obj));
     }
   }
@@ -431,12 +431,8 @@
     sendToServer({ action: 'relay', data });
   }
 
-  function sendToTarget(to, data) {
-    sendToServer({ action: 'relay-to', to, data });
-  }
-
   /* ================================================================
-     SERVER MESSAGE HANDLING
+     MESSAGE DISPATCHER
      ================================================================ */
   function handleServerMessage(msg) {
     switch (msg.action) {
@@ -449,38 +445,37 @@
         startStudyTimer();
         hideLoading();
         renderActiveSession();
-        if (typeof showNotification === 'function') {
-          const pwNote = roomPassword ? ' 🔒 Password protected.' : '';
-          showNotification(`Room created! Share code: ${roomAddress}${pwNote}`, 'success');
-        }
+        SoundFX.playJoin();
+        notify(`Study Room live! Code: ${roomAddress}`, 'success');
         break;
 
       case 'joined':
         if (Array.isArray(msg.peers)) {
           msg.peers.forEach(p => {
-            peers[p.id] = { nickname: p.nickname, goal: '', seconds: 0, peerJsId: p.peerJsId };
+            peers[p.id] = { nickname: p.nickname, goal: '', seconds: 0, peerJsId: p.peerJsId, handRaised: false };
           });
         }
+        roomLocked = !!msg.locked;
         sessionActive = true;
         startStudyTimer();
         hideLoading();
         renderActiveSession();
+        SoundFX.playJoin();
         broadcastData({ type: 'info-request' });
-        if (typeof showNotification === 'function')
-          showNotification(`Joined room!`, 'success');
+        notify('Connected to Study Room!', 'success');
         break;
 
       case 'auth-fail':
         hideLoading();
         cleanup();
         renderStudyRoom();
-        if (typeof showNotification === 'function')
-          showNotification(msg.reason || 'Authentication failed.', 'error');
+        notify(msg.reason || 'Failed to enter room.', 'error');
         break;
 
       case 'peer-joined':
-        peers[msg.id] = { nickname: msg.nickname, goal: '', seconds: 0, peerJsId: msg.peerJsId };
-        addSystemMessage(`${msg.nickname} joined the room`);
+        peers[msg.id] = { nickname: msg.nickname, goal: '', seconds: 0, peerJsId: msg.peerJsId, handRaised: false };
+        SoundFX.playJoin();
+        addSystemMessage(`${msg.nickname} joined the room.`);
         updateParticipantsUI();
         updateProgressUI();
         updatePeopleCount();
@@ -488,18 +483,17 @@
 
       case 'peer-left': {
         const leftNick = peers[msg.id]?.nickname || 'A participant';
-        addSystemMessage(`${leftNick} left the room`);
+        SoundFX.playLeave();
+        addSystemMessage(`${leftNick} left the room.`);
         delete peers[msg.id];
+        delete wbRemoteCursors[msg.id];
+        clearRemoteVideo(msg.id);
         updateParticipantsUI();
         updateProgressUI();
         updatePeopleCount();
+        renderRemoteCursors();
         break;
       }
-
-      case 'room-closed':
-        addSystemMessage('The host has closed the room.');
-        setTimeout(() => forceLeaveRoom(), 1500);
-        break;
 
       case 'relay':
         handleRelayData(msg.from, msg.data);
@@ -514,6 +508,26 @@
       case 'chat':
         chatMessages.push({ sender: data.sender, text: data.text, time: data.time, type: 'chat' });
         renderChatMessages();
+        SoundFX.playPop();
+        if (activeTab !== 'chat') {
+          unreadChatCount++;
+          updateUnreadBadge();
+        }
+        break;
+
+      case 'reaction':
+        spawnFloatingReaction(data.emoji, fromId);
+        break;
+
+      case 'hand-raise':
+        if (peers[fromId]) {
+          peers[fromId].handRaised = !!data.raised;
+          updateParticipantsUI();
+          if (data.raised) {
+            SoundFX.playHandRaise();
+            notify(`✋ ${peers[fromId].nickname} raised their hand!`, 'info');
+          }
+        }
         break;
 
       case 'progress':
@@ -536,12 +550,65 @@
 
       case 'info-request':
         broadcastData({ type: 'info', nickname, goal: studyGoal, seconds: studySeconds });
+        if (isHost && pomoRunning) {
+          broadcastData({ type: 'pomo-sync', mode: pomoMode, remaining: pomoRemaining, running: pomoRunning });
+        }
+        if (wbStrokes.length > 0) {
+          broadcastData({ type: 'wb-full-sync', strokes: wbStrokes, questions: wbQuestions });
+        }
+        break;
+
+      case 'pomo-sync':
+        pomoMode = data.mode;
+        pomoRemaining = data.remaining;
+        pomoRunning = data.running;
+        updatePomodoroUI();
+        break;
+
+      case 'mod-mute-all':
+        if (!isHost && micActive) {
+          toggleMicrophone();
+          notify('Host muted all microphones.', 'warning');
+        }
+        break;
+
+      case 'mod-kick':
+        if (data.targetId === myId) {
+          notify('You were removed from the room by the host.', 'error');
+          forceLeaveRoom();
+        }
+        break;
+
+      case 'mod-lock':
+        roomLocked = data.locked;
+        updateRoomLockUI();
+        notify(`Room ${roomLocked ? 'locked 🔒' : 'unlocked 🔓'} by host.`, 'info');
+        break;
+
+      /* Whiteboard 2.0 live events */
+      case 'wb-live-draw':
+        replayLivePoints(data.points, data.color, data.size, data.tool, data.alpha);
         break;
 
       case 'wb-stroke':
         replayStroke(data.points, data.color, data.size, data.tool, data.alpha);
         wbStrokes.push({ type: 'stroke', points: data.points, color: data.color, size: data.size, tool: data.tool, alpha: data.alpha });
-        if (data.points) maybeGrowCanvas(data.points);
+        maybeGrowCanvas(data.points);
+        break;
+
+      case 'wb-shape':
+        drawShapeOnCanvas(data.shape, data.start, data.end, data.color, data.size);
+        wbStrokes.push({ type: 'shape', shape: data.shape, start: data.start, end: data.end, color: data.color, size: data.size });
+        break;
+
+      case 'wb-text':
+        drawTextOnCanvas(data.text, data.x, data.y, data.color, data.size);
+        wbStrokes.push({ type: 'text', text: data.text, x: data.x, y: data.y, color: data.color, size: data.size });
+        break;
+
+      case 'wb-cursor':
+        wbRemoteCursors[fromId] = { x: data.x, y: data.y, name: peers[fromId]?.nickname || 'Student', color: data.color || '#f59e0b', lastSeen: Date.now() };
+        renderRemoteCursors();
         break;
 
       case 'wb-clear':
@@ -553,22 +620,17 @@
         wbStrokes.push({ type: 'block-erase', rect: data.rect });
         break;
 
+      case 'wb-full-sync':
+        wbStrokes = data.strokes || [];
+        wbQuestions = data.questions || [];
+        replayAllStrokes();
+        renderQuestionsUI();
+        break;
+
       case 'wb-questions':
         wbQuestions = data.questions || [];
         wbNextQId = data.nextId || wbQuestions.length + 1;
         renderQuestionsUI();
-        break;
-
-      case 'webrtc-offer':
-        handleRTCReceiveOffer(fromId, data.sdp);
-        break;
-
-      case 'webrtc-answer':
-        handleRTCReceiveAnswer(fromId, data.sdp);
-        break;
-
-      case 'webrtc-ice':
-        handleRTCReceiveIce(fromId, data.candidate);
         break;
 
       case 'study-material':
@@ -578,28 +640,12 @@
       case 'webrtc-stop':
         clearRemoteVideo(fromId);
         break;
-
-      case 'webrtc-media-offer':
-        handleMediaRTCReceiveOffer(fromId, data.sdp);
-        break;
-
-      case 'webrtc-media-answer':
-        handleMediaRTCReceiveAnswer(fromId, data.sdp);
-        break;
-
-      case 'webrtc-media-ice':
-        handleMediaRTCReceiveIce(fromId, data.candidate);
-        break;
-
-      case 'webrtc-media-stop':
-        clearRemoteCam(fromId);
-        break;
     }
   }
 
   function handleDisconnect() {
     if (!sessionActive) return;
-    addSystemMessage('Connection lost.');
+    notify('Lost connection to study room.', 'error');
     setTimeout(() => forceLeaveRoom(), 1500);
   }
 
@@ -616,59 +662,56 @@
     section.innerHTML = `
       <div class="sr-lobby">
         <div class="sr-lobby-header">
-          <h2 class="section-title">Study Room</h2>
-          <span class="sr-exp-badge">live study room</span>
-          <div class="sr-lobby-icon"><i class="fas fa-users"></i></div>
-          <p class="sr-lobby-subtitle">Study together in real-time. Share screen, whiteboard, audio, and goals.</p>
+          <h2 class="section-title"><i class="fas fa-users"></i> Study Room</h2>
+          <span class="sr-exp-badge">v2.0 • Ultra Low Latency</span>
+          <div class="sr-lobby-icon"><i class="fas fa-graduation-cap"></i></div>
+          <p class="sr-lobby-subtitle">Collaborate in real-time. Live Whiteboard, Screenshare, Voice, Notes, and Pomodoro Timer.</p>
         </div>
 
         <div class="sr-lobby-cards">
           <div class="sr-lobby-card">
-            <h3><i class="fas fa-user-edit"></i> Display Name</h3>
+            <h3><i class="fas fa-user-circle"></i> Your Display Name</h3>
             <input type="text" id="srNickname" class="sr-input" placeholder="Enter your name…" maxlength="24" value="${escapeHTML(savedNick)}">
           </div>
 
           <div class="sr-lobby-card sr-card-create">
             <h3><i class="fas fa-plus-circle"></i> Create Room</h3>
-            <p>Host a study room and share the 10-character room code.</p>
+            <p>Host an instant study session and share your 10-character code.</p>
 
             <div class="sr-pw-row">
               <input type="password" id="srCreatePassword" class="sr-input" placeholder="Room password (optional)" maxlength="32" autocomplete="off">
-              <button type="button" class="sr-pw-toggle" id="srCreatePwToggle" title="Show password"><i class="fas fa-eye"></i></button>
+              <button type="button" class="sr-pw-toggle" id="srCreatePwToggle" title="Toggle password"><i class="fas fa-eye"></i></button>
             </div>
             <button class="sr-btn sr-btn-primary" id="srCreateBtn"><i class="fas fa-door-open"></i> Create Room</button>
           </div>
 
           <div class="sr-lobby-card sr-card-join">
             <h3><i class="fas fa-sign-in-alt"></i> Join Room</h3>
-            <p>Enter the code shared by your study partner.</p>
+            <p>Enter the 10-character code shared by your study partner.</p>
             <div class="sr-join-row">
-              <input type="text" id="srJoinAddress" class="sr-input" placeholder="10-character room code" spellcheck="false" autocomplete="off" style="flex:1;letter-spacing:0.08em;">
-              <button class="sr-btn sr-btn-accent" id="srJoinBtn"><i class="fas fa-sign-in-alt"></i> Join</button>
+              <input type="text" id="srJoinAddress" class="sr-input sr-code-input" placeholder="ABC123XYZ0" spellcheck="false" autocomplete="off">
+              <button class="sr-btn sr-btn-accent" id="srJoinBtn"><i class="fas fa-arrow-right"></i> Join</button>
             </div>
             <div class="sr-pw-row" style="margin-top:0.5rem;">
-              <input type="password" id="srJoinPassword" class="sr-input" placeholder="Room password (if required)" maxlength="32" autocomplete="off">
-              <button type="button" class="sr-pw-toggle" id="srJoinPwToggle" title="Show password"><i class="fas fa-eye"></i></button>
+              <input type="password" id="srJoinPassword" class="sr-input" placeholder="Password (if required)" maxlength="32" autocomplete="off">
+              <button type="button" class="sr-pw-toggle" id="srJoinPwToggle" title="Toggle password"><i class="fas fa-eye"></i></button>
             </div>
           </div>
         </div>
 
         <div class="sr-features-grid">
-          <div class="sr-feature-item"><i class="fas fa-comments"></i><span>Chat & Files</span></div>
-          <div class="sr-feature-item"><i class="fas fa-chalkboard"></i><span>Whiteboard</span></div>
-          <div class="sr-feature-item"><i class="fas fa-desktop"></i><span>Screenshare</span></div>
-          <div class="sr-feature-item"><i class="fas fa-tasks"></i><span>Progress Sync</span></div>
+          <div class="sr-feature-item"><i class="fas fa-chalkboard"></i><span>Live Whiteboard</span></div>
+          <div class="sr-feature-item"><i class="fas fa-desktop"></i><span>Screen Share</span></div>
+          <div class="sr-feature-item"><i class="fas fa-stopwatch"></i><span>Synced Pomodoro</span></div>
+          <div class="sr-feature-item"><i class="fas fa-hand-paper"></i><span>Hand Raising</span></div>
+          <div class="sr-feature-item"><i class="fas fa-comments"></i><span>Files & Chat</span></div>
         </div>
       </div>
     `;
 
-    const createBtn = document.getElementById('srCreateBtn');
-    const joinBtn = document.getElementById('srJoinBtn');
-    const joinInput = document.getElementById('srJoinAddress');
-
-    createBtn && createBtn.addEventListener('click', () => handleCreate());
-    joinBtn && joinBtn.addEventListener('click', () => handleJoin());
-    joinInput && joinInput.addEventListener('keydown', e => { if (e.key === 'Enter') handleJoin(); });
+    document.getElementById('srCreateBtn')?.addEventListener('click', handleCreate);
+    document.getElementById('srJoinBtn')?.addEventListener('click', handleJoin);
+    document.getElementById('srJoinAddress')?.addEventListener('keydown', e => { if (e.key === 'Enter') handleJoin(); });
 
     setupPwToggle('srCreatePwToggle', 'srCreatePassword');
     setupPwToggle('srJoinPwToggle', 'srJoinPassword');
@@ -694,18 +737,31 @@
 
     section.innerHTML = `
       <div class="sr-session">
+        <!-- Top Toolbar -->
         <div class="sr-session-bar">
           <div class="sr-session-bar-left">
-            <span class="sr-mode-badge sr-mode-inet">
-              <i class="fas fa-globe"></i> Live
-            </span>
+            <span class="sr-mode-badge sr-mode-inet"><i class="fas fa-wifi"></i> Live</span>
             <span class="sr-room-code-badge" title="Click to copy room code" id="srCopyCode">
               <i class="fas fa-key"></i> ${escapeHTML(roomAddress)}
             </span>
-            ${roomPassword ? `<span class="sr-pw-badge"><i class="fas fa-lock"></i> Password: <span class="sr-pw-hidden" id="srPwReveal">••••••</span></span>` : `<span class="sr-pw-badge sr-pw-open"><i class="fas fa-lock-open"></i> Open</span>`}
-            <span class="sr-session-timer" id="srSessionTimer">${fmtTime(studySeconds)}</span>
+            ${roomPassword ? `<span class="sr-pw-badge"><i class="fas fa-lock"></i> <span class="sr-pw-hidden" id="srPwReveal">••••••</span></span>` : `<span class="sr-pw-badge sr-pw-open"><i class="fas fa-lock-open"></i> Public</span>`}
+            ${isHost ? `<button class="sr-btn sr-btn-sm ${roomLocked ? 'sr-btn-primary' : 'sr-btn-secondary'}" id="srLockToggle" title="Lock/Unlock Room"><i class="fas fa-${roomLocked ? 'lock' : 'lock-open'}"></i></button>` : ''}
           </div>
+
+          <!-- Centered Synced Pomodoro / Stopwatch Display -->
+          <div class="sr-pomo-bar" id="srPomoBar">
+            <button class="sr-pomo-mode-btn active" id="srPomoToggleMode" title="Toggle Pomodoro / Stopwatch"><i class="fas fa-stopwatch"></i></button>
+            <span class="sr-pomo-timer" id="srPomoTimer">${fmtTime(pomoMode === 'stopwatch' ? studySeconds : pomoRemaining)}</span>
+            ${isHost ? `
+              <button class="sr-pomo-ctrl-btn" id="srPomoPlayPause" title="Start/Pause Timer"><i class="fas fa-play"></i></button>
+              <button class="sr-pomo-ctrl-btn" id="srPomoReset" title="Reset Timer"><i class="fas fa-redo"></i></button>
+            ` : ''}
+          </div>
+
           <div class="sr-session-bar-right">
+            <button class="sr-ctrl-btn ${handRaised ? 'sr-ctrl-active' : ''}" id="srRaiseHandBtn" title="Raise Hand (Ask Question)">
+              <i class="fas fa-hand-paper"></i>
+            </button>
             <button class="sr-ctrl-btn" id="srToggleMic" title="Toggle Microphone">
               <i class="fas fa-microphone-slash" style="color: #ef4444;"></i>
             </button>
@@ -715,9 +771,10 @@
             <button class="sr-ctrl-btn" id="srToggleScreenShare" title="Share Screen">
               <i class="fas fa-desktop"></i>
             </button>
-            <button class="sr-ctrl-btn ${wbActive ? 'sr-ctrl-active' : ''}" id="srToggleWB" title="Toggle Whiteboard">
+            <button class="sr-ctrl-btn ${wbActive ? 'sr-ctrl-active' : ''}" id="srToggleWB" title="Toggle Whiteboard 2.0">
               <i class="fas fa-chalkboard"></i>
             </button>
+            ${isHost ? `<button class="sr-ctrl-btn" id="srMuteAllBtn" title="Mute All Participants"><i class="fas fa-volume-mute"></i></button>` : ''}
             <button class="sr-ctrl-btn sr-ctrl-danger" id="srLeaveBtn" title="Leave room">
               <i class="fas fa-phone-slash"></i>
             </button>
@@ -725,55 +782,67 @@
         </div>
 
         <div class="sr-session-body">
+          <!-- Video Grid Area -->
           <div class="sr-video-area" id="srParticipantArea">
             <div class="sr-video-grid" id="srParticipantsGrid">
               ${buildParticipantCardsHTML()}
             </div>
+            
+            <!-- Quick Floating Reactions Bar -->
+            <div class="sr-reactions-bar">
+              <button class="sr-react-btn" data-emoji="👏">👏</button>
+              <button class="sr-react-btn" data-emoji="🔥">🔥</button>
+              <button class="sr-react-btn" data-emoji="💡">💡</button>
+              <button class="sr-react-btn" data-emoji="👍">👍</button>
+              <button class="sr-react-btn" data-emoji="❤️">❤️</button>
+              <button class="sr-react-btn" data-emoji="☕">☕</button>
+            </div>
           </div>
 
+          <!-- Whiteboard 2.0 Panel -->
           <div class="sr-wb-panel" id="srWhiteboardPanel" style="display:none;">
             <div class="sr-wb-toolbar">
               <div class="sr-wb-tools">
-                <button class="sr-wb-tool-btn" data-tool="pan" title="Pan"><i class="fas fa-hand-paper"></i></button>
+                <button class="sr-wb-tool-btn" data-tool="pan" title="Pan (Hold Space)"><i class="fas fa-hand-paper"></i></button>
                 <button class="sr-wb-tool-btn active" data-tool="pen" title="Pen"><i class="fas fa-pen"></i></button>
                 <button class="sr-wb-tool-btn" data-tool="highlighter" title="Highlighter"><i class="fas fa-highlighter"></i></button>
+                <button class="sr-wb-tool-btn" data-tool="line" title="Line"><i class="fas fa-slash"></i></button>
+                <button class="sr-wb-tool-btn" data-tool="arrow" title="Arrow"><i class="fas fa-long-arrow-alt-right"></i></button>
+                <button class="sr-wb-tool-btn" data-tool="rect" title="Rectangle"><i class="far fa-square"></i></button>
+                <button class="sr-wb-tool-btn" data-tool="circle" title="Circle"><i class="far fa-circle"></i></button>
+                <button class="sr-wb-tool-btn" data-tool="text" title="Text Tool"><i class="fas fa-font"></i></button>
                 <button class="sr-wb-tool-btn" data-tool="eraser" title="Eraser"><i class="fas fa-eraser"></i></button>
-                <button class="sr-wb-tool-btn" data-tool="block-erase" title="Block Erase"><i class="fas fa-vector-square"></i></button>
+                <button class="sr-wb-tool-btn" data-tool="block-erase" title="Block Erase Area"><i class="fas fa-vector-square"></i></button>
+                
                 <div class="sr-wb-sep"></div>
                 <input type="color" id="srWbColor" class="sr-wb-color-pick" value="${wbColor}">
                 <div class="sr-wb-range-group" id="srWbPenSizeGroup">
                   <label>Size</label>
-                  <input type="range" id="srWbPenSize" min="1" max="30" value="${wbPenSize}" class="sr-wb-range">
+                  <input type="range" id="srWbPenSize" min="1" max="40" value="${wbPenSize}" class="sr-wb-range">
                   <span id="srWbPenSizeVal">${wbPenSize}</span>
                 </div>
-                <div class="sr-wb-range-group" id="srWbEraserSizeGroup" style="display:none;">
-                  <label>Size</label>
-                  <input type="range" id="srWbEraserSize" min="5" max="80" value="${wbEraserSize}" class="sr-wb-range">
-                  <span id="srWbEraserSizeVal">${wbEraserSize}</span>
-                </div>
-                <div class="sr-wb-range-group" id="srWbHlSizeGroup" style="display:none;">
-                  <label>Size</label>
-                  <input type="range" id="srWbHlSize" min="5" max="50" value="${wbHighlighterSize}" class="sr-wb-range">
-                  <span id="srWbHlSizeVal">${wbHighlighterSize}</span>
-                </div>
+                
                 <div class="sr-wb-sep"></div>
+                <button class="sr-wb-tool-btn" id="srWbGridToggle" title="Toggle Grid (Dots/Lines/None)"><i class="fas fa-border-all"></i></button>
                 <button class="sr-wb-tool-btn" id="srWbUndo" title="Undo"><i class="fas fa-undo"></i></button>
                 <button class="sr-wb-tool-btn" id="srWbRedo" title="Redo"><i class="fas fa-redo"></i></button>
                 <button class="sr-wb-tool-btn" id="srWbClear" title="Clear board"><i class="fas fa-trash"></i></button>
               </div>
+
               <div class="sr-wb-actions">
                 <div class="sr-wb-zoom-group">
                   <button class="sr-wb-tool-btn" id="srWbZoomOut"><i class="fas fa-search-minus"></i></button>
                   <span class="sr-wb-zoom-label" id="srWbZoomLabel">100%</span>
                   <button class="sr-wb-tool-btn" id="srWbZoomIn"><i class="fas fa-search-plus"></i></button>
-                  <button class="sr-wb-tool-btn" id="srWbZoomReset"><i class="fas fa-compress-arrows-alt"></i></button>
+                  <button class="sr-wb-tool-btn" id="srWbZoomReset" title="Reset Zoom/Pan"><i class="fas fa-compress-arrows-alt"></i></button>
                 </div>
                 <div class="sr-wb-sep"></div>
-                <button class="sr-wb-tool-btn" id="srWbFullscreen"><i class="fas fa-expand"></i></button>
-                <button class="sr-wb-tool-btn" id="srWbDownload"><i class="fas fa-download"></i></button>
-                <button class="sr-wb-tool-btn" id="srWbSaveLib"><i class="fas fa-save"></i></button>
+                <button class="sr-wb-tool-btn" id="srWbFullscreen" title="Fullscreen"><i class="fas fa-expand"></i></button>
+                <button class="sr-wb-tool-btn" id="srWbDownload" title="Download Image"><i class="fas fa-download"></i></button>
+                <button class="sr-wb-tool-btn" id="srWbSaveLib" title="Save to Library"><i class="fas fa-save"></i></button>
               </div>
             </div>
+
             <div class="sr-wb-body">
               <div class="sr-wb-canvas-wrap" id="srWbCanvasWrap">
                 <canvas id="srWbCanvas"></canvas>
@@ -781,7 +850,7 @@
               </div>
               <div class="sr-wb-questions">
                 <div class="sr-wb-q-header">
-                  <h4><i class="fas fa-clipboard-list"></i> Questions</h4>
+                  <h4><i class="fas fa-clipboard-list"></i> Questions & Notes</h4>
                   <button class="sr-btn sr-btn-primary sr-btn-sm" id="srWbAddQ"><i class="fas fa-plus"></i> Add</button>
                 </div>
                 <div class="sr-wb-q-list" id="srWbQList"></div>
@@ -789,18 +858,25 @@
             </div>
           </div>
 
+          <!-- Right Sidebar -->
           <div class="sr-sidebar" id="srSidebar">
             <div class="sr-sidebar-tabs">
-              <button class="sr-tab-btn active" data-tab="chat"><i class="fas fa-comments"></i> Chat</button>
-              <button class="sr-tab-btn" data-tab="participants"><i class="fas fa-users"></i> People <span class="sr-count" id="srPeopleCount">${1 + Object.keys(peers).length}</span></button>
-              <button class="sr-tab-btn" data-tab="progress"><i class="fas fa-tasks"></i> Progress</button>
+              <button class="sr-tab-btn active" data-tab="chat">
+                <i class="fas fa-comments"></i> Chat
+                <span class="sr-count" id="srUnreadBadge" style="display:none;">0</span>
+              </button>
+              <button class="sr-tab-btn" data-tab="participants">
+                <i class="fas fa-users"></i> People 
+                <span class="sr-count" id="srPeopleCount">${1 + Object.keys(peers).length}</span>
+              </button>
+              <button class="sr-tab-btn" data-tab="progress"><i class="fas fa-tasks"></i> Goals</button>
             </div>
 
             <div class="sr-tab-panel active" id="srTabChat">
               <div class="sr-chat-messages" id="srChatMessages"></div>
               <div class="sr-chat-input-row">
                 <input type="file" id="srMaterialFile" style="display:none;" accept=".pdf,.png,.jpg,.jpeg,.doc,.docx,.txt" />
-                <button class="sr-btn sr-btn-secondary sr-btn-icon" id="srShareMaterial" title="Share File">
+                <button class="sr-btn sr-btn-secondary sr-btn-icon" id="srShareMaterial" title="Share Document / Image">
                    <i class="fas fa-paperclip"></i>
                 </button>
                 <input type="text" id="srChatInput" class="sr-input" placeholder="Type a message…" maxlength="500">
@@ -814,9 +890,9 @@
 
             <div class="sr-tab-panel" id="srTabProgress">
               <div class="sr-progress-self">
-                <h4>Your study goal</h4>
-                <input type="text" id="srGoalInput" class="sr-input" placeholder="What are you studying?" value="${escapeHTML(studyGoal)}" maxlength="80">
-                <button class="sr-btn sr-btn-accent sr-btn-sm" id="srSetGoal">Set Goal</button>
+                <h4>Your Study Goal</h4>
+                <input type="text" id="srGoalInput" class="sr-input" placeholder="e.g., Solving Chapter 4 Questions…" value="${escapeHTML(studyGoal)}" maxlength="80">
+                <button class="sr-btn sr-btn-accent sr-btn-sm" id="srSetGoal" style="margin-top:0.4rem;width:100%;justify-content:center;">Set Goal</button>
               </div>
               <div class="sr-progress-list" id="srProgressList">
                 ${buildProgressHTML()}
@@ -830,39 +906,49 @@
     attachSessionListeners();
     renderChatMessages();
     updateVideoGridLayout();
+    setupAudioAnalysis();
   }
 
   function buildParticipantsHTML() {
-    let html = `<div class="sr-participant-item">
-      <div class="sr-participant-avatar"><i class="fas fa-user"></i></div>
-      <div class="sr-participant-info">
-        <span class="sr-participant-name">${escapeHTML(nickname)} (You)${isHost ? ' <i class="fas fa-crown sr-host-icon" title="Host"></i>' : ''}</span>
-        <span class="sr-participant-status"><i class="fas fa-circle sr-status-on"></i> Connected</span>
-      </div>
-    </div>`;
-    Object.values(peers).forEach(p => {
-      html += `<div class="sr-participant-item">
+    let html = `
+      <div class="sr-participant-item">
         <div class="sr-participant-avatar"><i class="fas fa-user"></i></div>
         <div class="sr-participant-info">
-          <span class="sr-participant-name">${escapeHTML(p.nickname || 'Participant')}</span>
+          <span class="sr-participant-name">${escapeHTML(nickname)} (You)${isHost ? ' <i class="fas fa-crown sr-host-icon" title="Host"></i>' : ''}${handRaised ? ' ✋' : ''}</span>
           <span class="sr-participant-status"><i class="fas fa-circle sr-status-on"></i> Connected</span>
         </div>
       </div>`;
+    Object.entries(peers).forEach(([id, p]) => {
+      html += `
+        <div class="sr-participant-item">
+          <div class="sr-participant-avatar"><i class="fas fa-user"></i></div>
+          <div class="sr-participant-info">
+            <span class="sr-participant-name">${escapeHTML(p.nickname || 'Student')}${p.handRaised ? ' ✋' : ''}</span>
+            <span class="sr-participant-status"><i class="fas fa-circle sr-status-on"></i> Connected</span>
+          </div>
+          ${isHost ? `
+            <div class="sr-participant-actions">
+              <button class="sr-btn sr-btn-sm sr-btn-danger sr-btn-icon" onclick="window.srKickUser('${id}')" title="Kick participant"><i class="fas fa-user-slash"></i></button>
+            </div>
+          ` : ''}
+        </div>`;
     });
     return html;
   }
 
   function buildParticipantCardsHTML() {
     let html = `
-      <div class="sr-video-tile sr-video-local" data-userid="usr_self">
+      <div class="sr-video-tile sr-video-local" data-userid="usr_self" id="srTile_usr_self">
         <div class="sr-video-off"><i class="fas fa-user"></i></div>
-        <div class="sr-video-label">${escapeHTML(nickname)} (You)${isHost ? ' <i class="fas fa-crown" style="color:#f5c842;margin-left:4px;"></i>' : ''}</div>
+        <div class="sr-video-label">${escapeHTML(nickname)} (You)${isHost ? ' 👑' : ''}</div>
+        ${handRaised ? '<div class="sr-tile-hand">✋</div>' : ''}
       </div>`;
     Object.entries(peers).forEach(([uId, p]) => {
       html += `
-        <div class="sr-video-tile" data-userid="${escapeHTML(uId)}">
+        <div class="sr-video-tile" data-userid="${escapeHTML(uId)}" id="srTile_${escapeHTML(uId)}">
           <div class="sr-video-off"><i class="fas fa-user"></i></div>
-          <div class="sr-video-label">${escapeHTML(p.nickname || 'Participant')}</div>
+          <div class="sr-video-label">${escapeHTML(p.nickname || 'Student')}</div>
+          ${p.handRaised ? '<div class="sr-tile-hand">✋</div>' : ''}
         </div>`;
     });
     return html;
@@ -870,37 +956,51 @@
 
   function buildProgressHTML() {
     let html = '';
-    html += `<div class="sr-progress-item">
-      <div class="sr-progress-user"><i class="fas fa-user"></i> ${escapeHTML(nickname)} (You)</div>
-      <div class="sr-progress-goal">${studyGoal ? escapeHTML(studyGoal) : '<em>No goal set</em>'}</div>
-      <div class="sr-progress-time"><i class="fas fa-clock"></i> ${fmtTime(studySeconds)}</div>
-    </div>`;
-    Object.values(peers).forEach(p => {
-      html += `<div class="sr-progress-item">
-        <div class="sr-progress-user"><i class="fas fa-user"></i> ${escapeHTML(p.nickname || 'Participant')}</div>
-        <div class="sr-progress-goal">${p.goal ? escapeHTML(p.goal) : '<em>No goal set</em>'}</div>
-        <div class="sr-progress-time"><i class="fas fa-clock"></i> ${fmtTime(p.seconds || 0)}</div>
+    html += `
+      <div class="sr-progress-item">
+        <div class="sr-progress-user"><i class="fas fa-user"></i> ${escapeHTML(nickname)} (You)</div>
+        <div class="sr-progress-goal">${studyGoal ? escapeHTML(studyGoal) : '<em>No goal set</em>'}</div>
+        <div class="sr-progress-time"><i class="fas fa-clock"></i> ${fmtTime(studySeconds)}</div>
       </div>`;
+    Object.values(peers).forEach(p => {
+      html += `
+        <div class="sr-progress-item">
+          <div class="sr-progress-user"><i class="fas fa-user"></i> ${escapeHTML(p.nickname || 'Student')}</div>
+          <div class="sr-progress-goal">${p.goal ? escapeHTML(p.goal) : '<em>No goal set</em>'}</div>
+          <div class="sr-progress-time"><i class="fas fa-clock"></i> ${fmtTime(p.seconds || 0)}</div>
+        </div>`;
     });
     return html;
   }
 
+  /* ================================================================
+     SESSION LISTENERS & CONTROLS
+     ================================================================ */
   function attachSessionListeners() {
-    const copyCodeBtn = document.getElementById('srCopyCode');
-    copyCodeBtn && copyCodeBtn.addEventListener('click', () => {
-      navigator.clipboard.writeText(roomAddress).then(() => {
-        if (typeof showNotification === 'function') showNotification('Room code copied!', 'success');
-      });
+    document.getElementById('srCopyCode')?.addEventListener('click', () => {
+      navigator.clipboard.writeText(roomAddress).then(() => notify('Room code copied to clipboard!', 'success'));
     });
 
     const pwReveal = document.getElementById('srPwReveal');
     if (pwReveal && roomPassword) {
       pwReveal.style.cursor = 'pointer';
       pwReveal.addEventListener('click', () => {
-        const hidden = pwReveal.textContent === '••••••';
-        pwReveal.textContent = hidden ? roomPassword : '••••••';
+        pwReveal.textContent = pwReveal.textContent === '••••••' ? roomPassword : '••••••';
       });
     }
+
+    document.getElementById('srLockToggle')?.addEventListener('click', () => {
+      roomLocked = !roomLocked;
+      broadcastData({ type: 'mod-lock', locked: roomLocked });
+      updateRoomLockUI();
+      notify(`Room ${roomLocked ? 'Locked 🔒' : 'Unlocked 🔓'}`, 'info');
+    });
+
+    document.getElementById('srRaiseHandBtn')?.addEventListener('click', toggleRaiseHand);
+    document.getElementById('srMuteAllBtn')?.addEventListener('click', () => {
+      broadcastData({ type: 'mod-mute-all' });
+      notify('Sent mute request to all participants.', 'info');
+    });
 
     document.getElementById('srLeaveBtn')?.addEventListener('click', leaveRoom);
     document.getElementById('srChatSend')?.addEventListener('click', sendChatMessage);
@@ -910,160 +1010,207 @@
     document.getElementById('srToggleScreenShare')?.addEventListener('click', toggleScreenShare);
     document.getElementById('srToggleMic')?.addEventListener('click', toggleMicrophone);
     document.getElementById('srToggleCamera')?.addEventListener('click', toggleCamera);
+    document.getElementById('srToggleWB')?.addEventListener('click', toggleWhiteboard);
 
+    // Pomodoro Controls
+    document.getElementById('srPomoToggleMode')?.addEventListener('click', togglePomoMode);
+    document.getElementById('srPomoPlayPause')?.addEventListener('click', togglePomoPlayPause);
+    document.getElementById('srPomoReset')?.addEventListener('click', resetPomoTimer);
+
+    // Tab Navigation
     document.querySelectorAll('.sr-tab-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         document.querySelectorAll('.sr-tab-btn').forEach(b => b.classList.remove('active'));
         document.querySelectorAll('.sr-tab-panel').forEach(p => p.classList.remove('active'));
         btn.classList.add('active');
-        const panel = document.getElementById('srTab' + capitalize(btn.dataset.tab));
+        activeTab = btn.dataset.tab;
+        if (activeTab === 'chat') {
+          unreadChatCount = 0;
+          updateUnreadBadge();
+        }
+        const panel = document.getElementById('srTab' + capitalize(activeTab));
         if (panel) panel.classList.add('active');
       });
     });
 
+    // Floating Reactions
+    document.querySelectorAll('.sr-react-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const emoji = btn.dataset.emoji;
+        spawnFloatingReaction(emoji, 'usr_self');
+        broadcastData({ type: 'reaction', emoji });
+      });
+    });
+
+    // Goal Setter
     document.getElementById('srSetGoal')?.addEventListener('click', () => {
       const input = document.getElementById('srGoalInput');
       studyGoal = input?.value.trim() || '';
       broadcastData({ type: 'progress', goal: studyGoal, seconds: studySeconds });
       updateProgressUI();
-      if (typeof showNotification === 'function') showNotification('Study goal updated!', 'success');
+      notify('Study goal updated!', 'success');
     });
 
-    document.getElementById('srToggleWB')?.addEventListener('click', toggleWhiteboard);
+    // Push to Talk (PTT) Handler
+    setupPushToTalk();
     initWhiteboardListeners();
   }
 
+  function updateRoomLockUI() {
+    const btn = document.getElementById('srLockToggle');
+    if (btn) {
+      btn.innerHTML = `<i class="fas fa-${roomLocked ? 'lock' : 'lock-open'}"></i>`;
+      btn.className = `sr-btn sr-btn-sm ${roomLocked ? 'sr-btn-primary' : 'sr-btn-secondary'}`;
+    }
+  }
+
+  function updateUnreadBadge() {
+    const badge = document.getElementById('srUnreadBadge');
+    if (badge) {
+      badge.style.display = unreadChatCount > 0 ? 'inline-block' : 'none';
+      badge.textContent = unreadChatCount;
+    }
+  }
+
+  function toggleRaiseHand() {
+    handRaised = !handRaised;
+    const btn = document.getElementById('srRaiseHandBtn');
+    if (btn) btn.classList.toggle('sr-ctrl-active', handRaised);
+    broadcastData({ type: 'hand-raise', raised: handRaised });
+    updateParticipantsUI();
+    if (handRaised) {
+      SoundFX.playHandRaise();
+      notify('Hand raised ✋', 'info');
+    }
+  }
+
   /* ================================================================
-     CHAT & FILE SHARE
+     POMODORO SYNCHRONIZER
      ================================================================ */
-  function sendChatMessage() {
-    const input = document.getElementById('srChatInput');
-    if (!input) return;
-    const text = input.value.trim();
-    if (!text) return;
-    input.value = '';
-    const msg = { sender: nickname, text, time: Date.now(), type: 'chat' };
-    chatMessages.push(msg);
-    broadcastData(msg);
-    renderChatMessages();
+  function togglePomoMode() {
+    if (!isHost) return;
+    if (pomoMode === 'stopwatch') pomoMode = 'focus';
+    else if (pomoMode === 'focus') pomoMode = 'break';
+    else pomoMode = 'stopwatch';
+    
+    pomoRemaining = pomoMode === 'focus' ? 25 * 60 : (pomoMode === 'break' ? 5 * 60 : 0);
+    pomoRunning = false;
+    broadcastPomoSync();
+    updatePomodoroUI();
   }
 
-  function handleShareMaterial() {
-    const fileInput = document.getElementById('srMaterialFile');
-    if (!fileInput) return;
-    fileInput.click();
-    fileInput.onchange = async () => {
-      const file = fileInput.files[0];
-      if (!file) return;
-
-      if (file.size > 5 * 1024 * 1024) {
-        if (typeof showNotification === 'function')
-          showNotification('File exceeds 5MB limit.', 'error');
-        return;
-      }
-
-      const reader = new FileReader();
-      reader.onload = e => {
-        const base64Data = e.target.result;
-        broadcastData({ type: 'study-material', fileName: file.name, fileData: base64Data });
-        receiveStudyMaterial(myId, base64Data, file.name);
-      };
-      reader.readAsDataURL(file);
-      fileInput.value = '';
-    };
+  function togglePomoPlayPause() {
+    if (!isHost) return;
+    pomoRunning = !pomoRunning;
+    broadcastPomoSync();
+    updatePomodoroUI();
   }
 
-  function receiveStudyMaterial(fromId, fileData, fileName) {
-    const senderName = (fromId === myId) ? nickname : (peers[fromId]?.nickname || 'Someone');
-    const msgHtml = `Shared a file: <br><a href="${fileData}" download="${escapeHTML(fileName)}" class="sr-file-download-link"><i class="fas fa-file-download"></i> ${escapeHTML(fileName)}</a>`;
-    chatMessages.push({ sender: senderName, text: msgHtml, time: Date.now(), type: 'html' });
-    renderChatMessages();
+  function resetPomoTimer() {
+    if (!isHost) return;
+    pomoRemaining = pomoMode === 'focus' ? 25 * 60 : (pomoMode === 'break' ? 5 * 60 : 0);
+    pomoRunning = false;
+    broadcastPomoSync();
+    updatePomodoroUI();
   }
 
-  function renderChatMessages() {
-    const container = document.getElementById('srChatMessages');
+  function broadcastPomoSync() {
+    broadcastData({ type: 'pomo-sync', mode: pomoMode, remaining: pomoRemaining, running: pomoRunning });
+  }
+
+  function updatePomodoroUI() {
+    const timerEl = document.getElementById('srPomoTimer');
+    const playBtn = document.getElementById('srPomoPlayPause');
+    const modeBtn = document.getElementById('srPomoToggleMode');
+
+    if (timerEl) {
+      timerEl.textContent = fmtTime(pomoMode === 'stopwatch' ? studySeconds : pomoRemaining);
+      timerEl.style.color = pomoMode === 'focus' ? 'var(--accent, #cf6215)' : (pomoMode === 'break' ? '#10b981' : 'var(--fg)');
+    }
+    if (playBtn) {
+      playBtn.innerHTML = `<i class="fas fa-${pomoRunning ? 'pause' : 'play'}"></i>`;
+    }
+    if (modeBtn) {
+      modeBtn.innerHTML = `<i class="fas fa-${pomoMode === 'stopwatch' ? 'stopwatch' : (pomoMode === 'focus' ? 'brain' : 'coffee')}"></i>`;
+      modeBtn.title = `Mode: ${capitalize(pomoMode)}`;
+    }
+  }
+
+  function spawnFloatingReaction(emoji, fromId) {
+    SoundFX.playPop();
+    const container = document.getElementById('srParticipantArea');
     if (!container) return;
-    if (chatMessages.length === 0) {
-      container.innerHTML = '<div class="sr-chat-empty"><i class="fas fa-comments"></i><p>No messages yet</p></div>';
-      return;
-    }
-    container.innerHTML = chatMessages.map(m => {
-      const isMe = m.sender === nickname;
-      const timeStr = new Date(m.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      if (m.type === 'system') {
-        return `<div class="sr-chat-msg sr-chat-system"><em>${m.text}</em></div>`;
-      }
-      return `<div class="sr-chat-msg ${isMe ? 'sr-chat-me' : 'sr-chat-other'}">
-        <span class="sr-chat-sender">${escapeHTML(m.sender)}</span>
-        <span class="sr-chat-text">${m.type === 'html' ? m.text : escapeHTML(m.text)}</span>
-        <span class="sr-chat-time">${timeStr}</span>
-      </div>`;
-    }).join('');
-    container.scrollTop = container.scrollHeight;
-  }
 
-  function addSystemMessage(text) {
-    chatMessages.push({ sender: '', text, time: Date.now(), type: 'system' });
-    renderChatMessages();
+    const el = document.createElement('div');
+    el.className = 'sr-floating-reaction';
+    el.textContent = emoji;
+    el.style.left = `${20 + Math.random() * 60}%`;
+    el.style.bottom = '80px';
+    container.appendChild(el);
+
+    setTimeout(() => el.remove(), 2000);
   }
 
   /* ================================================================
-     MEDIA (SCREENSHARE / CAMERA / MIC)
+     AUDIO ANALYSIS & SPEAKING DETECTION
      ================================================================ */
-  async function toggleScreenShare() {
-    const btn = document.getElementById('srToggleScreenShare');
-    if (localScreenStream) {
-      stopScreenShare();
+  function setupAudioAnalysis() {
+    if (speakingCheckInterval) clearInterval(speakingCheckInterval);
+    try {
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      if (!audioContext && AudioContext) audioContext = new AudioContext();
+    } catch (e) {}
+
+    speakingCheckInterval = setInterval(checkSpeakingLevels, 100);
+  }
+
+  function checkSpeakingLevels() {
+    if (!localMediaStream || !micActive || !audioContext) return;
+    if (!localAudioAnalyser && localMediaStream.getAudioTracks().length > 0) {
+      try {
+        const source = audioContext.createMediaStreamSource(localMediaStream);
+        localAudioAnalyser = audioContext.createAnalyser();
+        localAudioAnalyser.fftSize = 256;
+        source.connect(localAudioAnalyser);
+      } catch (e) {}
+    }
+
+    if (localAudioAnalyser) {
+      const data = new Uint8Array(localAudioAnalyser.frequencyBinCount);
+      localAudioAnalyser.getByteFrequencyData(data);
+      let sum = 0;
+      for (let i = 0; i < data.length; i++) sum += data[i];
+      const avg = sum / data.length;
+      const isSpeaking = avg > 20;
+
+      const tile = document.getElementById('srTile_usr_self');
+      if (tile) tile.classList.toggle('sr-speaking', isSpeaking);
+    }
+  }
+
+  /* ================================================================
+     MEDIA (MIC / CAMERA / SCREENSHARE)
+     ================================================================ */
+  async function toggleMicrophone() {
+    if (localMediaStream && localMediaStream.getAudioTracks().length > 0) {
+      micActive = !micActive;
+      localMediaStream.getAudioTracks().forEach(t => t.enabled = micActive);
+      updateMediaButtons();
       return;
     }
-    try {
-      localScreenStream = await navigator.mediaDevices.getDisplayMedia({ video: { mediaSource: "screen" } });
-      const vTrack = localScreenStream.getVideoTracks()[0];
-      if (vTrack) {
-        vTrack.onended = () => { if (localScreenStream) stopScreenShare(); };
-      }
-
-      broadcastScreenStream(localScreenStream);
-      if (btn) btn.classList.add('sr-ctrl-active');
-      renderLocalVideo(localScreenStream);
-    } catch (err) {
-      if (typeof showNotification === 'function') showNotification('Screenshare canceled or failed.', 'info');
-    }
-  }
-
-  function stopScreenShare() {
-    if (localScreenStream) {
-      localScreenStream.getTracks().forEach(t => t.stop());
-      localScreenStream = null;
-    }
-    const btn = document.getElementById('srToggleScreenShare');
-    if (btn) btn.classList.remove('sr-ctrl-active');
-    renderLocalVideo(null);
-    broadcastData({ type: 'webrtc-stop' });
-  }
-
-  function broadcastScreenStream(stream) {
-    if (!ws || !ws.peer) return;
-    Object.entries(peers).forEach(([uId, p]) => {
-      if (p.peerJsId) {
-        ws.peer.call(p.peerJsId, stream);
-      }
-    });
-  }
-
-  async function toggleMicrophone() {
     micActive = !micActive;
     await updateLocalMediaStream();
   }
 
   async function toggleCamera() {
+    if (localMediaStream && localMediaStream.getVideoTracks().length > 0) {
+      camActive = !camActive;
+      localMediaStream.getVideoTracks().forEach(t => t.enabled = camActive);
+      updateMediaButtons();
+      renderLocalCam(camActive ? localMediaStream : null);
+      return;
+    }
     camActive = !camActive;
-    await updateLocalMediaStream();
-  }
-
-  async function setMicrophoneState(state) {
-    if (micActive === state) return;
-    micActive = state;
     await updateLocalMediaStream();
   }
 
@@ -1089,7 +1236,6 @@
         localMediaStream = null;
       }
       renderLocalCam(null);
-      broadcastData({ type: 'webrtc-media-stop' });
       return;
     }
 
@@ -1099,35 +1245,84 @@
         localMediaStream = null;
       }
 
-      const savedVideoId = localStorage.getItem('questionary-video-id') || undefined;
-      const savedAudioId = localStorage.getItem('questionary-audio-id') || undefined;
-
       localMediaStream = await navigator.mediaDevices.getUserMedia({
-        video: camActive ? (savedVideoId ? { deviceId: { exact: savedVideoId } } : true) : false,
-        audio: micActive ? (savedAudioId ? { deviceId: { exact: savedAudioId } } : true) : false
+        video: camActive ? { width: 640, height: 480, frameRate: 24 } : false,
+        audio: true
       });
 
-      broadcastScreenStream(localMediaStream);
-      renderLocalCam(localMediaStream);
+      if (!micActive) {
+        localMediaStream.getAudioTracks().forEach(t => t.enabled = false);
+      }
+
+      broadcastMediaStream(localMediaStream, 'camera');
+      renderLocalCam(camActive ? localMediaStream : null);
     } catch (err) {
       micActive = false; camActive = false;
       updateMediaButtons();
-      if (typeof showNotification === 'function') showNotification('Media access denied.', 'error');
+      notify('Microphone or Camera access was denied.', 'error');
+    }
+  }
+
+  async function toggleScreenShare() {
+    const btn = document.getElementById('srToggleScreenShare');
+    if (localScreenStream) {
+      stopScreenShare();
+      return;
+    }
+    try {
+      localScreenStream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 30 } });
+      const vTrack = localScreenStream.getVideoTracks()[0];
+      if (vTrack) {
+        vTrack.onended = () => { if (localScreenStream) stopScreenShare(); };
+      }
+
+      broadcastMediaStream(localScreenStream, 'screen');
+      if (btn) btn.classList.add('sr-ctrl-active');
+      renderLocalVideo(localScreenStream);
+      notify('Screen sharing started.', 'success');
+    } catch (err) {
+      notify('Screen share canceled.', 'info');
+    }
+  }
+
+  function stopScreenShare() {
+    if (localScreenStream) {
+      localScreenStream.getTracks().forEach(t => t.stop());
+      localScreenStream = null;
+    }
+    const btn = document.getElementById('srToggleScreenShare');
+    if (btn) btn.classList.remove('sr-ctrl-active');
+    renderLocalVideo(null);
+    broadcastData({ type: 'webrtc-stop' });
+  }
+
+  function broadcastMediaStream(stream, type) {
+    if (!ws || !ws.peer) return;
+    Object.entries(peers).forEach(([uId, p]) => {
+      if (p.peerJsId) {
+        ws.peer.call(p.peerJsId, stream, { metadata: { type } });
+      }
+    });
+  }
+
+  function handleRemoteStream(userId, stream, type) {
+    if (type === 'screen') {
+      renderRemoteVideo(userId, stream);
+    } else {
+      renderRemoteCam(userId, stream);
     }
   }
 
   function renderLocalVideo(stream) {
     const localTile = document.querySelector('.sr-video-tile.sr-video-local');
     if (!localTile) return;
-
     let video = localTile.querySelector('.sr-screen-video');
     if (!stream) {
       if (video) { video.pause(); video.srcObject = null; video.remove(); }
       const off = localTile.querySelector('.sr-video-off');
-      if (off && !localTile.querySelector('video')) off.style.display = 'flex';
+      if (off && !localTile.querySelector('.sr-cam-video')) off.style.display = 'flex';
       return;
     }
-
     const off = localTile.querySelector('.sr-video-off');
     if (off) off.style.display = 'none';
 
@@ -1137,7 +1332,7 @@
       video.autoplay = true;
       video.playsInline = true;
       video.muted = true;
-      video.style.cssText = 'width:100%;height:100%;object-fit:cover;position:absolute;top:0;left:0;border-radius:12px;';
+      video.style.cssText = 'width:100%;height:100%;object-fit:contain;position:absolute;top:0;left:0;border-radius:12px;background:#000;';
       localTile.appendChild(video);
     }
     video.srcObject = stream;
@@ -1146,7 +1341,6 @@
   function renderRemoteVideo(userId, stream) {
     const tile = document.querySelector(`.sr-video-tile[data-userid="${userId}"]`);
     if (!tile) return;
-
     const off = tile.querySelector('.sr-video-off');
     if (off) off.style.display = 'none';
 
@@ -1156,12 +1350,7 @@
       video.className = 'sr-screen-video';
       video.autoplay = true;
       video.playsInline = true;
-      video.style.cssText = 'width:100%;height:100%;object-fit:cover;position:absolute;top:0;left:0;border-radius:12px;';
-      
-      const savedAudioOut = localStorage.getItem('questionary-audio-out-id');
-      if (savedAudioOut && typeof video.setSinkId === 'function') {
-        video.setSinkId(savedAudioOut).catch(() => {});
-      }
+      video.style.cssText = 'width:100%;height:100%;object-fit:contain;position:absolute;top:0;left:0;border-radius:12px;background:#000;';
       tile.appendChild(video);
     }
     video.srcObject = stream;
@@ -1181,14 +1370,13 @@
     const localTile = document.querySelector('.sr-video-tile.sr-video-local');
     if (!localTile) return;
     const off = localTile.querySelector('.sr-video-off');
-
     let camVideo = localTile.querySelector('.sr-cam-video');
+
     if (!stream) {
       if (camVideo) { camVideo.pause(); camVideo.srcObject = null; camVideo.remove(); }
       if (!localTile.querySelector('.sr-screen-video') && off) off.style.display = 'flex';
       return;
     }
-
     if (off) off.style.display = 'none';
     if (!camVideo) {
       camVideo = document.createElement('video');
@@ -1200,32 +1388,11 @@
       localTile.appendChild(camVideo);
     }
     camVideo.srcObject = stream;
-
-    // Overlay style if screenshare is active
-    if (localTile.querySelector('.sr-screen-video')) {
-      camVideo.style.position = 'absolute';
-      camVideo.style.width = '30%';
-      camVideo.style.height = 'auto';
-      camVideo.style.bottom = '10px';
-      camVideo.style.right = '10px';
-      camVideo.style.zIndex = '5';
-      camVideo.style.border = '2px solid rgba(255,255,255,0.5)';
-      camVideo.style.borderRadius = '8px';
-    } else {
-      camVideo.style.position = 'absolute';
-      camVideo.style.width = '100%';
-      camVideo.style.height = '100%';
-      camVideo.style.bottom = '0';
-      camVideo.style.right = '0';
-      camVideo.style.border = 'none';
-      camVideo.style.zIndex = '1';
-    }
   }
 
   function renderRemoteCam(targetId, stream) {
     const tile = document.querySelector(`.sr-video-tile[data-userid="${targetId}"]`);
     if (!tile) return;
-
     const off = tile.querySelector('.sr-video-off');
     if (off) off.style.display = 'none';
 
@@ -1236,219 +1403,112 @@
       camVideo.autoplay = true;
       camVideo.playsInline = true;
       camVideo.style.cssText = 'width:100%;height:100%;object-fit:cover;position:absolute;top:0;left:0;border-radius:12px;';
-      
-      const savedAudioOut = localStorage.getItem('questionary-audio-out-id');
-      if (savedAudioOut && typeof camVideo.setSinkId === 'function') {
-        camVideo.setSinkId(savedAudioOut).catch(() => {});
-      }
       tile.appendChild(camVideo);
     }
     camVideo.srcObject = stream;
-
-    if (tile.querySelector('.sr-screen-video')) {
-      camVideo.style.position = 'absolute';
-      camVideo.style.width = '30%';
-      camVideo.style.height = 'auto';
-      camVideo.style.bottom = '10px';
-      camVideo.style.right = '10px';
-      camVideo.style.zIndex = '5';
-      camVideo.style.border = '2px solid rgba(255,255,255,0.5)';
-      camVideo.style.borderRadius = '8px';
-    } else {
-      camVideo.style.position = 'absolute';
-      camVideo.style.width = '100%';
-      camVideo.style.height = '100%';
-      camVideo.style.bottom = '0';
-      camVideo.style.right = '0';
-      camVideo.style.border = 'none';
-      camVideo.style.zIndex = '1';
-    }
   }
 
-  function clearRemoteCam(targetId) {
-    const tile = document.querySelector(`.sr-video-tile[data-userid="${targetId}"]`);
-    if (tile) {
-      const video = tile.querySelector('.sr-cam-video');
-      if (video) { video.pause(); video.srcObject = null; video.remove(); }
-      const off = tile.querySelector('.sr-video-off');
-      if (off && !tile.querySelector('.sr-screen-video')) off.style.display = 'flex';
-    }
-  }
-
-  /* ================================================================
-     UI UPDATES
-     ================================================================ */
-  function updateParticipantsUI() {
-    const list = document.getElementById('srParticipantsList');
-    if (list) list.innerHTML = buildParticipantsHTML();
-    const grid = document.getElementById('srParticipantsGrid');
-    if (grid) grid.innerHTML = buildParticipantCardsHTML();
-    updatePeopleCount();
-    updateVideoGridLayout();
-  }
-
-  function updateProgressUI() {
-    const list = document.getElementById('srProgressList');
-    if (list) list.innerHTML = buildProgressHTML();
-  }
-
-  function updatePeopleCount() {
-    const badge = document.getElementById('srPeopleCount');
-    if (badge) badge.textContent = 1 + Object.keys(peers).length;
-  }
-
-  function updateVideoGridLayout() {
-    const grid = document.getElementById('srParticipantsGrid');
-    if (!grid) return;
-    const count = grid.children.length;
-    grid.classList.remove('sr-grid-1', 'sr-grid-2', 'sr-grid-3', 'sr-grid-4plus');
-    if (count <= 1) grid.classList.add('sr-grid-1');
-    else if (count === 2) grid.classList.add('sr-grid-2');
-    else if (count <= 4) grid.classList.add('sr-grid-3');
-    else grid.classList.add('sr-grid-4plus');
-  }
-
-  /* ================================================================
-     SESSION FLOW — CREATE / JOIN / LEAVE
-     ================================================================ */
-  async function handleCreate() {
-    nickname = document.getElementById('srNickname')?.value.trim() || 'Student';
-    localStorage.setItem('questionary-study-nickname', nickname);
-    roomPassword = document.getElementById('srCreatePassword')?.value || '';
-    isHost = true;
-    internetRoomId = generateRoomId();
-
-    try {
-      showLoading('Creating room…');
-      await connectWebSocket(internetRoomId);
-      sendToServer({ action: 'host', nickname, password: roomPassword });
-      roomAddress = internetRoomId;
-    } catch (err) {
-      hideLoading();
-      cleanup();
-      renderStudyRoom();
-      if (typeof showNotification === 'function')
-        showNotification('Failed to create room: ' + err.message, 'error');
-    }
-  }
-
-  async function handleJoin() {
-    nickname = document.getElementById('srNickname')?.value.trim() || 'Student';
-    localStorage.setItem('questionary-study-nickname', nickname);
-    const rawInput = document.getElementById('srJoinAddress')?.value.trim();
-    if (!rawInput) {
-      if (typeof showNotification === 'function') showNotification('Please enter a room code.', 'error');
-      return;
-    }
-    roomPassword = document.getElementById('srJoinPassword')?.value || '';
-    isHost = false;
-
-    const parsedCode = normalizeRoomCode(rawInput);
-    if (!parsedCode) {
-      if (typeof showNotification === 'function') showNotification('Enter a valid 10-character room code.', 'error');
-      return;
-    }
-
-    internetRoomId = parsedCode;
-    roomAddress = parsedCode;
-
-    try {
-      showLoading('Connecting to room…');
-      await connectWebSocket(internetRoomId);
-      sendToServer({ action: 'join', nickname, password: roomPassword });
-    } catch (err) {
-      hideLoading();
-      cleanup();
-      renderStudyRoom();
-      if (typeof showNotification === 'function') showNotification('Failed to join room.', 'error');
-    }
-  }
-
-  async function leaveRoom() {
-    if (typeof window.showConfirm === 'function') {
-      const ok = await window.showConfirm('Leave Room', 'Are you sure you want to leave the study session?');
-      if (!ok) return;
-    }
-    doLeave();
-    renderStudyRoom();
-    if (typeof showNotification === 'function') showNotification('Left study room.', 'info');
-  }
-
-  function forceLeaveRoom() {
-    doLeave();
-    renderStudyRoom();
-    if (typeof showNotification === 'function') showNotification('The study room was closed.', 'info');
-  }
-
-  function doLeave() {
-    stopStudyTimer();
-    stopScreenShare();
-    if (localMediaStream) {
-      localMediaStream.getTracks().forEach(t => t.stop());
-      localMediaStream = null;
-    }
-
-    if (ws) {
-      try { ws.close(); } catch (_) {}
-      ws = null;
-    }
-
-    sessionActive = false;
-    isHost = false;
-    myId = '';
-    peers = {};
-    roomAddress = '';
-    roomPassword = '';
-    chatMessages = [];
-    studyGoal = '';
-    studySeconds = 0;
-    wbActive = false;
-  }
-
-  function cleanup() {
-    if (ws) { try { ws.close(); } catch (_) {} ws = null; }
-    sessionActive = false;
-    isHost = false;
-    myId = '';
-    peers = {};
-  }
-
-  function startStudyTimer() {
-    studySeconds = 0;
-    studyTimer = setInterval(() => {
-      studySeconds++;
-      const el = document.getElementById('srSessionTimer');
-      if (el) el.textContent = fmtTime(studySeconds);
-      if (studySeconds % (PROGRESS_SYNC_INTERVAL / 1000) === 0) {
-        broadcastData({ type: 'progress', goal: studyGoal, seconds: studySeconds });
-        updateProgressUI();
+  function setupPushToTalk() {
+    window.addEventListener('keydown', (e) => {
+      if (e.code === 'Space' && !pttActive && !wbActive) {
+        const tag = document.activeElement?.tagName.toLowerCase();
+        if (tag === 'input' || tag === 'textarea') return;
+        if (localMediaStream && !micActive) {
+          pttActive = true;
+          localMediaStream.getAudioTracks().forEach(t => t.enabled = true);
+          const mbtn = document.getElementById('srToggleMic');
+          if (mbtn) mbtn.classList.add('sr-ctrl-active');
+        }
       }
-    }, 1000);
-  }
+    });
 
-  function stopStudyTimer() {
-    if (studyTimer) { clearInterval(studyTimer); studyTimer = null; }
-  }
-
-  function showLoading(msg) {
-    let overlay = document.getElementById('srLoadingOverlay');
-    if (!overlay) {
-      overlay = document.createElement('div');
-      overlay.id = 'srLoadingOverlay';
-      overlay.className = 'sr-loading-overlay';
-      document.body.appendChild(overlay);
-    }
-    overlay.innerHTML = `<div class="sr-loading-box"><div class="sr-spinner"></div><p>${msg || 'Loading…'}</p></div>`;
-    overlay.style.display = 'flex';
-  }
-
-  function hideLoading() {
-    const overlay = document.getElementById('srLoadingOverlay');
-    if (overlay) overlay.style.display = 'none';
+    window.addEventListener('keyup', (e) => {
+      if (e.code === 'Space' && pttActive) {
+        pttActive = false;
+        if (localMediaStream && !micActive) {
+          localMediaStream.getAudioTracks().forEach(t => t.enabled = false);
+          const mbtn = document.getElementById('srToggleMic');
+          if (mbtn) mbtn.classList.remove('sr-ctrl-active');
+        }
+      }
+    });
   }
 
   /* ================================================================
-     INFINITE WHITEBOARD CANVAS
+     CHAT & FILE SHARING
+     ================================================================ */
+  function sendChatMessage() {
+    const input = document.getElementById('srChatInput');
+    if (!input) return;
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = '';
+    const msg = { sender: nickname, text, time: Date.now(), type: 'chat' };
+    chatMessages.push(msg);
+    broadcastData(msg);
+    renderChatMessages();
+  }
+
+  function handleShareMaterial() {
+    const fileInput = document.getElementById('srMaterialFile');
+    if (!fileInput) return;
+    fileInput.click();
+    fileInput.onchange = async () => {
+      const file = fileInput.files[0];
+      if (!file) return;
+      if (file.size > 8 * 1024 * 1024) {
+        notify('File exceeds 8MB limit.', 'error');
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = e => {
+        const base64Data = e.target.result;
+        broadcastData({ type: 'study-material', fileName: file.name, fileData: base64Data });
+        receiveStudyMaterial(myId, base64Data, file.name);
+      };
+      reader.readAsDataURL(file);
+      fileInput.value = '';
+    };
+  }
+
+  function receiveStudyMaterial(fromId, fileData, fileName) {
+    const senderName = (fromId === myId) ? nickname : (peers[fromId]?.nickname || 'Someone');
+    const msgHtml = `Shared a file: <br><a href="${fileData}" download="${escapeHTML(fileName)}" class="sr-file-download-link"><i class="fas fa-file-download"></i> ${escapeHTML(fileName)}</a>`;
+    chatMessages.push({ sender: senderName, text: msgHtml, time: Date.now(), type: 'html' });
+    renderChatMessages();
+    SoundFX.playPop();
+  }
+
+  function renderChatMessages() {
+    const container = document.getElementById('srChatMessages');
+    if (!container) return;
+    if (chatMessages.length === 0) {
+      container.innerHTML = '<div class="sr-chat-empty"><i class="fas fa-comments"></i><p>No messages yet. Say hello!</p></div>';
+      return;
+    }
+    container.innerHTML = chatMessages.map(m => {
+      const isMe = m.sender === nickname;
+      const timeStr = new Date(m.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      if (m.type === 'system') {
+        return `<div class="sr-chat-msg sr-chat-system"><em>${m.text}</em></div>`;
+      }
+      return `
+        <div class="sr-chat-msg ${isMe ? 'sr-chat-me' : 'sr-chat-other'}">
+          <span class="sr-chat-sender">${escapeHTML(m.sender)}</span>
+          <span class="sr-chat-text">${m.type === 'html' ? m.text : escapeHTML(m.text)}</span>
+          <span class="sr-chat-time">${timeStr}</span>
+        </div>`;
+    }).join('');
+    container.scrollTop = container.scrollHeight;
+  }
+
+  function addSystemMessage(text) {
+    chatMessages.push({ sender: '', text, time: Date.now(), type: 'system' });
+    renderChatMessages();
+  }
+
+  /* ================================================================
+     WHITEBOARD 2.0 (LIVE STREAMING & SHAPES)
      ================================================================ */
   function toggleWhiteboard() {
     wbActive = !wbActive;
@@ -1476,16 +1536,36 @@
     wbOverlay.width = wbCanvasW;
     wbOverlay.height = wbCanvasH;
 
-    wbCtx.fillStyle = '#1e1e2e';
-    wbCtx.fillRect(0, 0, wbCanvasW, wbCanvasH);
+    renderCanvasGrid();
 
     wbZoom = 1;
     wbPanX = (wbCanvasW - getWrapSize().w) / 2;
     wbPanY = (wbCanvasH - getWrapSize().h) / 2;
-    wbStrokes = [];
-    wbRedoStrokes = [];
     applyTransform();
     updateZoomLabel();
+    replayAllStrokes();
+  }
+
+  function renderCanvasGrid() {
+    if (!wbCtx) return;
+    wbCtx.fillStyle = '#181824';
+    wbCtx.fillRect(0, 0, wbCanvasW, wbCanvasH);
+
+    if (wbGridStyle === 'dots') {
+      wbCtx.fillStyle = '#2e2e42';
+      for (let x = 20; x < wbCanvasW; x += 40) {
+        for (let y = 20; y < wbCanvasH; y += 40) {
+          wbCtx.fillRect(x, y, 2, 2);
+        }
+      }
+    } else if (wbGridStyle === 'grid') {
+      wbCtx.strokeStyle = '#222232';
+      wbCtx.lineWidth = 1;
+      wbCtx.beginPath();
+      for (let x = 0; x < wbCanvasW; x += 40) { wbCtx.moveTo(x, 0); wbCtx.lineTo(x, wbCanvasH); }
+      for (let y = 0; y < wbCanvasH; y += 40) { wbCtx.moveTo(0, y); wbCtx.lineTo(wbCanvasW, y); }
+      wbCtx.stroke();
+    }
   }
 
   function getWrapSize() {
@@ -1518,50 +1598,12 @@
     return { x: sx / wbZoom + wbPanX, y: sy / wbZoom + wbPanY };
   }
 
-  function zoomAtPoint(newZoom, screenX, screenY) {
-    const wrap = document.getElementById('srWbCanvasWrap');
-    if (!wrap) return;
-    const rect = wrap.getBoundingClientRect();
-    const sx = screenX - rect.left;
-    const sy = screenY - rect.top;
-    const vxBefore = sx / wbZoom + wbPanX;
-    const vyBefore = sy / wbZoom + wbPanY;
-    wbZoom = Math.max(0.05, Math.min(5, newZoom));
-    wbPanX = vxBefore - sx / wbZoom;
-    wbPanY = vyBefore - sy / wbZoom;
-    ensureCanvasCoversView();
-    applyTransform();
-    updateZoomLabel();
-  }
-
-  function zoomByDelta(delta, screenX, screenY) {
-    const factor = delta > 0 ? 0.9 : 1.1;
-    zoomAtPoint(wbZoom * factor, screenX, screenY);
-  }
-
-  function getActiveSize() {
-    if (wbTool === 'eraser') return wbEraserSize;
-    if (wbTool === 'highlighter') return wbHighlighterSize;
-    return wbPenSize;
-  }
-
   function selectWbTool(tool) {
     wbTool = tool;
     document.querySelectorAll('.sr-wb-tool-btn[data-tool]').forEach(b => {
       b.classList.toggle('active', b.dataset.tool === tool);
     });
-    const penG = document.getElementById('srWbPenSizeGroup');
-    const erG = document.getElementById('srWbEraserSizeGroup');
-    const hlG = document.getElementById('srWbHlSizeGroup');
-    if (penG) penG.style.display = (tool === 'pen') ? 'flex' : 'none';
-    if (erG) erG.style.display = (tool === 'eraser' || tool === 'block-erase') ? 'flex' : 'none';
-    if (hlG) hlG.style.display = (tool === 'highlighter') ? 'flex' : 'none';
   }
-
-  /* --- canvas drawing --- */
-  let _strokePoints = [];
-  let _rafPending = false;
-  let _pendingMoveEvent = null;
 
   function initWhiteboardListeners() {
     const wrap = document.getElementById('srWbCanvasWrap');
@@ -1577,15 +1619,11 @@
       const v = document.getElementById('srWbPenSizeVal');
       if (v) v.textContent = wbPenSize;
     });
-    document.getElementById('srWbEraserSize')?.addEventListener('input', e => {
-      wbEraserSize = parseInt(e.target.value) || 20;
-      const v = document.getElementById('srWbEraserSizeVal');
-      if (v) v.textContent = wbEraserSize;
-    });
-    document.getElementById('srWbHlSize')?.addEventListener('input', e => {
-      wbHighlighterSize = parseInt(e.target.value) || 18;
-      const v = document.getElementById('srWbHlSizeVal');
-      if (v) v.textContent = wbHighlighterSize;
+
+    document.getElementById('srWbGridToggle')?.addEventListener('click', () => {
+      wbGridStyle = wbGridStyle === 'dots' ? 'grid' : (wbGridStyle === 'grid' ? 'none' : 'dots');
+      renderCanvasGrid();
+      replayAllStrokes();
     });
 
     document.getElementById('srWbUndo')?.addEventListener('click', undoCanvas);
@@ -1598,11 +1636,11 @@
 
     document.getElementById('srWbZoomIn')?.addEventListener('click', () => {
       const r = wrap.getBoundingClientRect();
-      zoomAtPoint(wbZoom * 1.2, r.left + r.width / 2, r.top + r.height / 2);
+      zoomAtPoint(wbZoom * 1.25, r.left + r.width / 2, r.top + r.height / 2);
     });
     document.getElementById('srWbZoomOut')?.addEventListener('click', () => {
       const r = wrap.getBoundingClientRect();
-      zoomAtPoint(wbZoom / 1.2, r.left + r.width / 2, r.top + r.height / 2);
+      zoomAtPoint(wbZoom / 1.25, r.left + r.width / 2, r.top + r.height / 2);
     });
     document.getElementById('srWbZoomReset')?.addEventListener('click', () => {
       wbZoom = 1;
@@ -1612,205 +1650,218 @@
       updateZoomLabel();
     });
 
-    document.getElementById('srWbFullscreen')?.addEventListener('click', toggleWbFullscreen);
+    document.getElementById('srWbFullscreen')?.addEventListener('click', () => {
+      const panel = document.getElementById('srWhiteboardPanel');
+      if (!document.fullscreenElement) panel?.requestFullscreen().catch(() => {});
+      else document.exitFullscreen().catch(() => {});
+    });
+
     document.getElementById('srWbDownload')?.addEventListener('click', downloadWhiteboard);
     document.getElementById('srWbSaveLib')?.addEventListener('click', saveWhiteboardToLibrary);
 
     wrap.addEventListener('wheel', e => {
       e.preventDefault();
-      zoomByDelta(e.deltaY, e.clientX, e.clientY);
+      const factor = e.deltaY > 0 ? 0.9 : 1.1;
+      zoomAtPoint(wbZoom * factor, e.clientX, e.clientY);
     }, { passive: false });
 
     wrap.addEventListener('pointerdown', onPointerDown);
     wrap.addEventListener('pointermove', onPointerMove);
     wrap.addEventListener('pointerup', onPointerUp);
+  }
 
-    document.addEventListener('keydown', e => {
-      if (e.code === 'Space' && wbActive && !wbSpaceDown) {
-        const tag = document.activeElement?.tagName.toLowerCase();
-        if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
-        e.preventDefault();
-        wbSpaceDown = true;
-      }
-    });
-    document.addEventListener('keyup', e => {
-      if (e.code === 'Space' && wbSpaceDown) {
-        wbSpaceDown = false;
-      }
-    });
+  function zoomAtPoint(newZoom, screenX, screenY) {
+    const wrap = document.getElementById('srWbCanvasWrap');
+    if (!wrap) return;
+    const rect = wrap.getBoundingClientRect();
+    const sx = screenX - rect.left;
+    const sy = screenY - rect.top;
+    const vxBefore = sx / wbZoom + wbPanX;
+    const vyBefore = sy / wbZoom + wbPanY;
+    wbZoom = Math.max(0.1, Math.min(4, newZoom));
+    wbPanX = vxBefore - sx / wbZoom;
+    wbPanY = vyBefore - sy / wbZoom;
+    applyTransform();
+    updateZoomLabel();
   }
 
   function onPointerDown(e) {
     if (!wbCtx) setupCanvas();
     const { x, y } = canvasXY(e);
 
-    if (e.button === 1 || (wbSpaceDown && e.button === 0) || (wbTool === 'pan' && e.button === 0)) {
+    if (e.button === 1 || wbTool === 'pan' || e.spaceKey) {
       wbPanning = true;
       wbPanStart = { mx: e.clientX, my: e.clientY, px: wbPanX, py: wbPanY };
-      e.preventDefault();
       return;
     }
-
     if (e.button !== 0) return;
+
     wbDrawing = true;
     wbRedoStrokes = [];
 
-    if (wbTool === 'block-erase') {
-      wbBlockStart = { x, y };
-      wbBlockRect = null;
+    if (['line', 'arrow', 'rect', 'circle'].includes(wbTool)) {
+      wbShapeStart = { x, y };
       return;
     }
 
-    _strokePoints = [{ x, y }];
+    if (wbTool === 'text') {
+      const text = prompt('Enter text to place on canvas:');
+      if (text) {
+        drawTextOnCanvas(text, x, y, wbColor, wbPenSize * 4 + 12);
+        wbStrokes.push({ type: 'text', text, x, y, color: wbColor, size: wbPenSize * 4 + 12 });
+        broadcastData({ type: 'wb-text', text, x, y, color: wbColor, size: wbPenSize * 4 + 12 });
+      }
+      wbDrawing = false;
+      return;
+    }
+
+    _liveStrokePoints = [{ x, y }];
     wbCtx.beginPath();
     wbCtx.moveTo(x, y);
   }
 
   function onPointerMove(e) {
+    const { x, y } = canvasXY(e);
+
+    // Broadcast cursor position (throttled)
+    if (Date.now() - _lastLiveBroadcast > 50) {
+      broadcastData({ type: 'wb-cursor', x, y, color: wbColor });
+      _lastLiveBroadcast = Date.now();
+    }
+
     if (wbPanning && wbPanStart) {
-      const dx = (e.clientX - wbPanStart.mx) / wbZoom;
-      const dy = (e.clientY - wbPanStart.my) / wbZoom;
-      wbPanX = wbPanStart.px - dx;
-      wbPanY = wbPanStart.py - dy;
-      ensureCanvasCoversView();
+      wbPanX = wbPanStart.px - (e.clientX - wbPanStart.mx) / wbZoom;
+      wbPanY = wbPanStart.py - (e.clientY - wbPanStart.my) / wbZoom;
       applyTransform();
       return;
     }
 
     if (!wbDrawing || !wbCtx) return;
-    _pendingMoveEvent = e;
-    if (!_rafPending) {
-      _rafPending = true;
-      requestAnimationFrame(_processMove);
-    }
-  }
 
-  function _processMove() {
-    _rafPending = false;
-    const e = _pendingMoveEvent;
-    if (!e || !wbDrawing || !wbCtx) return;
-    const { x, y } = canvasXY(e);
-
-    if (wbTool === 'block-erase' && wbBlockStart) {
-      const rx = Math.min(wbBlockStart.x, x);
-      const ry = Math.min(wbBlockStart.y, y);
-      const rw = Math.abs(x - wbBlockStart.x);
-      const rh = Math.abs(y - wbBlockStart.y);
-      wbBlockRect = { x: rx, y: ry, w: rw, h: rh };
+    if (wbShapeStart) {
       wbOCtx.clearRect(0, 0, wbCanvasW, wbCanvasH);
-      wbOCtx.save();
-      wbOCtx.strokeStyle = '#ef4444';
-      wbOCtx.lineWidth = 2 / wbZoom;
-      wbOCtx.setLineDash([6 / wbZoom, 4 / wbZoom]);
-      wbOCtx.strokeRect(rx, ry, rw, rh);
-      wbOCtx.restore();
+      drawShapeOnContext(wbOCtx, wbTool, wbShapeStart, { x, y }, wbColor, wbPenSize);
       return;
     }
 
-    _strokePoints.push({ x, y });
+    _liveStrokePoints.push({ x, y });
 
-    if (wbTool === 'highlighter') {
-      wbOCtx.clearRect(0, 0, wbCanvasW, wbCanvasH);
-      wbOCtx.save();
-      wbOCtx.globalAlpha = 0.3;
-      wbOCtx.strokeStyle = wbColor;
-      wbOCtx.lineWidth = wbHighlighterSize;
-      wbOCtx.lineCap = 'round';
-      wbOCtx.lineJoin = 'round';
-      wbOCtx.beginPath();
-      wbOCtx.moveTo(_strokePoints[0].x, _strokePoints[0].y);
-      for (let i = 1; i < _strokePoints.length; i++) {
-        wbOCtx.lineTo(_strokePoints[i].x, _strokePoints[i].y);
-      }
-      wbOCtx.stroke();
-      wbOCtx.restore();
-    } else {
-      wbCtx.globalAlpha = 1;
-      wbCtx.strokeStyle = wbTool === 'eraser' ? '#1e1e2e' : wbColor;
-      wbCtx.lineWidth = wbTool === 'eraser' ? wbEraserSize : wbPenSize;
-      wbCtx.lineCap = 'round';
-      wbCtx.lineJoin = 'round';
-      wbCtx.lineTo(x, y);
-      wbCtx.stroke();
-      wbCtx.beginPath();
-      wbCtx.moveTo(x, y);
-    }
-  }
-
-  function onPointerUp() {
-    _rafPending = false;
-    _pendingMoveEvent = null;
-
-    if (wbPanning) {
-      wbPanning = false;
-      wbPanStart = null;
-      return;
-    }
-
-    if (!wbDrawing) return;
-    wbDrawing = false;
-
-    if (wbTool === 'block-erase' && wbBlockRect) {
-      wbOCtx.clearRect(0, 0, wbCanvasW, wbCanvasH);
-      wbCtx.fillStyle = '#1e1e2e';
-      wbCtx.fillRect(wbBlockRect.x, wbBlockRect.y, wbBlockRect.w, wbBlockRect.h);
-      wbStrokes.push({ type: 'block-erase', rect: { ...wbBlockRect } });
-      broadcastData({ type: 'wb-block-erase', rect: wbBlockRect });
-      wbBlockStart = null;
-      wbBlockRect = null;
-      return;
-    }
-
-    if (wbTool === 'highlighter' && _strokePoints.length > 1) {
-      wbCtx.save();
-      wbCtx.globalAlpha = 0.3;
-      wbCtx.strokeStyle = wbColor;
-      wbCtx.lineWidth = wbHighlighterSize;
-      wbCtx.lineCap = 'round';
-      wbCtx.lineJoin = 'round';
-      wbCtx.beginPath();
-      wbCtx.moveTo(_strokePoints[0].x, _strokePoints[0].y);
-      for (let i = 1; i < _strokePoints.length; i++) {
-        wbCtx.lineTo(_strokePoints[i].x, _strokePoints[i].y);
-      }
-      wbCtx.stroke();
-      wbCtx.restore();
-      wbOCtx.clearRect(0, 0, wbCanvasW, wbCanvasH);
-    }
-
-    if (_strokePoints.length > 1) {
-      const cmd = {
-        type: 'stroke',
-        points: _strokePoints.slice(),
-        color: wbTool === 'eraser' ? '#1e1e2e' : wbColor,
-        size: getActiveSize(),
-        tool: wbTool,
-        alpha: wbTool === 'highlighter' ? 0.3 : 1
-      };
-      wbStrokes.push(cmd);
-      maybeGrowCanvas(_strokePoints);
-
+    // Live stroke broadcasting for ultra-smooth real-time rendering
+    if (_liveStrokePoints.length % 3 === 0) {
       broadcastData({
-        type: 'wb-stroke',
-        points: _strokePoints,
-        color: wbTool === 'eraser' ? '#1e1e2e' : wbColor,
-        size: getActiveSize(),
+        type: 'wb-live-draw',
+        points: _liveStrokePoints.slice(-4),
+        color: wbTool === 'eraser' ? '#181824' : wbColor,
+        size: wbTool === 'eraser' ? wbEraserSize : wbPenSize,
         tool: wbTool,
         alpha: wbTool === 'highlighter' ? 0.3 : 1
       });
     }
-    _strokePoints = [];
-  }
 
-  function replayStroke(points, color, size, tool, alpha) {
-    if (!wbCtx || !points || points.length < 2) return;
     wbCtx.save();
-    wbCtx.beginPath();
-    wbCtx.strokeStyle = color;
-    wbCtx.lineWidth = size;
+    wbCtx.strokeStyle = wbTool === 'eraser' ? '#181824' : wbColor;
+    wbCtx.lineWidth = wbTool === 'eraser' ? wbEraserSize : (wbTool === 'highlighter' ? wbHighlighterSize : wbPenSize);
+    wbCtx.globalAlpha = wbTool === 'highlighter' ? 0.3 : 1;
     wbCtx.lineCap = 'round';
     wbCtx.lineJoin = 'round';
+    wbCtx.lineTo(x, y);
+    wbCtx.stroke();
+    wbCtx.beginPath();
+    wbCtx.moveTo(x, y);
+    wbCtx.restore();
+  }
+
+  function onPointerUp(e) {
+    if (wbPanning) { wbPanning = false; return; }
+    if (!wbDrawing) return;
+    wbDrawing = false;
+    const { x, y } = canvasXY(e);
+
+    if (wbShapeStart) {
+      wbOCtx.clearRect(0, 0, wbCanvasW, wbCanvasH);
+      drawShapeOnCanvas(wbTool, wbShapeStart, { x, y }, wbColor, wbPenSize);
+      wbStrokes.push({ type: 'shape', shape: wbTool, start: wbShapeStart, end: { x, y }, color: wbColor, size: wbPenSize });
+      broadcastData({ type: 'wb-shape', shape: wbTool, start: wbShapeStart, end: { x, y }, color: wbColor, size: wbPenSize });
+      wbShapeStart = null;
+      return;
+    }
+
+    if (_liveStrokePoints.length > 1) {
+      const strokeData = {
+        type: 'stroke',
+        points: _liveStrokePoints.slice(),
+        color: wbTool === 'eraser' ? '#181824' : wbColor,
+        size: wbTool === 'eraser' ? wbEraserSize : (wbTool === 'highlighter' ? wbHighlighterSize : wbPenSize),
+        tool: wbTool,
+        alpha: wbTool === 'highlighter' ? 0.3 : 1
+      };
+      wbStrokes.push(strokeData);
+      broadcastData({ type: 'wb-stroke', ...strokeData });
+    }
+    _liveStrokePoints = [];
+  }
+
+  function drawShapeOnContext(ctx, shape, start, end, color, size) {
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineWidth = size;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+
+    if (shape === 'line') {
+      ctx.moveTo(start.x, start.y);
+      ctx.lineTo(end.x, end.y);
+      ctx.stroke();
+    } else if (shape === 'arrow') {
+      ctx.moveTo(start.x, start.y);
+      ctx.lineTo(end.x, end.y);
+      ctx.stroke();
+      const angle = Math.atan2(end.y - start.y, end.x - start.x);
+      const headLen = size * 3 + 8;
+      ctx.beginPath();
+      ctx.moveTo(end.x, end.y);
+      ctx.lineTo(end.x - headLen * Math.cos(angle - Math.PI / 6), end.y - headLen * Math.sin(angle - Math.PI / 6));
+      ctx.lineTo(end.x - headLen * Math.cos(angle + Math.PI / 6), end.y - headLen * Math.sin(angle + Math.PI / 6));
+      ctx.closePath();
+      ctx.fill();
+    } else if (shape === 'rect') {
+      ctx.strokeRect(Math.min(start.x, end.x), Math.min(start.y, end.y), Math.abs(end.x - start.x), Math.abs(end.y - start.y));
+    } else if (shape === 'circle') {
+      const rx = Math.abs(end.x - start.x) / 2;
+      const ry = Math.abs(end.y - start.y) / 2;
+      const cx = Math.min(start.x, end.x) + rx;
+      const cy = Math.min(start.y, end.y) + ry;
+      ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function drawShapeOnCanvas(shape, start, end, color, size) {
+    if (!wbCtx) return;
+    drawShapeOnContext(wbCtx, shape, start, end, color, size);
+  }
+
+  function drawTextOnCanvas(text, x, y, color, size) {
+    if (!wbCtx) return;
+    wbCtx.save();
+    wbCtx.fillStyle = color;
+    wbCtx.font = `600 ${size}px 'DM Sans', sans-serif`;
+    wbCtx.fillText(text, x, y);
+    wbCtx.restore();
+  }
+
+  function replayLivePoints(points, color, size, tool, alpha) {
+    if (!wbCtx || !points || points.length < 2) return;
+    wbCtx.save();
+    wbCtx.strokeStyle = color;
+    wbCtx.lineWidth = size;
     wbCtx.globalAlpha = alpha || 1;
+    wbCtx.lineCap = 'round';
+    wbCtx.lineJoin = 'round';
+    wbCtx.beginPath();
     wbCtx.moveTo(points[0].x, points[0].y);
     for (let i = 1; i < points.length; i++) {
       wbCtx.lineTo(points[i].x, points[i].y);
@@ -1819,49 +1870,40 @@
     wbCtx.restore();
   }
 
-  function replayBlockErase(rect) {
-    if (!wbCtx || !rect) return;
-    wbCtx.fillStyle = '#1e1e2e';
-    wbCtx.fillRect(rect.x, rect.y, rect.w, rect.h);
+  function replayStroke(points, color, size, tool, alpha) {
+    replayLivePoints(points, color, size, tool, alpha);
   }
 
   function replayAllStrokes() {
-    if (!wbCtx) return;
-    wbCtx.fillStyle = '#1e1e2e';
-    wbCtx.fillRect(0, 0, wbCanvasW, wbCanvasH);
+    renderCanvasGrid();
     for (const cmd of wbStrokes) {
       if (cmd.type === 'stroke') replayStroke(cmd.points, cmd.color, cmd.size, cmd.tool, cmd.alpha);
+      else if (cmd.type === 'shape') drawShapeOnCanvas(cmd.shape, cmd.start, cmd.end, cmd.color, cmd.size);
+      else if (cmd.type === 'text') drawTextOnCanvas(cmd.text, cmd.x, cmd.y, cmd.color, cmd.size);
       else if (cmd.type === 'block-erase') replayBlockErase(cmd.rect);
     }
   }
 
-  function maybeGrowCanvas(points) {
-    let needW = wbCanvasW;
-    let needH = wbCanvasH;
-    const PAD = 512;
-    for (const p of points) {
-      if (p.x + PAD > needW) needW = Math.ceil((p.x + PAD) / 1024) * 1024;
-      if (p.y + PAD > needH) needH = Math.ceil((p.y + PAD) / 1024) * 1024;
-    }
-    if (needW > wbCanvasW || needH > wbCanvasH) growCanvas(needW, needH);
-  }
+  function renderRemoteCursors() {
+    if (!wbOCtx) return;
+    wbOCtx.clearRect(0, 0, wbCanvasW, wbCanvasH);
 
-  function growCanvas(newW, newH) {
-    newW = Math.min(newW, 16384);
-    newH = Math.min(newH, 16384);
-    if (newW <= wbCanvasW && newH <= wbCanvasH) return;
-    wbCanvasW = newW;
-    wbCanvasH = newH;
-    if (wbCanvas) { wbCanvas.width = wbCanvasW; wbCanvas.height = wbCanvasH; }
-    if (wbOverlay) { wbOverlay.width = wbCanvasW; wbOverlay.height = wbCanvasH; }
-    replayAllStrokes();
-  }
+    const now = Date.now();
+    Object.entries(wbRemoteCursors).forEach(([uId, cur]) => {
+      if (now - cur.lastSeen > 5000) return; // Cursor expired
+      wbOCtx.save();
+      wbOCtx.fillStyle = cur.color;
+      wbOCtx.beginPath();
+      wbOCtx.arc(cur.x, cur.y, 5 / wbZoom, 0, Math.PI * 2);
+      wbOCtx.fill();
 
-  function ensureCanvasCoversView() {
-    const vs = getWrapSize();
-    const neededW = Math.ceil(vs.w / wbZoom + Math.abs(wbPanX)) + 512;
-    const neededH = Math.ceil(vs.h / wbZoom + Math.abs(wbPanY)) + 512;
-    if (neededW > wbCanvasW || neededH > wbCanvasH) growCanvas(neededW, neededH);
+      wbOCtx.fillStyle = 'rgba(0,0,0,0.7)';
+      wbOCtx.fillRect(cur.x + 8 / wbZoom, cur.y - 12 / wbZoom, 80 / wbZoom, 18 / wbZoom);
+      wbOCtx.fillStyle = '#fff';
+      wbOCtx.font = `${11 / wbZoom}px sans-serif`;
+      wbOCtx.fillText(cur.name, cur.x + 12 / wbZoom, cur.y);
+      wbOCtx.restore();
+    });
   }
 
   function undoCanvas() {
@@ -1872,101 +1914,57 @@
 
   function redoCanvas() {
     if (wbRedoStrokes.length === 0 || !wbCtx) return;
-    const cmd = wbRedoStrokes.pop();
-    wbStrokes.push(cmd);
-    if (cmd.type === 'stroke') replayStroke(cmd.points, cmd.color, cmd.size, cmd.tool, cmd.alpha);
-    else if (cmd.type === 'block-erase') replayBlockErase(cmd.rect);
+    wbStrokes.push(wbRedoStrokes.pop());
+    replayAllStrokes();
   }
 
   function clearCanvasLocal() {
     if (!wbCtx || !wbCanvas) return;
-    wbCtx.fillStyle = '#1e1e2e';
-    wbCtx.fillRect(0, 0, wbCanvas.width, wbCanvas.height);
     wbStrokes = [];
     wbRedoStrokes = [];
-  }
-
-  function toggleWbFullscreen() {
-    const panel = document.getElementById('srWhiteboardPanel');
-    if (!panel) return;
-    if (!document.fullscreenElement) panel.requestFullscreen().catch(() => {});
-    else document.exitFullscreen().catch(() => {});
-  }
-
-  function getContentBounds() {
-    if (!wbCtx || !wbCanvas) return { x: 0, y: 0, w: wbCanvasW, h: wbCanvasH };
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    let found = false;
-    for (const cmd of wbStrokes) {
-      if (cmd.points) {
-        for (const p of cmd.points) {
-          found = true;
-          if (p.x < minX) minX = p.x;
-          if (p.x > maxX) maxX = p.x;
-          if (p.y < minY) minY = p.y;
-          if (p.y > maxY) maxY = p.y;
-        }
-      }
-    }
-    if (!found) {
-      const vs = getWrapSize();
-      const cx = Math.max(0, Math.floor(wbPanX));
-      const cy = Math.max(0, Math.floor(wbPanY));
-      return { x: cx, y: cy, w: Math.min(vs.w, wbCanvasW - cx), h: Math.min(vs.h, wbCanvasH - cy) };
-    }
-    const pad = 60;
-    minX = Math.max(0, Math.floor(minX) - pad);
-    minY = Math.max(0, Math.floor(minY) - pad);
-    maxX = Math.min(wbCanvasW - 1, Math.ceil(maxX) + pad);
-    maxY = Math.min(wbCanvasH - 1, Math.ceil(maxY) + pad);
-    return { x: minX, y: minY, w: maxX - minX + 1, h: maxY - minY + 1 };
+    renderCanvasGrid();
   }
 
   function downloadWhiteboard() {
     if (!wbCanvas) return;
-    const bounds = getContentBounds();
-    const tmp = document.createElement('canvas');
-    tmp.width = bounds.w;
-    tmp.height = bounds.h;
-    const tCtx = tmp.getContext('2d');
-    tCtx.drawImage(wbCanvas, bounds.x, bounds.y, bounds.w, bounds.h, 0, 0, bounds.w, bounds.h);
-    const url = tmp.toDataURL('image/png');
     const a = document.createElement('a');
-    a.href = url;
-    a.download = `whiteboard-${Date.now()}.png`;
+    a.href = wbCanvas.toDataURL('image/png');
+    a.download = `StudyRoom-Whiteboard-${Date.now()}.png`;
     a.click();
+    notify('Whiteboard image downloaded!', 'success');
   }
 
   async function saveWhiteboardToLibrary() {
     if (!wbCanvas) return;
-    let name = 'Whiteboard';
-    if (typeof window.showPrompt === 'function') {
-      const input = await window.showPrompt('Save Whiteboard', { defaultValue: 'Whiteboard ' + new Date().toLocaleDateString(), title: 'Save Whiteboard' });
-      if (!input) return;
-      name = input;
-    }
-
-    const bounds = getContentBounds();
-    const tmp = document.createElement('canvas');
-    tmp.width = bounds.w;
-    tmp.height = bounds.h;
-    const tCtx = tmp.getContext('2d');
-    tCtx.drawImage(wbCanvas, bounds.x, bounds.y, bounds.w, bounds.h, 0, 0, bounds.w, bounds.h);
-
-    tmp.toBlob(async blob => {
+    wbCanvas.toBlob(async (blob) => {
       if (!blob) return;
-      try {
-        if (typeof window.importFileFromAnySource === 'function') {
-          const file = new File([blob], name + '.png', { type: 'image/png' });
-          await window.importFileFromAnySource(file);
-          if (typeof showNotification === 'function') showNotification(`"${name}" saved to Library!`, 'success');
-        }
-      } catch (err) {
-        console.error('Failed to save whiteboard:', err);
+      const file = new File([blob], `Whiteboard-${Date.now()}.png`, { type: 'image/png' });
+      if (typeof window.importFileFromAnySource === 'function') {
+        await window.importFileFromAnySource(file);
+        notify('Whiteboard saved to Document Library!', 'success');
       }
     }, 'image/png');
   }
 
+  function maybeGrowCanvas(points) {
+    let needW = wbCanvasW;
+    let needH = wbCanvasH;
+    for (const p of points) {
+      if (p.x + 500 > needW) needW += 1024;
+      if (p.y + 500 > needH) needH += 1024;
+    }
+    if (needW > wbCanvasW || needH > wbCanvasH) {
+      wbCanvasW = Math.min(16384, needW);
+      wbCanvasH = Math.min(16384, needH);
+      if (wbCanvas) { wbCanvas.width = wbCanvasW; wbCanvas.height = wbCanvasH; }
+      if (wbOverlay) { wbOverlay.width = wbCanvasW; wbOverlay.height = wbCanvasH; }
+      replayAllStrokes();
+    }
+  }
+
+  /* ================================================================
+     QUESTIONS SIDEBAR (DEBOUNCED COLLABORATIVE NOTES)
+     ================================================================ */
   function addQuestion() {
     const id = wbNextQId++;
     wbQuestions.push({ id, question: '', answer: '' });
@@ -1978,10 +1976,6 @@
     const list = document.getElementById('srWbQList');
     if (!list) return;
 
-    const activeEl = document.activeElement;
-    const activeQid = activeEl ? activeEl.dataset.qid : null;
-    const activeField = activeEl ? activeEl.dataset.field : null;
-
     if (wbQuestions.length === 0) {
       list.innerHTML = '<div class="sr-wb-q-empty"><i class="fas fa-clipboard-list"></i><p>No questions added yet.</p></div>';
       return;
@@ -1992,15 +1986,10 @@
         <div class="sr-wb-q-num">Q${idx + 1}
           <button class="sr-wb-q-del" data-qid="${q.id}" title="Remove"><i class="fas fa-times"></i></button>
         </div>
-        <textarea class="sr-wb-q-textarea" data-field="question" data-qid="${q.id}" placeholder="Type your question…">${escapeHTML(q.question)}</textarea>
-        <textarea class="sr-wb-q-textarea sr-wb-q-answer" data-field="answer" data-qid="${q.id}" placeholder="Type your answer…">${escapeHTML(q.answer)}</textarea>
+        <textarea class="sr-wb-q-textarea" data-field="question" data-qid="${q.id}" placeholder="Type question / topic…">${escapeHTML(q.question)}</textarea>
+        <textarea class="sr-wb-q-textarea sr-wb-q-answer" data-field="answer" data-qid="${q.id}" placeholder="Type notes / solution…">${escapeHTML(q.answer)}</textarea>
       </div>
     `).join('');
-
-    if (activeQid && activeField) {
-      const restored = list.querySelector(`[data-qid="${activeQid}"][data-field="${activeField}"]`);
-      if (restored) restored.focus();
-    }
 
     list.querySelectorAll('.sr-wb-q-textarea').forEach(ta => {
       ta.addEventListener('input', e => {
@@ -2025,20 +2014,199 @@
   }
 
   /* ================================================================
-     EXPORTS
+     UI UPDATES & MODERATION
      ================================================================ */
-  window.srUpdateAudioOutput = function(deviceId) {
-    const videos = document.querySelectorAll('#srParticipantsGrid video');
-    videos.forEach(v => {
-      if (typeof v.setSinkId === 'function') v.setSinkId(deviceId).catch(() => {});
-    });
-  };
+  function updateParticipantsUI() {
+    const list = document.getElementById('srParticipantsList');
+    if (list) list.innerHTML = buildParticipantsHTML();
+    const grid = document.getElementById('srParticipantsGrid');
+    if (grid) grid.innerHTML = buildParticipantCardsHTML();
+    updatePeopleCount();
+    updateVideoGridLayout();
+  }
 
+  function updateProgressUI() {
+    const list = document.getElementById('srProgressList');
+    if (list) list.innerHTML = buildProgressHTML();
+  }
+
+  function updatePeopleCount() {
+    const badge = document.getElementById('srPeopleCount');
+    if (badge) badge.textContent = 1 + Object.keys(peers).length;
+  }
+
+  function updateVideoGridLayout() {
+    const grid = document.getElementById('srParticipantsGrid');
+    if (!grid) return;
+    const count = grid.children.length;
+    grid.classList.remove('sr-grid-1', 'sr-grid-2', 'sr-grid-3', 'sr-grid-4plus');
+    if (count <= 1) grid.classList.add('sr-grid-1');
+    else if (count === 2) grid.classList.add('sr-grid-2');
+    else if (count <= 4) grid.classList.add('sr-grid-3');
+    else grid.classList.add('sr-grid-4plus');
+  }
+
+  /* ================================================================
+     SESSION FLOW (CREATE / JOIN / LEAVE)
+     ================================================================ */
+  async function handleCreate() {
+    SoundFX.init();
+    nickname = document.getElementById('srNickname')?.value.trim() || 'Student';
+    localStorage.setItem('questionary-study-nickname', nickname);
+    roomPassword = document.getElementById('srCreatePassword')?.value || '';
+    isHost = true;
+    const newRoomId = generateRoomId();
+
+    try {
+      showLoading('Creating live room…');
+      await connectHub(newRoomId);
+      sendToServer({ action: 'host', nickname, password: roomPassword });
+      roomAddress = newRoomId;
+    } catch (err) {
+      hideLoading();
+      cleanup();
+      renderStudyRoom();
+      notify('Could not create room: ' + (err.message || err), 'error');
+    }
+  }
+
+  async function handleJoin() {
+    SoundFX.init();
+    nickname = document.getElementById('srNickname')?.value.trim() || 'Student';
+    localStorage.setItem('questionary-study-nickname', nickname);
+    const rawInput = document.getElementById('srJoinAddress')?.value.trim();
+    if (!rawInput) {
+      notify('Please enter a 10-character room code.', 'error');
+      return;
+    }
+    roomPassword = document.getElementById('srJoinPassword')?.value || '';
+    isHost = false;
+
+    const parsedCode = normalizeRoomCode(rawInput);
+    if (!parsedCode) {
+      notify('Enter a valid 10-character alphanumeric room code.', 'error');
+      return;
+    }
+
+    roomAddress = parsedCode;
+
+    try {
+      showLoading('Connecting to study room…');
+      await connectHub(parsedCode);
+      sendToServer({ action: 'join', nickname, password: roomPassword });
+    } catch (err) {
+      hideLoading();
+      cleanup();
+      renderStudyRoom();
+      notify('Failed to connect to room.', 'error');
+    }
+  }
+
+  async function leaveRoom() {
+    if (typeof window.showConfirm === 'function') {
+      const ok = await window.showConfirm('Leave Study Room?');
+      if (!ok) return;
+    }
+    doLeave();
+    renderStudyRoom();
+    notify('Left study session.', 'info');
+  }
+
+  function forceLeaveRoom() {
+    doLeave();
+    renderStudyRoom();
+  }
+
+  function doLeave() {
+    stopStudyTimer();
+    stopScreenShare();
+    if (localMediaStream) {
+      localMediaStream.getTracks().forEach(t => t.stop());
+      localMediaStream = null;
+    }
+    if (speakingCheckInterval) clearInterval(speakingCheckInterval);
+    if (ws) {
+      try { ws.close(); } catch (_) {}
+      ws = null;
+    }
+
+    sessionActive = false;
+    isHost = false;
+    myId = '';
+    peers = {};
+    roomAddress = '';
+    roomPassword = '';
+    chatMessages = [];
+    studyGoal = '';
+    studySeconds = 0;
+    wbActive = false;
+    unreadChatCount = 0;
+    handRaised = false;
+  }
+
+  function cleanup() {
+    if (ws) { try { ws.close(); } catch (_) {} ws = null; }
+    sessionActive = false;
+    isHost = false;
+    myId = '';
+    peers = {};
+  }
+
+  function startStudyTimer() {
+    studySeconds = 0;
+    studyTimer = setInterval(() => {
+      studySeconds++;
+      if (isHost && pomoRunning && pomoMode !== 'stopwatch') {
+        pomoRemaining--;
+        if (pomoRemaining <= 0) {
+          SoundFX.playChime();
+          pomoMode = pomoMode === 'focus' ? 'break' : 'focus';
+          pomoRemaining = pomoMode === 'focus' ? 25 * 60 : 5 * 60;
+          notify(pomoMode === 'focus' ? '🎯 Focus session started!' : '☕ Break time!', 'success');
+        }
+        broadcastPomoSync();
+      }
+
+      updatePomodoroUI();
+
+      if (studySeconds % (PROGRESS_SYNC_INTERVAL / 1000) === 0) {
+        broadcastData({ type: 'progress', goal: studyGoal, seconds: studySeconds });
+        updateProgressUI();
+      }
+    }, 1000);
+  }
+
+  function stopStudyTimer() {
+    if (studyTimer) { clearInterval(studyTimer); studyTimer = null; }
+  }
+
+  function showLoading(msg) {
+    let overlay = document.getElementById('srLoadingOverlay');
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.id = 'srLoadingOverlay';
+      overlay.className = 'sr-loading-overlay';
+      document.body.appendChild(overlay);
+    }
+    overlay.innerHTML = `<div class="sr-loading-box"><div class="sr-spinner"></div><p>${msg || 'Connecting…'}</p></div>`;
+    overlay.style.display = 'flex';
+  }
+
+  function hideLoading() {
+    const overlay = document.getElementById('srLoadingOverlay');
+    if (overlay) overlay.style.display = 'none';
+  }
+
+  /* ================================================================
+     GLOBAL EXPORTS
+     ================================================================ */
   window.renderStudyRoom = renderStudyRoom;
   window.leaveStudyRoom = leaveRoom;
   window.srToggleMicrophone = toggleMicrophone;
   window.srToggleCamera = toggleCamera;
-  window.srSetMicrophoneState = setMicrophoneState;
+  window.srKickUser = (targetId) => {
+    if (isHost) broadcastData({ type: 'mod-kick', targetId });
+  };
   window.wbSelectTool = selectWbTool;
   window.wbUndo = undoCanvas;
   window.wbRedo = redoCanvas;
