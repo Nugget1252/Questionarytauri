@@ -1,5 +1,5 @@
 /* ================================================================
-   QUESTIONARY — STUDY ROOM ENGINE 3.0 (ROCK SOLID & ZERO EMOJIS)
+   QUESTIONARY — STUDY ROOM ENGINE 3.1 (BULLETPROOF P2P)
    ================================================================ */
 
 (function () {
@@ -9,19 +9,15 @@
   const MAX_PARTICIPANTS = 8;
   const ROOM_CODE_LENGTH = 10;
   const ROOM_CODE_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-  const CONNECT_TIMEOUT_MS = 10000; // 10s connection timeout
+  const CONNECT_TIMEOUT_MS = 10000;
 
-  /* ---------- Multi-Server STUN Pool ---------- */
+  /* ---------- 2 Fast STUN Servers (No WebRTC Slowdown Warnings) ---------- */
   const ICE_CONFIG = {
     config: {
       iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' },
-        { urls: 'stun:stun2.l.google.com:19302' },
-        { urls: 'stun:stun3.l.google.com:19302' },
         { urls: 'stun:global.stun.twilio.com:3478' }
-      ],
-      iceCandidatePoolSize: 10
+      ]
     }
   };
 
@@ -141,7 +137,7 @@
   let _lastLiveBroadcast = 0;
 
   /* ================================================================
-     HELPERS & FORMATTERS (NO EMOJIS)
+     HELPERS & FORMATTERS
      ================================================================ */
   function fmtTime(sec) {
     const s = Math.max(0, Math.floor(sec));
@@ -185,7 +181,7 @@
   }
 
   /* ================================================================
-     PEERJS ROOM HUB (Host-Coordinated P2P Network with Timeouts)
+     PEERJS ROOM HUB (Host-Coordinated P2P Network with Outbox Queue)
      ================================================================ */
   class PeerJSRoomHub {
     constructor() {
@@ -202,17 +198,17 @@
       this.onerror = null;
       this.calls = [];
       this.connectTimeoutTimer = null;
+      this.outboxQueue = []; // Queue messages if DataChannel isn't ready
     }
 
     init(targetRoomId) {
       return new Promise((resolve, reject) => {
         const targetPeerId = 'qroom-' + targetRoomId.toLowerCase();
 
-        // 10s fail-safe timeout so users never get stuck on "Connecting..."
         this.connectTimeoutTimer = setTimeout(() => {
           if (this.readyState !== 1) {
             this.close();
-            reject(new Error('Connection timed out. Make sure the host is online and room code is correct.'));
+            reject(new Error('Connection timed out. Make sure host is online and room code is correct.'));
           }
         }, CONNECT_TIMEOUT_MS);
 
@@ -233,14 +229,25 @@
           } else {
             this.hostConn = this.peer.connect(targetPeerId, { reliable: true });
 
-            this.hostConn.on('open', () => {
+            const onConnectionReady = () => {
               clearTimeout(this.connectTimeoutTimer);
               this.readyState = 1;
               if (this.onopen) this.onopen();
+
+              // Flush outbox queue immediately
+              while (this.outboxQueue.length > 0) {
+                const msg = this.outboxQueue.shift();
+                try { this.hostConn.send(msg); } catch(e) {}
+              }
               resolve();
-            });
+            };
+
+            this.hostConn.on('open', onConnectionReady);
 
             this.hostConn.on('data', (raw) => {
+              if (this.readyState !== 1) {
+                onConnectionReady();
+              }
               if (this.onmessage) {
                 const dataStr = typeof raw === 'string' ? raw : JSON.stringify(raw);
                 this.onmessage({ data: dataStr });
@@ -262,6 +269,8 @@
 
         if (isHost) {
           this.peer.on('connection', (conn) => {
+            this.connections.set(conn.peer, conn);
+
             conn.on('open', () => {
               this.connections.set(conn.peer, conn);
             });
@@ -300,8 +309,14 @@
 
     send(str) {
       if (!isHost) {
-        if (this.hostConn && this.hostConn.open) {
-          this.hostConn.send(str);
+        if (this.hostConn && (this.hostConn.open || this.readyState === 1)) {
+          try {
+            this.hostConn.send(str);
+          } catch(e) {
+            this.outboxQueue.push(str);
+          }
+        } else {
+          this.outboxQueue.push(str);
         }
         return;
       }
@@ -378,7 +393,7 @@
       for (const [pId, conn] of this.connections.entries()) {
         const uId = this.peerJsToUser.get(pId);
         if (uId !== excludeUserId && conn.open) {
-          conn.send(str);
+          try { conn.send(str); } catch(e) {}
         }
       }
     }
@@ -401,10 +416,11 @@
       clearTimeout(this.connectTimeoutTimer);
       this.calls.forEach(c => { try { c.close(); } catch(e) {} });
       this.calls = [];
-      this.connections.forEach(conn => conn.close());
+      this.connections.forEach(conn => { try { conn.close(); } catch(e) {} });
       this.connections.clear();
       this.peerJsToUser.clear();
       this.userToPeerJs.clear();
+      this.outboxQueue = [];
       if (this.peer) {
         this.peer.destroy();
         this.peer = null;
@@ -426,7 +442,7 @@
   }
 
   function sendToServer(obj) {
-    if (ws && ws.readyState === 1) {
+    if (ws) {
       ws.send(JSON.stringify(obj));
     }
   }
@@ -520,7 +536,7 @@
         break;
 
       case 'reaction':
-        spawnFloatingReaction(data.iconClass);
+        spawnFloatingReaction(data.emoji);
         break;
 
       case 'hand-raise':
@@ -562,7 +578,6 @@
         }
         break;
 
-      /* Synced Timer Engine */
       case 'timer-sync':
         timerMode = data.mode;
         timerRunning = data.running;
@@ -592,7 +607,6 @@
         notify(`Room ${roomLocked ? 'Locked' : 'Unlocked'} by host.`, 'info');
         break;
 
-      /* Whiteboard Live Streaming */
       case 'wb-live-draw':
         replayLivePoints(data.points, data.color, data.size, data.tool, data.alpha);
         break;
@@ -750,7 +764,7 @@
             ${isHost ? `<button class="sr-btn sr-btn-sm ${roomLocked ? 'sr-btn-primary' : 'sr-btn-secondary'}" id="srLockToggle" title="Lock/Unlock Room"><i class="fas fa-${roomLocked ? 'lock' : 'lock-open'}"></i></button>` : ''}
           </div>
 
-          <!-- UNIFIED WORKING TIMER & POMODORO BAR -->
+          <!-- UNIFIED TIMER & POMODORO BAR -->
           <div class="sr-pomo-bar" id="srPomoBar">
             <button class="sr-pomo-mode-btn" id="srPomoToggleMode" title="Cycle Mode (Stopwatch / 25m Focus / 5m Break / 15m Long Break)">
               <i class="fas fa-stopwatch"></i>
@@ -765,7 +779,7 @@
           </div>
 
           <div class="sr-session-bar-right">
-            <button class="sr-ctrl-btn ${handRaised ? 'sr-ctrl-active' : ''}" id="srRaiseHandBtn" title="Raise Hand (Ask Question)">
+            <button class="sr-ctrl-btn ${handRaised ? 'sr-ctrl-active' : ''}" id="srRaiseHandBtn" title="Raise Hand">
               <i class="fas fa-hand-paper"></i>
             </button>
             <button class="sr-ctrl-btn" id="srToggleMic" title="Toggle Microphone">
@@ -780,7 +794,7 @@
             <button class="sr-ctrl-btn ${wbActive ? 'sr-ctrl-active' : ''}" id="srToggleWB" title="Toggle Whiteboard">
               <i class="fas fa-chalkboard"></i>
             </button>
-            ${isHost ? `<button class="sr-ctrl-btn" id="srMuteAllBtn" title="Mute All Participants"><i class="fas fa-volume-mute"></i></button>` : ''}
+            ${isHost ? `<button class="sr-ctrl-btn" id="srMuteAllBtn" title="Mute All"><i class="fas fa-volume-mute"></i></button>` : ''}
             <button class="sr-ctrl-btn sr-ctrl-danger" id="srLeaveBtn" title="Leave room">
               <i class="fas fa-phone-slash"></i>
             </button>
@@ -794,14 +808,14 @@
               ${buildParticipantCardsHTML()}
             </div>
             
-            <!-- Quick Reactions Bar (FontAwesome Icons, Zero Emojis) -->
+            <!-- Quick Reactions Bar (EMOJIS RESTORED) -->
             <div class="sr-reactions-bar">
-              <button class="sr-react-btn" data-icon="fas fa-thumbs-up" title="Like"><i class="fas fa-thumbs-up"></i></button>
-              <button class="sr-react-btn" data-icon="fas fa-hands" title="Clap"><i class="fas fa-hands"></i></button>
-              <button class="sr-react-btn" data-icon="fas fa-lightbulb" title="Idea"><i class="fas fa-lightbulb"></i></button>
-              <button class="sr-react-btn" data-icon="fas fa-fire" title="Fire"><i class="fas fa-fire"></i></button>
-              <button class="sr-react-btn" data-icon="fas fa-heart" title="Heart"><i class="fas fa-heart"></i></button>
-              <button class="sr-react-btn" data-icon="fas fa-coffee" title="Break"><i class="fas fa-coffee"></i></button>
+              <button class="sr-react-btn" data-emoji="👏" title="Clap">👏</button>
+              <button class="sr-react-btn" data-emoji="🔥" title="Fire">🔥</button>
+              <button class="sr-react-btn" data-emoji="💡" title="Idea">💡</button>
+              <button class="sr-react-btn" data-emoji="👍" title="Thumbs Up">👍</button>
+              <button class="sr-react-btn" data-emoji="❤️" title="Heart">❤️</button>
+              <button class="sr-react-btn" data-emoji="☕" title="Coffee Break">☕</button>
             </div>
           </div>
 
@@ -959,7 +973,6 @@
     return html;
   }
 
-  /* Goals Tab HTML with Live Ticking Timer */
   function buildProgressHTML() {
     let html = '';
     html += `
@@ -990,7 +1003,6 @@
 
       totalUptimeSeconds++;
 
-      // Timer countdown / countup
       if (timerRunning) {
         if (timerMode === 'stopwatch') {
           timerSeconds++;
@@ -1176,12 +1188,12 @@
       });
     });
 
-    // Floating Reactions (Icons, No Emojis)
+    // Floating Reactions (Emojis Restored)
     document.querySelectorAll('.sr-react-btn').forEach(btn => {
       btn.addEventListener('click', () => {
-        const iconClass = btn.dataset.icon;
-        spawnFloatingReaction(iconClass);
-        broadcastData({ type: 'reaction', iconClass });
+        const emoji = btn.dataset.emoji;
+        spawnFloatingReaction(emoji);
+        broadcastData({ type: 'reaction', emoji });
       });
     });
 
@@ -1226,14 +1238,14 @@
     }
   }
 
-  function spawnFloatingReaction(iconClass) {
+  function spawnFloatingReaction(emoji) {
     SoundFX.playPop();
     const container = document.getElementById('srParticipantArea');
     if (!container) return;
 
     const el = document.createElement('div');
     el.className = 'sr-floating-reaction';
-    el.innerHTML = `<i class="${iconClass}"></i>`;
+    el.textContent = emoji;
     el.style.left = `${20 + Math.random() * 60}%`;
     el.style.bottom = '80px';
     container.appendChild(el);
