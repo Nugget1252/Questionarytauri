@@ -9,8 +9,8 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet" crossorigin="anonymous" referrerpolicy="no-referrer">
-    <link rel="stylesheet" href="css/styles.css?v=215">
-    <link rel="stylesheet" href="css/features.css?v=215">
+    <link rel="stylesheet" href="css/styles.css?v=216">
+    <link rel="stylesheet" href="css/features.css?v=216">
     <style>
         /* Mobile Safe Area & Android Touch Optimization */
         :root {
@@ -35,7 +35,6 @@
 
         body {
             padding-top: var(--safe-top);
-            padding-bottom: var(--safe-bottom);
             padding-left: var(--safe-left);
             padding-right: var(--safe-right);
             background: var(--bg, #111113);
@@ -55,6 +54,7 @@
             justify-content: center !important;
             color: white !important;
             font-size: 1.1rem !important;
+            flex-shrink: 0 !important;
         }
         .stat-icon.documents { background: #cf6215 !important; }
         .stat-icon.favorites { background: #eab308 !important; }
@@ -69,6 +69,7 @@
             align-items: center !important;
             justify-content: center !important;
             cursor: pointer !important;
+            touch-action: manipulation !important;
         }
 
         .nav-links.sidebar-open .nav-link,
@@ -76,22 +77,23 @@
         body.vertical-navbar-mode .nav-link {
             display: flex !important;
             align-items: center !important;
-            height: 36px !important;
-            padding: 0 10px !important;
+            height: 44px !important;
+            padding: 0 12px !important;
             border-radius: 8px !important;
             color: var(--fg2, #a0a0ab) !important;
             text-decoration: none !important;
             box-sizing: border-box !important;
+            touch-action: manipulation !important;
         }
 
         .nav-links.sidebar-open .nav-link i,
         .nav-links.is-pinned .nav-link i,
         body.vertical-navbar-mode .nav-link i {
             display: inline-flex !important;
-            font-size: 0.9rem !important;
-            width: 20px !important;
+            font-size: 1rem !important;
+            width: 24px !important;
             text-align: center !important;
-            margin-right: 6px !important;
+            margin-right: 8px !important;
             color: var(--accent, #cf6215) !important;
             visibility: visible !important;
             opacity: 1 !important;
@@ -101,7 +103,7 @@
         .nav-links.is-pinned .nav-link span,
         body.vertical-navbar-mode .nav-link span {
             display: inline-block !important;
-            font-size: 0.85rem !important;
+            font-size: 0.9rem !important;
             color: var(--fg, #ededef) !important;
             font-weight: 500 !important;
             visibility: visible !important;
@@ -116,13 +118,23 @@
             color: var(--accent, #cf6215) !important;
         }
 
+        /* Modal bottom sheet handle styling */
+        .modal-sheet-handle {
+            display: none;
+            width: 40px;
+            height: 5px;
+            background: var(--line, #2e3035);
+            border-radius: 3px;
+            margin: -4px auto 14px auto;
+        }
+
         /* ================================================================
            MOBILE RESPONSIVE OVERHAUL (< 768px)
            ================================================================ */
         @media (max-width: 768px) {
             .header {
-                height: calc(52px + var(--safe-top)) !important;
-                padding: calc(6px + var(--safe-top)) 12px 6px 12px !important;
+                height: 54px !important;
+                padding: 0 12px !important;
                 display: flex !important;
                 align-items: center !important;
                 justify-content: space-between !important;
@@ -134,7 +146,7 @@
             .header-left {
                 display: flex !important;
                 align-items: center !important;
-                gap: 6px !important;
+                gap: 8px !important;
             }
 
             .mobile-menu-toggle {
@@ -142,13 +154,12 @@
             }
 
             .logo span {
-                font-size: 1rem !important;
-                font-weight: 700 !important;
+                display: none !important;
             }
 
             .logo-icon {
-                width: 24px !important;
-                height: 24px !important;
+                width: 26px !important;
+                height: 26px !important;
             }
 
             .header-right {
@@ -162,13 +173,13 @@
             .search-container {
                 flex: 1 !important;
                 max-width: 170px !important;
-                height: 34px !important;
+                height: 36px !important;
             }
 
             .search-input {
-                height: 34px !important;
-                font-size: 0.8rem !important;
-                padding-left: 30px !important;
+                height: 36px !important;
+                font-size: 0.85rem !important;
+                padding-left: 32px !important;
             }
 
             .search-icon {
@@ -188,20 +199,21 @@
                 bottom: 0 !important;
                 left: 0 !important;
                 right: 0 !important;
-                height: calc(56px + var(--safe-bottom)) !important;
+                height: calc(58px + var(--safe-bottom)) !important;
                 padding-bottom: var(--safe-bottom) !important;
                 background: var(--surface, #1e1f22) !important;
                 border-top: 1px solid var(--border, #2e3035) !important;
                 z-index: 9999 !important;
                 justify-content: space-around !important;
                 align-items: center !important;
-                box-shadow: 0 -4px 16px rgba(0,0,0,0.3) !important;
+                box-shadow: 0 -4px 20px rgba(0,0,0,0.3) !important;
                 backdrop-filter: blur(12px) !important;
                 -webkit-backdrop-filter: blur(12px) !important;
             }
 
             .mobile-bottom-nav-item {
                 flex: 1 !important;
+                height: 56px !important;
                 display: flex !important;
                 flex-direction: column !important;
                 align-items: center !important;
@@ -209,37 +221,37 @@
                 background: none !important;
                 border: none !important;
                 color: var(--fg3, #8b8f94) !important;
-                font-size: 0.7rem !important;
+                font-size: 0.72rem !important;
                 gap: 3px !important;
                 padding: 4px 0 !important;
                 cursor: pointer !important;
                 user-select: none !important;
+                touch-action: manipulation !important;
                 transition: color 0.15s ease, transform 0.1s ease !important;
             }
 
             .mobile-bottom-nav-item i {
-                font-size: 1.15rem !important;
+                font-size: 1.25rem !important;
             }
 
             .mobile-bottom-nav-item.active {
                 color: var(--accent, #cf6215) !important;
-                font-weight: 600 !important;
+                font-weight: 700 !important;
             }
 
             .mobile-bottom-nav-item:active {
                 transform: scale(0.92) !important;
             }
 
-            #main-content {
-                padding-bottom: calc(72px + var(--safe-bottom)) !important;
-                padding-top: 10px !important;
+            #main-content, .container {
+                padding: 10px 12px calc(76px + var(--safe-bottom)) 12px !important;
             }
 
             .dashboard-header {
                 display: grid !important;
                 grid-template-columns: repeat(2, 1fr) !important;
-                gap: 10px !important;
-                margin-bottom: 12px !important;
+                gap: 8px !important;
+                margin-bottom: 14px !important;
             }
 
             .stat-card {
@@ -256,10 +268,11 @@
             .stat-info {
                 display: flex !important;
                 flex-direction: column !important;
+                min-width: 0 !important;
             }
 
             .stat-value {
-                font-size: 1.1rem !important;
+                font-size: 1.15rem !important;
                 font-weight: 700 !important;
                 line-height: 1.1 !important;
             }
@@ -268,39 +281,75 @@
                 font-size: 0.65rem !important;
                 text-transform: uppercase !important;
                 letter-spacing: 0.5px !important;
-                opacity: 0.7 !important;
+                opacity: 0.75 !important;
             }
 
-            .modal-overlay .modal {
+            /* Bottom Sheet Transitions for All Modals */
+            .modal-overlay {
+                align-items: flex-end !important;
+                padding: 0 !important;
+            }
+
+            .modal-overlay .modal,
+            .modal-overlay .modal-content {
                 width: 100% !important;
                 max-width: 100% !important;
                 border-radius: 20px 20px 0 0 !important;
                 margin-top: auto !important;
-                max-height: 88vh !important;
+                margin-bottom: 0 !important;
+                max-height: 86vh !important;
+                padding: 14px 16px calc(18px + var(--safe-bottom)) 16px !important;
+                animation: slideUpSheet 0.25s cubic-bezier(0.4, 0, 0.2, 1) forwards !important;
             }
 
-            .tiles-grid {
-                grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)) !important;
-                gap: 10px !important;
+            .modal-sheet-handle {
+                display: block !important;
             }
 
-            .tile {
+            @keyframes slideUpSheet {
+                from { transform: translateY(100%); }
+                to { transform: translateY(0); }
+            }
+
+            .tiles-grid, .library-grid {
+                grid-template-columns: repeat(auto-fill, minmax(115px, 1fr)) !important;
+                gap: 8px !important;
+            }
+
+            .tile, .library-item {
                 padding: 12px 8px !important;
-                min-height: 100px !important;
+                min-height: 85px !important;
+                touch-action: manipulation !important;
             }
 
-            .tile-icon i {
-                font-size: 1.8rem !important;
+            .tile:active, .library-item:active {
+                transform: scale(0.96) !important;
             }
 
-            .tile-text {
+            .tile-icon i, .library-item-icon i {
+                font-size: 1.6rem !important;
+            }
+
+            .tile-text, .library-item-name {
                 font-size: 0.8rem !important;
+            }
+
+            .quick-links-toggle, .timer-reopen-btn {
+                bottom: calc(68px + var(--safe-bottom)) !important;
+            }
+
+            .timer-panel {
+                bottom: calc(68px + var(--safe-bottom)) !important;
+                right: 10px !important;
+                left: 10px !important;
+                width: auto !important;
+                max-width: 100% !important;
             }
         }
     </style>
     <script>
       (function() {
-          // WebRTC Aliases and Polyfills for WebKit / Safari / Tauri
+          // WebRTC Aliases and Polyfills for WebKit / Safari / Tauri / Android
           window.RTCPeerConnection = window.RTCPeerConnection || window.webkitRTCPeerConnection || window.mozRTCPeerConnection || window.msRTCPeerConnection;
           window.RTCSessionDescription = window.RTCSessionDescription || window.webkitRTCSessionDescription || window.mozRTCSessionDescription || window.msRTCSessionDescription;
           window.RTCIceCandidate = window.RTCIceCandidate || window.webkitRTCIceCandidate || window.mozRTCIceCandidate || window.msRTCIceCandidate;
@@ -392,11 +441,11 @@
         <form id="loginForm">
             <div class="form-group">
                 <label for="username" class="form-label">Username</label>
-                <input type="text" id="username" class="form-input" placeholder="Enter username" required>
+                <input type="text" id="username" class="form-input" placeholder="Enter username" required autocomplete="username">
             </div>
             <div class="form-group">
                 <label for="password" class="form-label">Password</label>
-                <input type="password" id="password" class="form-input" placeholder="Enter password" required>
+                <input type="password" id="password" class="form-input" placeholder="Enter password" required autocomplete="current-password">
             </div>
             <div class="form-group checkbox-group">
                 <label class="checkbox-label">
@@ -422,7 +471,7 @@
     
     <header class="header">
         <div class="header-left" id="headerLeft">
-            <button class="hamburger-menu" id="hamburgerMenu" title="Toggle Menu">
+            <button class="hamburger-menu" id="hamburgerMenu" title="Toggle Menu" aria-label="Open Menu">
                 <i class="fas fa-bars"></i>
             </button>
             <div class="logo">
@@ -437,7 +486,7 @@
                     <i class="fas fa-graduation-cap"></i>
                     <span>Menu</span>
                 </div>
-                <button class="sidebar-close" id="sidebarClose">
+                <button class="sidebar-close" id="sidebarClose" aria-label="Close Menu">
                     <i class="fas fa-times"></i>
                 </button>
                 <a class="nav-link active" id="homeNav"><i class="fas fa-home"></i><span>Home</span></a>
@@ -457,7 +506,7 @@
         <div class="header-right" id="headerRight">
             <div class="search-container">
                 <i class="fas fa-search search-icon"></i>
-                <input type="text" class="search-input" id="globalSearch" placeholder="Search...">
+                <input type="text" class="search-input" id="globalSearch" placeholder="Search..." autocomplete="off">
             </div>
             
             <div class="header-actions-row">
@@ -1239,8 +1288,8 @@
         </section>
     </div>
 
-    <!-- Android Mobile Bottom Navigation Bar -->
-    <nav class="mobile-bottom-nav" id="mobileBottomNav">
+    <!-- Android & iOS Mobile Bottom Navigation Bar -->
+    <nav class="mobile-bottom-nav" id="mobileBottomNav" aria-label="Mobile Bottom Navigation">
         <button class="mobile-bottom-nav-item active" data-view="home" id="mobileNavHome">
             <i class="fas fa-home"></i>
             <span>Home</span>
@@ -1283,9 +1332,10 @@
         </div>
     </div>
 
-    <!-- Modals -->
+    <!-- Modals (with Mobile Bottom Sheet Handle) -->
     <div class="modal-overlay" id="noteModal">
         <div class="modal">
+            <div class="modal-sheet-handle"></div>
             <div class="modal-header">
                 <h3 id="noteModalTitle"><i class="fas fa-sticky-note"></i> Create Note</h3>
                 <button class="modal-close" id="closeNoteModal"><i class="fas fa-times"></i></button>
@@ -1320,6 +1370,7 @@
 
     <div class="modal-overlay" id="flashcardModal">
         <div class="modal modal-lg">
+            <div class="modal-sheet-handle"></div>
             <div class="modal-header">
                 <h3 id="flashcardModalTitle"><i class="fas fa-layer-group"></i> Create Flashcard Deck</h3>
                 <button class="modal-close" id="closeFlashcardModal"><i class="fas fa-times"></i></button>
@@ -1354,6 +1405,7 @@
 
     <div class="modal-overlay" id="studyModal">
         <div class="modal">
+            <div class="modal-sheet-handle"></div>
             <div class="modal-header">
                 <h3 id="studyModalTitle"><i class="fas fa-graduation-cap"></i> Study Mode</h3>
                 <button class="modal-close" id="closeStudyModal"><i class="fas fa-times"></i></button>
@@ -1380,6 +1432,7 @@
 
     <div class="modal-overlay" id="sessionModal">
         <div class="modal">
+            <div class="modal-sheet-handle"></div>
             <div class="modal-header">
                 <h3 id="sessionModalTitle"><i class="fas fa-calendar-plus"></i> Add Study Session</h3>
                 <button class="modal-close" id="closeSessionModal"><i class="fas fa-times"></i></button>
@@ -1415,6 +1468,7 @@
 
     <div class="modal-overlay" id="quizModal">
         <div class="modal modal-lg">
+            <div class="modal-sheet-handle"></div>
             <div class="modal-header">
                 <h3 id="quizModalTitle"><i class="fas fa-question-circle"></i> Quiz Mode</h3>
                 <button class="modal-close" id="closeQuizModal" type="button" onclick="closeQuizModal()"><i class="fas fa-times"></i></button>
@@ -1425,6 +1479,7 @@
 
     <div class="modal-overlay" id="reminderModal">
         <div class="modal">
+            <div class="modal-sheet-handle"></div>
             <div class="modal-header">
                 <h3><i class="fas fa-bell"></i> Add Study Reminder</h3>
                 <button class="modal-close" id="closeReminderModal" type="button" onclick="closeReminderModal()"><i class="fas fa-times"></i></button>
@@ -1460,6 +1515,7 @@
 
     <div class="modal-overlay" id="tagModal">
         <div class="modal">
+            <div class="modal-sheet-handle"></div>
             <div class="modal-header">
                 <h3><i class="fas fa-tag"></i> Create Tag</h3>
                 <button class="modal-close" id="closeTagModal" type="button" onclick="closeTagModal()"><i class="fas fa-times"></i></button>
@@ -1483,6 +1539,7 @@
 
     <div class="modal-overlay" id="bookmarkModal">
         <div class="modal">
+            <div class="modal-sheet-handle"></div>
             <div class="modal-header">
                 <h3><i class="fas fa-bookmark"></i> Add Bookmark</h3>
                 <button class="modal-close" id="closeBookmarkModal" type="button" onclick="closeBookmarkModal()"><i class="fas fa-times"></i></button>
@@ -1506,6 +1563,7 @@
 
     <div class="modal-overlay" id="tagItemModal">
         <div class="modal">
+            <div class="modal-sheet-handle"></div>
             <div class="modal-header">
                 <h3><i class="fas fa-tag"></i> Add Tags to Item</h3>
                 <button class="modal-close" id="closeTagItemModal" type="button" onclick="closeTagItemModal()"><i class="fas fa-times"></i></button>
@@ -1529,6 +1587,7 @@
 
     <div class="modal-overlay" id="libraryFolderModal">
         <div class="modal-content">
+            <div class="modal-sheet-handle"></div>
             <div class="modal-header">
                 <h3 id="libraryFolderModalTitle"><i class="fas fa-folder-plus"></i> Create Folder</h3>
                 <button class="modal-close" type="button" onclick="closeLibraryFolderModal()"><i class="fas fa-times"></i></button>
@@ -1560,6 +1619,7 @@
 
     <div class="modal-overlay" id="moveItemModal">
         <div class="modal-content">
+            <div class="modal-sheet-handle"></div>
             <div class="modal-header">
                 <h3><i class="fas fa-arrows-alt"></i> Move Item</h3>
                 <button class="modal-close" type="button" onclick="closeMoveItemModal()"><i class="fas fa-times"></i></button>
