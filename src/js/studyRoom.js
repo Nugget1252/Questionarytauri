@@ -2384,64 +2384,64 @@
 
 })();
 /* ================================================================
-   BULLETPROOF THEME & ACCESSIBILITY HANDLERS (Delegated)
+   DIRECT GLOBAL THEME & ACCESSIBILITY HANDLERS
    ================================================================ */
-(function setupGlobalHeaderActions() {
-    // 1. Set Initial Theme on Load
+// 1. Theme Toggle
+window.toggleTheme = function(e) {
+    if (e) { e.preventDefault(); e.stopPropagation(); }
+    const current = document.documentElement.getAttribute('data-theme') || 'dark';
+    const next = current === 'dark' ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', next);
+    document.body.setAttribute('data-theme', next);
+    localStorage.setItem('theme', next);
+    const icon = document.getElementById('themeIcon');
+    if (icon) icon.className = next === 'dark' ? 'fas fa-sun' : 'fas fa-moon';
+};
+
+// 2. Accessibility Panel Open/Close
+window.toggleAccessibilityPanel = function(e) {
+    if (e) { e.preventDefault(); e.stopPropagation(); }
+    const panel = document.getElementById('accessibilityPanel');
+    if (!panel) return;
+    const isOpening = !panel.classList.contains('active');
+    panel.classList.toggle('active', isOpening);
+    panel.style.setProperty('display', isOpening ? 'flex' : 'none', 'important');
+};
+
+// 3. Accessibility Switch Options
+window.toggleAccessOption = function(mode, el) {
+    const isActive = document.body.classList.toggle(mode);
+    document.documentElement.classList.toggle(mode, isActive);
+    const sw = el.querySelector('.accessibility-switch');
+    if (sw) sw.classList.toggle('active', isActive);
+    localStorage.setItem(`access-${mode}`, isActive ? 'true' : 'false');
+};
+
+// 4. Close Panel on Outside Click
+document.addEventListener('click', function(e) {
+    const panel = document.getElementById('accessibilityPanel');
+    if (panel && panel.classList.contains('active')) {
+        if (!panel.contains(e.target) && !e.target.closest('#accessibilityToggle')) {
+            panel.classList.remove('active');
+            panel.style.setProperty('display', 'none', 'important');
+        }
+    }
+});
+
+// 5. Restore Saved Preferences on Load
+(function restorePreferences() {
     const savedTheme = localStorage.getItem('theme') || 'dark';
     document.documentElement.setAttribute('data-theme', savedTheme);
     document.body.setAttribute('data-theme', savedTheme);
-    const themeIcon = document.getElementById('themeIcon');
-    if (themeIcon) {
-        themeIcon.className = savedTheme === 'dark' ? 'fas fa-sun' : 'fas fa-moon';
-    }
+    const icon = document.getElementById('themeIcon');
+    if (icon) icon.className = savedTheme === 'dark' ? 'fas fa-sun' : 'fas fa-moon';
 
-    // 2. Global Delegated Click Listener
-    document.addEventListener('click', function(e) {
-        // --- Theme Toggle ---
-        const themeBtn = e.target.closest('#themeToggle');
-        if (themeBtn) {
-            e.preventDefault();
-            e.stopPropagation();
-            const current = document.documentElement.getAttribute('data-theme') || 'dark';
-            const next = current === 'dark' ? 'light' : 'dark';
-            
-            document.documentElement.setAttribute('data-theme', next);
-            document.body.setAttribute('data-theme', next);
-            localStorage.setItem('theme', next);
-
-            const icon = document.getElementById('themeIcon');
-            if (icon) {
-                icon.className = next === 'dark' ? 'fas fa-sun' : 'fas fa-moon';
-            }
-            return;
-        }
-
-// --- Accessibility Button ---
-        const accessBtn = e.target.closest('#accessibilityToggle');
-        if (accessBtn) {
-            e.preventDefault();
-            e.stopPropagation();
-            const panel = document.getElementById('accessibilityPanel');
-            if (panel) {
-                const isOpen = panel.classList.contains('active') && panel.style.display !== 'none';
-                if (isOpen) {
-                    panel.classList.remove('active');
-                    panel.style.setProperty('display', 'none', 'important');
-                } else {
-                    panel.classList.add('active');
-                    panel.style.setProperty('display', 'flex', 'important');
-                }
-            }
-            return;
-        }
-        // --- Close Accessibility Panel on Outside Click ---
-        const panel = document.getElementById('accessibilityPanel');
-        if (panel && panel.classList.contains('active')) {
-            if (!panel.contains(e.target) && !e.target.closest('#accessibilityToggle')) {
-                panel.classList.remove('active');
-                panel.style.setProperty('display', 'none', 'important');
-            }
+    ['high-contrast', 'large-text', 'reduced-motion', 'enhanced-focus'].forEach(mode => {
+        if (localStorage.getItem(`access-${mode}`) === 'true') {
+            document.body.classList.add(mode);
+            document.documentElement.classList.add(mode);
+            const opt = document.querySelector(`[onclick*="${mode}"]`);
+            opt?.querySelector('.accessibility-switch')?.classList.add('active');
         }
     });
 })();

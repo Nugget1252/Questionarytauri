@@ -120,7 +120,6 @@
            MOBILE RESPONSIVE OVERHAUL (< 768px)
            ================================================================ */
         @media (max-width: 768px) {
-            /* Streamlined Top App Header on Mobile */
             .header {
                 height: calc(52px + var(--safe-top)) !important;
                 padding: calc(6px + var(--safe-top)) 12px 6px 12px !important;
@@ -160,7 +159,6 @@
                 justify-content: flex-end !important;
             }
 
-            /* Responsive Search Input */
             .search-container {
                 flex: 1 !important;
                 max-width: 170px !important;
@@ -184,7 +182,6 @@
                 display: none !important;
             }
 
-            /* Bottom Fixed Navigation Bar */
             .mobile-bottom-nav {
                 display: flex !important;
                 position: fixed !important;
@@ -238,7 +235,6 @@
                 padding-top: 10px !important;
             }
 
-            /* Mobile 2x2 Dashboard Stat Cards */
             .dashboard-header {
                 display: grid !important;
                 grid-template-columns: repeat(2, 1fr) !important;
@@ -275,7 +271,6 @@
                 opacity: 0.7 !important;
             }
 
-            /* Mobile Slide-Up Modal Sheets */
             .modal-overlay .modal {
                 width: 100% !important;
                 max-width: 100% !important;
@@ -284,7 +279,6 @@
                 max-height: 88vh !important;
             }
 
-            /* Touch Friendly Grid */
             .tiles-grid {
                 grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)) !important;
                 gap: 10px !important;
@@ -396,7 +390,7 @@
                 <a class="nav-link" id="settingsNav"><i class="fas fa-cog"></i><span>Settings</span></a>
             </nav>
         </div>
-<div class="header-right" id="headerRight">
+        <div class="header-right" id="headerRight">
             <div class="search-container">
                 <i class="fas fa-search search-icon"></i>
                 <input type="text" class="search-input" id="globalSearch" placeholder="Search...">
@@ -420,7 +414,6 @@
                 <span id="adminBadge" class="admin-badge" style="display:none;">ADMIN</span>
                 <i class="fas fa-chevron-down user-dropdown-arrow"></i>
 
-                
                 <div class="user-dropdown-menu" id="userDropdownMenu">
                     <div class="user-dropdown-header">
                         <div class="dropdown-avatar"><i class="fas fa-user"></i></div>
@@ -1612,5 +1605,104 @@
 <script src="js/features.js?v=114"></script>
 <script src="js/studyRoom.js?v=117"></script>
 <script src="js/app.js?v=115"></script>
+
+<script>
+/* ================================================================
+   GUARANTEED THEME & ACCESSIBILITY CONTROLLER (Capture Phase)
+   ================================================================ */
+(function() {
+    function restoreSettings() {
+        const savedTheme = localStorage.getItem('theme') || 'dark';
+        document.documentElement.setAttribute('data-theme', savedTheme);
+        document.body.setAttribute('data-theme', savedTheme);
+        const themeIcon = document.getElementById('themeIcon');
+        if (themeIcon) {
+            themeIcon.className = savedTheme === 'dark' ? 'fas fa-sun' : 'fas fa-moon';
+        }
+
+        const modes = ['high-contrast', 'large-text', 'reduced-motion', 'enhanced-focus'];
+        modes.forEach(mode => {
+            const isEnabled = localStorage.getItem('access-' + mode) === 'true';
+            if (isEnabled) {
+                document.body.classList.add(mode);
+                document.documentElement.classList.add(mode);
+            }
+            const optId = mode.replace(/-([a-z])/g, (_, c) => c.toUpperCase()) + 'Toggle';
+            const el = document.getElementById(optId);
+            if (el && isEnabled) {
+                const sw = el.querySelector('.accessibility-switch');
+                if (sw) sw.classList.add('active');
+            }
+        });
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', restoreSettings);
+    } else {
+        restoreSettings();
+    }
+
+    document.addEventListener('click', function(e) {
+        // --- A. Theme Toggle Button ---
+        const themeBtn = e.target.closest('#themeToggle');
+        if (themeBtn) {
+            const current = document.documentElement.getAttribute('data-theme') || 'dark';
+            const next = current === 'dark' ? 'light' : 'dark';
+            document.documentElement.setAttribute('data-theme', next);
+            document.body.setAttribute('data-theme', next);
+            localStorage.setItem('theme', next);
+            const icon = document.getElementById('themeIcon');
+            if (icon) icon.className = next === 'dark' ? 'fas fa-sun' : 'fas fa-moon';
+            return;
+        }
+
+        // --- B. Accessibility Open/Close Button ---
+        const accessBtn = e.target.closest('#accessibilityToggle');
+        if (accessBtn) {
+            const panel = document.getElementById('accessibilityPanel');
+            if (panel) {
+                const isOpen = panel.classList.contains('active') && panel.style.display !== 'none';
+                if (isOpen) {
+                    panel.classList.remove('active');
+                    panel.style.setProperty('display', 'none', 'important');
+                } else {
+                    panel.classList.add('active');
+                    panel.style.setProperty('display', 'flex', 'important');
+                }
+            }
+            return;
+        }
+
+        // --- C. Accessibility Options (Switches inside Panel) ---
+        const option = e.target.closest('.accessibility-option');
+        if (option) {
+            const sw = option.querySelector('.accessibility-switch');
+            const modeMap = {
+                highContrastToggle: 'high-contrast',
+                largeTextToggle: 'large-text',
+                reducedMotionToggle: 'reduced-motion',
+                enhancedFocusToggle: 'enhanced-focus'
+            };
+            const modeClass = modeMap[option.id];
+            if (modeClass) {
+                const isActive = document.body.classList.toggle(modeClass);
+                document.documentElement.classList.toggle(modeClass, isActive);
+                if (sw) sw.classList.toggle('active', isActive);
+                localStorage.setItem('access-' + modeClass, isActive ? 'true' : 'false');
+            }
+            return;
+        }
+
+        // --- D. Close Accessibility Panel on Outside Click ---
+        const panel = document.getElementById('accessibilityPanel');
+        if (panel && panel.classList.contains('active') && panel.style.display !== 'none') {
+            if (!panel.contains(e.target) && !e.target.closest('#accessibilityToggle')) {
+                panel.classList.remove('active');
+                panel.style.setProperty('display', 'none', 'important');
+            }
+        }
+    }, true);
+})();
+</script>
 </body>
-</html>        
+</html>
