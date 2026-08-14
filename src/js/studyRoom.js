@@ -1,5 +1,5 @@
 /* ================================================================
-   QUESTIONARY — STUDY ROOM ENGINE 2.5 (BUG-FREE & ROCK SOLID)
+   QUESTIONARY — STUDY ROOM ENGINE 3.0 (ROCK SOLID & ZERO EMOJIS)
    ================================================================ */
 
 (function () {
@@ -9,6 +9,21 @@
   const MAX_PARTICIPANTS = 8;
   const ROOM_CODE_LENGTH = 10;
   const ROOM_CODE_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  const CONNECT_TIMEOUT_MS = 10000; // 10s connection timeout
+
+  /* ---------- Multi-Server STUN Pool ---------- */
+  const ICE_CONFIG = {
+    config: {
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'stun:stun2.l.google.com:19302' },
+        { urls: 'stun:stun3.l.google.com:19302' },
+        { urls: 'stun:global.stun.twilio.com:3478' }
+      ],
+      iceCandidatePoolSize: 10
+    }
+  };
 
   /* ---------- Zero-Asset Web Audio Synthesizer ---------- */
   const SoundFX = {
@@ -74,21 +89,21 @@
   let activeTab = 'chat';
   let sessionActive = false;
 
-  /* ---------- Robust Timer & Pomodoro State ---------- */
+  /* ---------- Timer & Pomodoro Engine ---------- */
   let mainInterval = null;
   let timerMode = 'stopwatch'; // 'stopwatch' | 'focus' | 'break' | 'long_break'
   let timerRunning = false;
-  let timerSeconds = 0;         // Stopwatch count-up
-  let timerDuration = 25 * 60;  // Target duration for countdown modes
-  let timerRemaining = 25 * 60; // Countdown remaining
+  let timerSeconds = 0;
+  let timerDuration = 25 * 60;
+  let timerRemaining = 25 * 60;
   let studyGoal = '';
   let totalUptimeSeconds = 0;
 
   /* ---------- Chat Messages ---------- */
   let chatMessages = [];
 
-  /* ---------- Persistent WebRTC Media Streams (Zero-Spam Architecture) ---------- */
-  let localMediaStream = null;  // Persistent container stream
+  /* ---------- Persistent WebRTC Streams ---------- */
+  let localMediaStream = null;
   let localScreenStream = null;
   let micActive = false;
   let camActive = false;
@@ -96,7 +111,7 @@
   let audioContext = null;
   let localAudioAnalyser = null;
 
-  /* ---------- Whiteboard 2.0 State ---------- */
+  /* ---------- Whiteboard State ---------- */
   let wbActive = false;
   let wbCanvas = null;
   let wbCtx = null;
@@ -126,7 +141,7 @@
   let _lastLiveBroadcast = 0;
 
   /* ================================================================
-     HELPERS & FORMATTERS
+     HELPERS & FORMATTERS (NO EMOJIS)
      ================================================================ */
   function fmtTime(sec) {
     const s = Math.max(0, Math.floor(sec));
@@ -170,7 +185,7 @@
   }
 
   /* ================================================================
-     PEERJS ROOM HUB (Host-Coordinated P2P Network)
+     PEERJS ROOM HUB (Host-Coordinated P2P Network with Timeouts)
      ================================================================ */
   class PeerJSRoomHub {
     constructor() {
@@ -186,29 +201,30 @@
       this.onclose = null;
       this.onerror = null;
       this.calls = [];
+      this.connectTimeoutTimer = null;
     }
 
     init(targetRoomId) {
       return new Promise((resolve, reject) => {
-        const iceConfig = {
-          config: {
-            iceServers: [
-              { urls: 'stun:stun.l.google.com:19302' },
-              { urls: 'stun:global.stun.twilio.com:3478' }
-            ]
-          }
-        };
-
         const targetPeerId = 'qroom-' + targetRoomId.toLowerCase();
 
+        // 10s fail-safe timeout so users never get stuck on "Connecting..."
+        this.connectTimeoutTimer = setTimeout(() => {
+          if (this.readyState !== 1) {
+            this.close();
+            reject(new Error('Connection timed out. Make sure the host is online and room code is correct.'));
+          }
+        }, CONNECT_TIMEOUT_MS);
+
         if (isHost) {
-          this.peer = new Peer(targetPeerId, iceConfig);
+          this.peer = new Peer(targetPeerId, ICE_CONFIG);
         } else {
-          this.peer = new Peer(iceConfig);
+          this.peer = new Peer(ICE_CONFIG);
         }
 
         this.peer.on('open', (id) => {
           if (isHost) {
+            clearTimeout(this.connectTimeoutTimer);
             this.readyState = 1;
             this.peerJsToUser.set(id, 'usr_host');
             this.userToPeerJs.set('usr_host', id);
@@ -218,6 +234,7 @@
             this.hostConn = this.peer.connect(targetPeerId, { reliable: true });
 
             this.hostConn.on('open', () => {
+              clearTimeout(this.connectTimeoutTimer);
               this.readyState = 1;
               if (this.onopen) this.onopen();
               resolve();
@@ -231,6 +248,7 @@
             });
 
             this.hostConn.on('error', (err) => {
+              clearTimeout(this.connectTimeoutTimer);
               if (this.onerror) this.onerror(err);
               reject(err);
             });
@@ -253,7 +271,7 @@
                 const msg = typeof raw === 'string' ? JSON.parse(raw) : raw;
                 this.handleHostIncoming(conn, msg);
               } catch (e) {
-                console.error('[Host Data Parse Error]:', e);
+                console.error('[Host Data Error]:', e);
               }
             });
 
@@ -273,6 +291,7 @@
         });
 
         this.peer.on('error', (err) => {
+          clearTimeout(this.connectTimeoutTimer);
           if (this.onerror) this.onerror(err);
           reject(err);
         });
@@ -306,7 +325,7 @@
 
       if (msg.action === 'join') {
         if (roomLocked) {
-          if (senderConn) senderConn.send(JSON.stringify({ action: 'auth-fail', reason: 'Room is currently locked by the host.' }));
+          if (senderConn) senderConn.send(JSON.stringify({ action: 'auth-fail', reason: 'Room is locked by the host.' }));
           return;
         }
         if (roomPassword && msg.password !== roomPassword) {
@@ -314,7 +333,7 @@
           return;
         }
         if (this.connections.size >= MAX_PARTICIPANTS) {
-          if (senderConn) senderConn.send(JSON.stringify({ action: 'auth-fail', reason: 'Study room is full.' }));
+          if (senderConn) senderConn.send(JSON.stringify({ action: 'auth-fail', reason: 'Study room is full (max 8).' }));
           return;
         }
 
@@ -379,6 +398,7 @@
 
     close() {
       this.readyState = 3;
+      clearTimeout(this.connectTimeoutTimer);
       this.calls.forEach(c => { try { c.close(); } catch(e) {} });
       this.calls = [];
       this.connections.forEach(conn => conn.close());
@@ -430,7 +450,7 @@
         hideLoading();
         renderActiveSession();
         SoundFX.playJoin();
-        notify(`Study Room live! Code: ${roomAddress}`, 'success');
+        notify(`Study Room live. Code: ${roomAddress}`, 'success');
         break;
 
       case 'joined':
@@ -446,14 +466,14 @@
         renderActiveSession();
         SoundFX.playJoin();
         broadcastData({ type: 'info-request' });
-        notify('Connected to Study Room!', 'success');
+        notify('Connected to Study Room.', 'success');
         break;
 
       case 'auth-fail':
         hideLoading();
         cleanup();
         renderStudyRoom();
-        notify(msg.reason || 'Failed to enter room.', 'error');
+        notify(msg.reason || 'Failed to join room.', 'error');
         break;
 
       case 'peer-joined':
@@ -500,7 +520,7 @@
         break;
 
       case 'reaction':
-        spawnFloatingReaction(data.emoji);
+        spawnFloatingReaction(data.iconClass);
         break;
 
       case 'hand-raise':
@@ -509,7 +529,7 @@
           updateParticipantsUI();
           if (data.raised) {
             SoundFX.playHandRaise();
-            notify(`✋ ${peers[fromId].nickname} raised their hand!`, 'info');
+            notify(`${peers[fromId].nickname} raised their hand.`, 'info');
           }
         }
         break;
@@ -542,7 +562,7 @@
         }
         break;
 
-      /* Unified Timer Sync */
+      /* Synced Timer Engine */
       case 'timer-sync':
         timerMode = data.mode;
         timerRunning = data.running;
@@ -569,7 +589,7 @@
       case 'mod-lock':
         roomLocked = data.locked;
         updateRoomLockUI();
-        notify(`Room ${roomLocked ? 'Locked 🔒' : 'Unlocked 🔓'}`, 'info');
+        notify(`Room ${roomLocked ? 'Locked' : 'Unlocked'} by host.`, 'info');
         break;
 
       /* Whiteboard Live Streaming */
@@ -682,7 +702,7 @@
         </div>
 
         <div class="sr-features-grid">
-          <div class="sr-feature-item"><i class="fas fa-chalkboard"></i><span>Whiteboard 2.0</span></div>
+          <div class="sr-feature-item"><i class="fas fa-chalkboard"></i><span>Whiteboard</span></div>
           <div class="sr-feature-item"><i class="fas fa-desktop"></i><span>Screen Share</span></div>
           <div class="sr-feature-item"><i class="fas fa-stopwatch"></i><span>Synced Timer</span></div>
           <div class="sr-feature-item"><i class="fas fa-hand-paper"></i><span>Hand Raising</span></div>
@@ -774,14 +794,14 @@
               ${buildParticipantCardsHTML()}
             </div>
             
-            <!-- Quick Reactions Bar -->
+            <!-- Quick Reactions Bar (FontAwesome Icons, Zero Emojis) -->
             <div class="sr-reactions-bar">
-              <button class="sr-react-btn" data-emoji="👏">👏</button>
-              <button class="sr-react-btn" data-emoji="🔥">🔥</button>
-              <button class="sr-react-btn" data-emoji="💡">💡</button>
-              <button class="sr-react-btn" data-emoji="👍">👍</button>
-              <button class="sr-react-btn" data-emoji="❤️">❤️</button>
-              <button class="sr-react-btn" data-emoji="☕">☕</button>
+              <button class="sr-react-btn" data-icon="fas fa-thumbs-up" title="Like"><i class="fas fa-thumbs-up"></i></button>
+              <button class="sr-react-btn" data-icon="fas fa-hands" title="Clap"><i class="fas fa-hands"></i></button>
+              <button class="sr-react-btn" data-icon="fas fa-lightbulb" title="Idea"><i class="fas fa-lightbulb"></i></button>
+              <button class="sr-react-btn" data-icon="fas fa-fire" title="Fire"><i class="fas fa-fire"></i></button>
+              <button class="sr-react-btn" data-icon="fas fa-heart" title="Heart"><i class="fas fa-heart"></i></button>
+              <button class="sr-react-btn" data-icon="fas fa-coffee" title="Break"><i class="fas fa-coffee"></i></button>
             </div>
           </div>
 
@@ -899,7 +919,7 @@
       <div class="sr-participant-item">
         <div class="sr-participant-avatar"><i class="fas fa-user"></i></div>
         <div class="sr-participant-info">
-          <span class="sr-participant-name">${escapeHTML(nickname)} (You)${isHost ? ' <i class="fas fa-crown sr-host-icon" title="Host"></i>' : ''}${handRaised ? ' ✋' : ''}</span>
+          <span class="sr-participant-name">${escapeHTML(nickname)} (You)${isHost ? ' <i class="fas fa-crown sr-host-icon" title="Host"></i>' : ''}${handRaised ? ' <i class="fas fa-hand-paper" style="color:var(--accent,#cf6215);margin-left:4px;"></i>' : ''}</span>
           <span class="sr-participant-status"><i class="fas fa-circle sr-status-on"></i> Connected</span>
         </div>
       </div>`;
@@ -908,7 +928,7 @@
         <div class="sr-participant-item">
           <div class="sr-participant-avatar"><i class="fas fa-user"></i></div>
           <div class="sr-participant-info">
-            <span class="sr-participant-name">${escapeHTML(p.nickname || 'Student')}${p.handRaised ? ' ✋' : ''}</span>
+            <span class="sr-participant-name">${escapeHTML(p.nickname || 'Student')}${p.handRaised ? ' <i class="fas fa-hand-paper" style="color:var(--accent,#cf6215);margin-left:4px;"></i>' : ''}</span>
             <span class="sr-participant-status"><i class="fas fa-circle sr-status-on"></i> Connected</span>
           </div>
           ${isHost ? `
@@ -925,27 +945,28 @@
     let html = `
       <div class="sr-video-tile sr-video-local" data-userid="usr_self" id="srTile_usr_self">
         <div class="sr-video-off"><i class="fas fa-user"></i></div>
-        <div class="sr-video-label">${escapeHTML(nickname)} (You)${isHost ? ' 👑' : ''}</div>
-        ${handRaised ? '<div class="sr-tile-hand">✋</div>' : ''}
+        <div class="sr-video-label">${escapeHTML(nickname)} (You)${isHost ? ' <i class="fas fa-crown" style="color:#f59e0b;"></i>' : ''}</div>
+        ${handRaised ? '<div class="sr-tile-hand"><i class="fas fa-hand-paper"></i></div>' : ''}
       </div>`;
     Object.entries(peers).forEach(([uId, p]) => {
       html += `
         <div class="sr-video-tile" data-userid="${escapeHTML(uId)}" id="srTile_${escapeHTML(uId)}">
           <div class="sr-video-off"><i class="fas fa-user"></i></div>
           <div class="sr-video-label">${escapeHTML(p.nickname || 'Student')}</div>
-          ${p.handRaised ? '<div class="sr-tile-hand">✋</div>' : ''}
+          ${p.handRaised ? '<div class="sr-tile-hand"><i class="fas fa-hand-paper"></i></div>' : ''}
         </div>`;
     });
     return html;
   }
 
+  /* Goals Tab HTML with Live Ticking Timer */
   function buildProgressHTML() {
     let html = '';
     html += `
       <div class="sr-progress-item">
         <div class="sr-progress-user"><i class="fas fa-user"></i> ${escapeHTML(nickname)} (You)</div>
         <div class="sr-progress-goal">${studyGoal ? escapeHTML(studyGoal) : '<em>No goal set</em>'}</div>
-        <div class="sr-progress-time"><i class="fas fa-clock"></i> ${fmtTime(timerMode === 'stopwatch' ? timerSeconds : timerRemaining)}</div>
+        <div class="sr-progress-time"><i class="fas fa-clock"></i> <span id="srMyProgressTime">${fmtTime(timerMode === 'stopwatch' ? timerSeconds : timerRemaining)}</span></div>
       </div>`;
     Object.values(peers).forEach(p => {
       html += `
@@ -959,7 +980,7 @@
   }
 
   /* ================================================================
-     TIMER & POMODORO CONTROLS (100% RELIABLE)
+     TIMER & POMODORO CONTROLS (LIVE SYNCED)
      ================================================================ */
   function startStudyTimerEngine() {
     if (mainInterval) clearInterval(mainInterval);
@@ -979,9 +1000,8 @@
             if (timerRemaining === 0) {
               timerRunning = false;
               SoundFX.playChime();
-              notify(timerMode === 'focus' ? '🎯 Focus session complete! Time for a break.' : '☕ Break complete! Back to study.', 'success');
+              notify(timerMode === 'focus' ? 'Focus session complete. Time for a break.' : 'Break complete. Back to study.', 'success');
 
-              // Auto transition
               if (timerMode === 'focus') {
                 timerMode = 'break';
                 timerDuration = 5 * 60;
@@ -998,7 +1018,13 @@
 
       updateTimerDisplay();
 
-      // Goal sync
+      // Update the local Goals tab timer live every single second
+      const myTimeEl = document.getElementById('srMyProgressTime');
+      if (myTimeEl) {
+        myTimeEl.textContent = fmtTime(timerMode === 'stopwatch' ? timerSeconds : timerRemaining);
+      }
+
+      // Sync progress goal time to peers every 8s
       if (totalUptimeSeconds % 8 === 0) {
         broadcastData({
           type: 'progress',
@@ -1086,7 +1112,7 @@
       else if (timerMode === 'long_break') { icon = 'umbrella-beach'; label = 'Long Break (15m)'; }
 
       modeBtn.innerHTML = `<i class="fas fa-${icon}"></i>`;
-      modeBtn.title = `Current Mode: ${label} (Click to switch)`;
+      modeBtn.title = `Mode: ${label} (Click to switch)`;
     }
   }
 
@@ -1095,7 +1121,7 @@
      ================================================================ */
   function attachSessionListeners() {
     document.getElementById('srCopyCode')?.addEventListener('click', () => {
-      navigator.clipboard.writeText(roomAddress).then(() => notify('Room code copied to clipboard!', 'success'));
+      navigator.clipboard.writeText(roomAddress).then(() => notify('Room code copied.', 'success'));
     });
 
     const pwReveal = document.getElementById('srPwReveal');
@@ -1110,7 +1136,7 @@
       roomLocked = !roomLocked;
       broadcastData({ type: 'mod-lock', locked: roomLocked });
       updateRoomLockUI();
-      notify(`Room ${roomLocked ? 'Locked 🔒' : 'Unlocked 🔓'}`, 'info');
+      notify(`Room ${roomLocked ? 'Locked' : 'Unlocked'}`, 'info');
     });
 
     document.getElementById('srRaiseHandBtn')?.addEventListener('click', toggleRaiseHand);
@@ -1150,12 +1176,12 @@
       });
     });
 
-    // Floating Reactions
+    // Floating Reactions (Icons, No Emojis)
     document.querySelectorAll('.sr-react-btn').forEach(btn => {
       btn.addEventListener('click', () => {
-        const emoji = btn.dataset.emoji;
-        spawnFloatingReaction(emoji);
-        broadcastData({ type: 'reaction', emoji });
+        const iconClass = btn.dataset.icon;
+        spawnFloatingReaction(iconClass);
+        broadcastData({ type: 'reaction', iconClass });
       });
     });
 
@@ -1165,7 +1191,7 @@
       studyGoal = input?.value.trim() || '';
       broadcastData({ type: 'progress', goal: studyGoal, seconds: timerSeconds });
       updateProgressUI();
-      notify('Study goal updated!', 'success');
+      notify('Study goal updated.', 'success');
     });
 
     setupPushToTalk();
@@ -1196,18 +1222,18 @@
     updateParticipantsUI();
     if (handRaised) {
       SoundFX.playHandRaise();
-      notify('Hand raised ✋', 'info');
+      notify('Hand raised.', 'info');
     }
   }
 
-  function spawnFloatingReaction(emoji) {
+  function spawnFloatingReaction(iconClass) {
     SoundFX.playPop();
     const container = document.getElementById('srParticipantArea');
     if (!container) return;
 
     const el = document.createElement('div');
     el.className = 'sr-floating-reaction';
-    el.textContent = emoji;
+    el.innerHTML = `<i class="${iconClass}"></i>`;
     el.style.left = `${20 + Math.random() * 60}%`;
     el.style.bottom = '80px';
     container.appendChild(el);
@@ -1231,7 +1257,6 @@
       let audioTrack = stream.getAudioTracks()[0];
 
       if (!audioTrack) {
-        // Request audio track ONCE
         const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
         audioTrack = audioStream.getAudioTracks()[0];
         stream.addTrack(audioTrack);
@@ -1260,7 +1285,6 @@
       let videoTrack = stream.getVideoTracks()[0];
 
       if (!videoTrack) {
-        // Request video track ONCE
         const videoStream = await navigator.mediaDevices.getUserMedia({
           video: { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 24 } }
         });
@@ -1531,7 +1555,7 @@
     const container = document.getElementById('srChatMessages');
     if (!container) return;
     if (chatMessages.length === 0) {
-      container.innerHTML = '<div class="sr-chat-empty"><i class="fas fa-comments"></i><p>No messages yet. Say hello!</p></div>';
+      container.innerHTML = '<div class="sr-chat-empty"><i class="fas fa-comments"></i><p>No messages yet.</p></div>';
       return;
     }
     container.innerHTML = chatMessages.map(m => {
@@ -1969,7 +1993,7 @@
     a.href = wbCanvas.toDataURL('image/png');
     a.download = `StudyRoom-Whiteboard-${Date.now()}.png`;
     a.click();
-    notify('Whiteboard downloaded!', 'success');
+    notify('Whiteboard downloaded.', 'success');
   }
 
   async function saveWhiteboardToLibrary() {
@@ -1979,7 +2003,7 @@
       const file = new File([blob], `Whiteboard-${Date.now()}.png`, { type: 'image/png' });
       if (typeof window.importFileFromAnySource === 'function') {
         await window.importFileFromAnySource(file);
-        notify('Whiteboard saved to Library!', 'success');
+        notify('Whiteboard saved to Library.', 'success');
       }
     }, 'image/png');
   }
@@ -2096,7 +2120,7 @@
     const newRoomId = generateRoomId();
 
     try {
-      showLoading('Creating live room…');
+      showLoading('Creating room…');
       await connectHub(newRoomId);
       sendToServer({ action: 'host', nickname, password: roomPassword });
       roomAddress = newRoomId;
@@ -2122,7 +2146,7 @@
 
     const parsedCode = normalizeRoomCode(rawInput);
     if (!parsedCode) {
-      notify('Enter a valid 10-character alphanumeric room code.', 'error');
+      notify('Enter a valid 10-character room code.', 'error');
       return;
     }
 
@@ -2136,7 +2160,7 @@
       hideLoading();
       cleanup();
       renderStudyRoom();
-      notify('Failed to connect to room.', 'error');
+      notify(err.message || 'Failed to connect to room.', 'error');
     }
   }
 
