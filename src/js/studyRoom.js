@@ -1,5 +1,5 @@
 /* ================================================================
-   QUESTIONARY — STUDY ROOM ENGINE 3.1 (BULLETPROOF P2P)
+   QUESTIONARY — STUDY ROOM ENGINE 3.2 (BULLETPROOF CONNECTION)
    ================================================================ */
 
 (function () {
@@ -11,7 +11,7 @@
   const ROOM_CODE_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
   const CONNECT_TIMEOUT_MS = 10000;
 
-  /* ---------- 2 Fast STUN Servers (No WebRTC Slowdown Warnings) ---------- */
+  /* ---------- 2 Fast STUN Servers (No Discovery Warnings) ---------- */
   const ICE_CONFIG = {
     config: {
       iceServers: [
@@ -180,8 +180,31 @@
     }
   }
 
+  /* Safe Host Message Dispatcher (Guarantees no dropped packets) */
+  function safeSendToConnection(conn, dataObj) {
+    if (!conn) return;
+    const str = typeof dataObj === 'string' ? dataObj : JSON.stringify(dataObj);
+
+    const trySend = () => {
+      try {
+        conn.send(str);
+      } catch (err) {
+        setTimeout(() => {
+          try { conn.send(str); } catch(e) {}
+        }, 100);
+      }
+    };
+
+    if (conn.open) {
+      trySend();
+    } else {
+      conn.once ? conn.once('open', trySend) : conn.on('open', trySend);
+      setTimeout(trySend, 250);
+    }
+  }
+
   /* ================================================================
-     PEERJS ROOM HUB (Host-Coordinated P2P Network with Outbox Queue)
+     PEERJS ROOM HUB (Host-Coordinated P2P Network)
      ================================================================ */
   class PeerJSRoomHub {
     constructor() {
@@ -198,7 +221,7 @@
       this.onerror = null;
       this.calls = [];
       this.connectTimeoutTimer = null;
-      this.outboxQueue = []; // Queue messages if DataChannel isn't ready
+      this.outboxQueue = [];
     }
 
     init(targetRoomId) {
@@ -234,7 +257,6 @@
               this.readyState = 1;
               if (this.onopen) this.onopen();
 
-              // Flush outbox queue immediately
               while (this.outboxQueue.length > 0) {
                 const msg = this.outboxQueue.shift();
                 try { this.hostConn.send(msg); } catch(e) {}
@@ -340,15 +362,15 @@
 
       if (msg.action === 'join') {
         if (roomLocked) {
-          if (senderConn) senderConn.send(JSON.stringify({ action: 'auth-fail', reason: 'Room is locked by the host.' }));
+          if (senderConn) safeSendToConnection(senderConn, { action: 'auth-fail', reason: 'Room is locked by the host.' });
           return;
         }
         if (roomPassword && msg.password !== roomPassword) {
-          if (senderConn) senderConn.send(JSON.stringify({ action: 'auth-fail', reason: 'Incorrect room password.' }));
+          if (senderConn) safeSendToConnection(senderConn, { action: 'auth-fail', reason: 'Incorrect room password.' });
           return;
         }
         if (this.connections.size >= MAX_PARTICIPANTS) {
-          if (senderConn) senderConn.send(JSON.stringify({ action: 'auth-fail', reason: 'Study room is full (max 8).' }));
+          if (senderConn) safeSendToConnection(senderConn, { action: 'auth-fail', reason: 'Study room is full (max 8).' });
           return;
         }
 
@@ -365,8 +387,8 @@
         }
 
         if (senderConn) {
-          senderConn.send(JSON.stringify({ action: 'welcome', id: newUserId }));
-          senderConn.send(JSON.stringify({ action: 'joined', peers: currentPeersList, locked: roomLocked }));
+          safeSendToConnection(senderConn, { action: 'welcome', id: newUserId });
+          safeSendToConnection(senderConn, { action: 'joined', peers: currentPeersList, locked: roomLocked });
         }
 
         const joinNotice = { action: 'peer-joined', id: newUserId, nickname: msg.nickname, peerJsId: senderPeerJsId };
@@ -392,8 +414,8 @@
       const str = JSON.stringify(msgObj);
       for (const [pId, conn] of this.connections.entries()) {
         const uId = this.peerJsToUser.get(pId);
-        if (uId !== excludeUserId && conn.open) {
-          try { conn.send(str); } catch(e) {}
+        if (uId !== excludeUserId) {
+          safeSendToConnection(conn, str);
         }
       }
     }
@@ -808,7 +830,7 @@
               ${buildParticipantCardsHTML()}
             </div>
             
-            <!-- Quick Reactions Bar (EMOJIS RESTORED) -->
+            <!-- Quick Reactions Bar (Emojis Restored) -->
             <div class="sr-reactions-bar">
               <button class="sr-react-btn" data-emoji="👏" title="Clap">👏</button>
               <button class="sr-react-btn" data-emoji="🔥" title="Fire">🔥</button>
@@ -973,13 +995,14 @@
     return html;
   }
 
+  /* Live-Ticking Goals Tab HTML */
   function buildProgressHTML() {
     let html = '';
     html += `
       <div class="sr-progress-item">
         <div class="sr-progress-user"><i class="fas fa-user"></i> ${escapeHTML(nickname)} (You)</div>
         <div class="sr-progress-goal">${studyGoal ? escapeHTML(studyGoal) : '<em>No goal set</em>'}</div>
-        <div class="sr-progress-time"><i class="fas fa-clock"></i> <span id="srMyProgressTime">${fmtTime(timerMode === 'stopwatch' ? timerSeconds : timerRemaining)}</span></div>
+        <div class="sr-progress-time"><i class="fas fa-clock"></i> <span class="sr-my-goal-timer">${fmtTime(timerMode === 'stopwatch' ? timerSeconds : timerRemaining)}</span></div>
       </div>`;
     Object.values(peers).forEach(p => {
       html += `
@@ -993,7 +1016,7 @@
   }
 
   /* ================================================================
-     TIMER & POMODORO CONTROLS (LIVE SYNCED)
+     TIMER & POMODORO CONTROLS
      ================================================================ */
   function startStudyTimerEngine() {
     if (mainInterval) clearInterval(mainInterval);
@@ -1030,13 +1053,12 @@
 
       updateTimerDisplay();
 
-      // Update the local Goals tab timer live every single second
-      const myTimeEl = document.getElementById('srMyProgressTime');
-      if (myTimeEl) {
-        myTimeEl.textContent = fmtTime(timerMode === 'stopwatch' ? timerSeconds : timerRemaining);
-      }
+      // Update the Goals tab timer live every single second
+      document.querySelectorAll('.sr-my-goal-timer').forEach(el => {
+        el.textContent = fmtTime(timerMode === 'stopwatch' ? timerSeconds : timerRemaining);
+      });
 
-      // Sync progress goal time to peers every 8s
+      // Sync progress to peers every 8s
       if (totalUptimeSeconds % 8 === 0) {
         broadcastData({
           type: 'progress',
@@ -2167,7 +2189,17 @@
     try {
       showLoading('Connecting to study room…');
       await connectHub(parsedCode);
+      
+      // Send join request through verified open connection
       sendToServer({ action: 'join', nickname, password: roomPassword });
+
+      // Backup fail-safe: re-send join if no response in 2s
+      setTimeout(() => {
+        if (!sessionActive && ws) {
+          sendToServer({ action: 'join', nickname, password: roomPassword });
+        }
+      }, 2000);
+
     } catch (err) {
       hideLoading();
       cleanup();
