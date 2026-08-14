@@ -2417,45 +2417,30 @@
             return;
         }
 
-        // --- Accessibility Button ---
+// --- Accessibility Button ---
         const accessBtn = e.target.closest('#accessibilityToggle');
         if (accessBtn) {
             e.preventDefault();
             e.stopPropagation();
             const panel = document.getElementById('accessibilityPanel');
             if (panel) {
-                panel.classList.toggle('active');
+                const isOpen = panel.classList.contains('active') && panel.style.display !== 'none';
+                if (isOpen) {
+                    panel.classList.remove('active');
+                    panel.style.setProperty('display', 'none', 'important');
+                } else {
+                    panel.classList.add('active');
+                    panel.style.setProperty('display', 'flex', 'important');
+                }
             }
             return;
         }
-
-        // --- Accessibility Switch Options ---
-        const accessOption = e.target.closest('.accessibility-option');
-        if (accessOption) {
-            const sw = accessOption.querySelector('.accessibility-switch');
-            const optId = accessOption.id;
-            
-            if (optId === 'highContrastToggle') {
-                const active = document.body.classList.toggle('high-contrast');
-                if (sw) sw.classList.toggle('active', active);
-            } else if (optId === 'largeTextToggle') {
-                const active = document.body.classList.toggle('large-text');
-                if (sw) sw.classList.toggle('active', active);
-            } else if (optId === 'reducedMotionToggle') {
-                const active = document.body.classList.toggle('reduced-motion');
-                if (sw) sw.classList.toggle('active', active);
-            } else if (optId === 'enhancedFocusToggle') {
-                const active = document.body.classList.toggle('enhanced-focus');
-                if (sw) sw.classList.toggle('active', active);
-            }
-            return;
-        }
-
         // --- Close Accessibility Panel on Outside Click ---
         const panel = document.getElementById('accessibilityPanel');
         if (panel && panel.classList.contains('active')) {
             if (!panel.contains(e.target) && !e.target.closest('#accessibilityToggle')) {
                 panel.classList.remove('active');
+                panel.style.setProperty('display', 'none', 'important');
             }
         }
     });
