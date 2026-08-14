@@ -6,21 +6,15 @@
   'use strict';
 
   /* ---------- Constants ---------- */
-  const MAX_PARTICIPANTS = 8;
-  const ROOM_CODE_LENGTH = 10;
-  const ROOM_CODE_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-  const CONNECT_TIMEOUT_MS = 25000; // Generous timeout for cross-network handshakes
+const CONNECT_TIMEOUT_MS = 20000;
 
-  /* ---------- Fast & Clean STUN/TURN Configuration (< 4 Servers) ---------- */
+  /* Fast Google STUN + PeerJS Official TURN Relay */
   const ICE_CONFIG = {
     iceServers: [
       { urls: 'stun:stun.l.google.com:19302' },
       { urls: 'stun:stun1.l.google.com:19302' },
       {
-        urls: [
-          'turn:eu-0.turn.peerjs.com:3478',
-          'turn:us-0.turn.peerjs.com:3478'
-        ],
+        urls: ['turn:eu-0.turn.peerjs.com:3478', 'turn:us-0.turn.peerjs.com:3478'],
         username: 'peerjs',
         credential: 'peerjsp'
       }
@@ -224,7 +218,7 @@
      ================================================================ */
   class PeerJSRoomHub {
     constructor() {
-      this.readyState = 0; // 0: connecting, 1: open, 3: closed
+      this.readyState = 0;
       this.peer = null;
       this.hostConn = null;
       this.connections = new Map();
@@ -243,13 +237,12 @@
     init(targetRoomId) {
       return new Promise((resolve, reject) => {
         const targetPeerId = 'qroom-' + targetRoomId.toLowerCase();
-        console.log(`[StudyRoom-Debug] Initializing Hub (isHost: ${isHost}, target: ${targetPeerId})`);
+        console.log(`[StudyRoom-Debug] Init Hub (isHost: ${isHost}, target: ${targetPeerId})`);
 
         this.connectTimeoutTimer = setTimeout(() => {
-          if (this.readyState !== 1) {
-            console.error('[StudyRoom-Debug] Connection timed out after', CONNECT_TIMEOUT_MS, 'ms');
+          if (!sessionActive && this.readyState !== 1) {
             this.close();
-            reject(new Error('Connection timed out. Make sure host is online and room code is correct.'));
+            reject(new Error('Connection timed out. Host may be offline or room code is invalid.'));
           }
         }, CONNECT_TIMEOUT_MS);
 
@@ -265,7 +258,7 @@
         }
 
         this.peer.on('open', (id) => {
-          console.log(`[StudyRoom-Debug] PeerJS Signaling registered with ID: ${id}`);
+          console.log(`[StudyRoom-Debug] Signaling ready with ID: ${id}`);
 
           if (isHost) {
             clearTimeout(this.connectTimeoutTimer);
@@ -275,32 +268,24 @@
             if (this.onopen) this.onopen();
             resolve();
           } else {
-            console.log(`[StudyRoom-Debug] Guest connecting to Host Peer: ${targetPeerId}`);
+            console.log(`[StudyRoom-Debug] Guest connecting to Host: ${targetPeerId}`);
             this.peerJsToUser.set(targetPeerId, 'usr_host');
             this.userToPeerJs.set('usr_host', targetPeerId);
 
-            this.hostConn = this.peer.connect(targetPeerId, { reliable: true });
-
-            this.hostConn.on('iceStateChanged', (state) => {
-              console.log('[StudyRoom-Debug] Guest ICE Connection State:', state);
-            });
+            // Connect with JSON serialization to prevent binarypack drops
+            this.hostConn = this.peer.connect(targetPeerId, { serialization: 'json', reliable: true });
 
             const onConnectionReady = () => {
-              if (this.readyState === 1) return;
-              console.log('[StudyRoom-Debug] Guest DataChannel to Host is OPEN.');
-              clearTimeout(this.connectTimeoutTimer);
+              console.log('[StudyRoom-Debug] DataChannel to Host is OPEN.');
               this.readyState = 1;
               if (this.onopen) this.onopen();
               this.flushOutbox();
-              resolve();
             };
 
             this.hostConn.on('open', onConnectionReady);
 
             this.hostConn.on('data', (raw) => {
-              if (this.readyState !== 1) {
-                onConnectionReady();
-              }
+              if (this.readyState !== 1) onConnectionReady();
               if (this.onmessage) {
                 const dataStr = typeof raw === 'string' ? raw : JSON.stringify(raw);
                 this.onmessage({ data: dataStr });
@@ -308,61 +293,53 @@
             });
 
             this.hostConn.on('error', (err) => {
-              console.error('[StudyRoom-Debug] Guest DataConnection error:', err);
-              clearTimeout(this.connectTimeoutTimer);
-              if (this.onerror) this.onerror(err);
-              reject(err);
+              console.error('[StudyRoom-Debug] Host connection error:', err);
             });
 
             this.hostConn.on('close', () => {
-              console.warn('[StudyRoom-Debug] Guest DataConnection closed.');
+              console.warn('[StudyRoom-Debug] Host connection closed.');
               this.readyState = 3;
               if (this.onclose) this.onclose();
             });
+
+            // Resolve immediately once signaling socket is ready so handleJoin sends the join packet!
+            clearTimeout(this.connectTimeoutTimer);
+            resolve();
           }
         });
 
         if (isHost) {
           this.peer.on('connection', (conn) => {
-            console.log('[StudyRoom-Debug] Host received DataConnection request from:', conn.peer);
+            console.log('[StudyRoom-Debug] Host received connection from:', conn.peer);
             this.connections.set(conn.peer, conn);
 
-            conn.on('iceStateChanged', (state) => {
-              console.log(`[StudyRoom-Debug] Host ICE State for ${conn.peer}:`, state);
-            });
-
             conn.on('open', () => {
-              console.log('[StudyRoom-Debug] Host DataConnection OPEN with:', conn.peer);
+              console.log('[StudyRoom-Debug] Host connection with peer OPEN:', conn.peer);
               this.connections.set(conn.peer, conn);
             });
 
             conn.on('data', (raw) => {
+              console.log('[StudyRoom-Debug] Host received data from:', conn.peer, raw);
               try {
                 const msg = typeof raw === 'string' ? JSON.parse(raw) : raw;
                 this.handleHostIncoming(conn, msg);
               } catch (e) {
-                console.error('[StudyRoom-Debug] Host Data Parse Error:', e);
+                console.error('[StudyRoom-Debug] Host parse error:', e);
               }
             });
 
-            conn.on('error', (err) => {
-              console.warn('[StudyRoom-Debug] Host connection error with:', conn.peer, err);
-            });
-
             conn.on('close', () => {
-              console.log('[StudyRoom-Debug] Host connection closed with:', conn.peer);
+              console.log('[StudyRoom-Debug] Peer disconnected:', conn.peer);
               this.handleHostDisconnect(conn.peer);
             });
           });
         }
 
         this.peer.on('call', (call) => {
-          console.log('[StudyRoom-Debug] Incoming WebRTC media call from:', call.peer);
           this.calls.push(call);
           call.answer(localMediaStream || undefined);
           call.on('stream', (remoteStream) => {
             const callerUserId = this.peerJsToUser.get(call.peer) || (call.peer === this.userToPeerJs.get('usr_host') ? 'usr_host' : call.peer);
-            console.log('[StudyRoom-Debug] Media stream established with:', callerUserId);
             handleRemoteStream(callerUserId, remoteStream, call.metadata?.type || 'media');
           });
         });
@@ -373,11 +350,9 @@
 
           let userMsg = err.message || 'Connection error';
           if (err.type === 'peer-unavailable') {
-            userMsg = 'Room not found. Make sure the Host is online and the 10-character code is correct.';
+            userMsg = 'Room code not found. Make sure host is active and online.';
           } else if (err.type === 'unavailable-id') {
-            userMsg = 'Room code is already in use. Please create a new room.';
-          } else if (err.type === 'network' || err.type === 'socket-error') {
-            userMsg = 'Network error connecting to signaling server. Check your internet connection.';
+            userMsg = 'Room code is already taken. Please create a new room.';
           }
 
           if (this.onerror) this.onerror(new Error(userMsg));
@@ -390,7 +365,7 @@
       while (this.outboxQueue.length > 0 && this.hostConn && this.hostConn.open) {
         const msg = this.outboxQueue.shift();
         try {
-          this.hostConn.send(msg);
+          this.hostConn.send(typeof msg === 'string' ? JSON.parse(msg) : msg);
         } catch (e) {
           this.outboxQueue.unshift(msg);
           break;
@@ -400,17 +375,26 @@
 
     send(str) {
       if (!isHost) {
+        const payload = typeof str === 'string' ? JSON.parse(str) : str;
         if (this.hostConn && this.hostConn.open) {
           try {
-            this.hostConn.send(str);
+            this.hostConn.send(payload);
           } catch (e) {
             this.outboxQueue.push(str);
           }
         } else {
           this.outboxQueue.push(str);
-          if (this.hostConn) {
-            safeSend(this.hostConn, str);
-          }
+          // Check periodically and send once open
+          let retries = 0;
+          const retryTimer = setInterval(() => {
+            retries++;
+            if (this.hostConn && this.hostConn.open) {
+              this.flushOutbox();
+              clearInterval(retryTimer);
+            } else if (retries > 40) {
+              clearInterval(retryTimer);
+            }
+          }, 200);
         }
         return;
       }
@@ -425,7 +409,6 @@
       const senderPeerJsId = senderConn ? senderConn.peer : (this.peer ? this.peer.id : 'usr_host');
 
       if (msg.action === 'host') {
-        console.log('[StudyRoom-Debug] Host session initialized locally.');
         myId = 'usr_host';
         if (this.onmessage) {
           this.onmessage({ data: JSON.stringify({ action: 'welcome', id: 'usr_host' }) });
@@ -435,18 +418,14 @@
       }
 
       if (msg.action === 'join') {
-        console.log(`[StudyRoom-Debug] Processing join request from PeerJS ID: ${senderPeerJsId} (${msg.nickname})`);
+        console.log(`[StudyRoom-Debug] Host processing join from ${senderPeerJsId} (${msg.nickname})`);
 
         if (roomLocked) {
-          if (senderConn) safeSend(senderConn, { action: 'auth-fail', reason: 'Room is locked by the host.' });
+          if (senderConn) senderConn.send({ action: 'auth-fail', reason: 'Room is locked by host.' });
           return;
         }
         if (roomPassword && msg.password !== roomPassword) {
-          if (senderConn) safeSend(senderConn, { action: 'auth-fail', reason: 'Incorrect room password.' });
-          return;
-        }
-        if (this.connections.size > MAX_PARTICIPANTS) {
-          if (senderConn) safeSend(senderConn, { action: 'auth-fail', reason: 'Study room is full (max 8).' });
+          if (senderConn) senderConn.send({ action: 'auth-fail', reason: 'Incorrect room password.' });
           return;
         }
 
@@ -465,11 +444,16 @@
           }
         }
 
-        console.log(`[StudyRoom-Debug] Assigning ${newUserId} to guest. Sending welcome + peers list (${currentPeersList.length} peers).`);
-
         if (senderConn) {
-          safeSend(senderConn, { action: 'welcome', id: newUserId });
-          safeSend(senderConn, { action: 'joined', peers: currentPeersList, locked: roomLocked });
+          const sendWelcome = () => {
+            try {
+              senderConn.send({ action: 'welcome', id: newUserId });
+              senderConn.send({ action: 'joined', peers: currentPeersList, locked: roomLocked });
+            } catch (err) {
+              setTimeout(sendWelcome, 100);
+            }
+          };
+          sendWelcome();
         }
 
         const joinNotice = { action: 'peer-joined', id: newUserId, nickname: msg.nickname, peerJsId: senderPeerJsId };
@@ -492,11 +476,10 @@
     }
 
     broadcastToAll(msgObj, excludeUserId = null) {
-      const str = JSON.stringify(msgObj);
       for (const [pId, conn] of this.connections.entries()) {
         const uId = this.peerJsToUser.get(pId);
-        if (uId !== excludeUserId) {
-          safeSend(conn, str);
+        if (uId !== excludeUserId && conn.open) {
+          try { conn.send(msgObj); } catch (e) {}
         }
       }
     }
@@ -531,7 +514,6 @@
       if (this.onclose) this.onclose();
     }
   }
-
   function connectHub(targetRoomId) {
     ws = new PeerJSRoomHub();
     ws.onopen = () => {};
@@ -2286,19 +2268,21 @@
     try {
       showLoading('Connecting to study room…');
       await connectHub(parsedCode);
-
+      
+      // Send join request immediately
       sendToServer({ action: 'join', nickname, password: roomPassword });
 
-      let joinRetries = 0;
-      const joinInterval = setInterval(() => {
-        if (sessionActive || joinRetries >= 6) {
-          clearInterval(joinInterval);
+      // Keep probing until session starts
+      let attempts = 0;
+      const verifyTimer = setInterval(() => {
+        if (sessionActive || attempts >= 8) {
+          clearInterval(verifyTimer);
           return;
         }
-        joinRetries++;
-        console.log('[StudyRoom-Debug] Sending join attempt #' + joinRetries);
+        attempts++;
+        console.log('[StudyRoom-Debug] Resending join handshake attempt #' + attempts);
         sendToServer({ action: 'join', nickname, password: roomPassword });
-      }, 1200);
+      }, 1000);
 
     } catch (err) {
       hideLoading();
