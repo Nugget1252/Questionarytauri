@@ -2383,3 +2383,80 @@
   window.isWhiteboardActive = () => wbActive && sessionActive;
 
 })();
+/* ================================================================
+   BULLETPROOF THEME & ACCESSIBILITY HANDLERS (Delegated)
+   ================================================================ */
+(function setupGlobalHeaderActions() {
+    // 1. Set Initial Theme on Load
+    const savedTheme = localStorage.getItem('theme') || 'dark';
+    document.documentElement.setAttribute('data-theme', savedTheme);
+    document.body.setAttribute('data-theme', savedTheme);
+    const themeIcon = document.getElementById('themeIcon');
+    if (themeIcon) {
+        themeIcon.className = savedTheme === 'dark' ? 'fas fa-sun' : 'fas fa-moon';
+    }
+
+    // 2. Global Delegated Click Listener
+    document.addEventListener('click', function(e) {
+        // --- Theme Toggle ---
+        const themeBtn = e.target.closest('#themeToggle');
+        if (themeBtn) {
+            e.preventDefault();
+            e.stopPropagation();
+            const current = document.documentElement.getAttribute('data-theme') || 'dark';
+            const next = current === 'dark' ? 'light' : 'dark';
+            
+            document.documentElement.setAttribute('data-theme', next);
+            document.body.setAttribute('data-theme', next);
+            localStorage.setItem('theme', next);
+
+            const icon = document.getElementById('themeIcon');
+            if (icon) {
+                icon.className = next === 'dark' ? 'fas fa-sun' : 'fas fa-moon';
+            }
+            return;
+        }
+
+        // --- Accessibility Button ---
+        const accessBtn = e.target.closest('#accessibilityToggle');
+        if (accessBtn) {
+            e.preventDefault();
+            e.stopPropagation();
+            const panel = document.getElementById('accessibilityPanel');
+            if (panel) {
+                panel.classList.toggle('active');
+            }
+            return;
+        }
+
+        // --- Accessibility Switch Options ---
+        const accessOption = e.target.closest('.accessibility-option');
+        if (accessOption) {
+            const sw = accessOption.querySelector('.accessibility-switch');
+            const optId = accessOption.id;
+            
+            if (optId === 'highContrastToggle') {
+                const active = document.body.classList.toggle('high-contrast');
+                if (sw) sw.classList.toggle('active', active);
+            } else if (optId === 'largeTextToggle') {
+                const active = document.body.classList.toggle('large-text');
+                if (sw) sw.classList.toggle('active', active);
+            } else if (optId === 'reducedMotionToggle') {
+                const active = document.body.classList.toggle('reduced-motion');
+                if (sw) sw.classList.toggle('active', active);
+            } else if (optId === 'enhancedFocusToggle') {
+                const active = document.body.classList.toggle('enhanced-focus');
+                if (sw) sw.classList.toggle('active', active);
+            }
+            return;
+        }
+
+        // --- Close Accessibility Panel on Outside Click ---
+        const panel = document.getElementById('accessibilityPanel');
+        if (panel && panel.classList.contains('active')) {
+            if (!panel.contains(e.target) && !e.target.closest('#accessibilityToggle')) {
+                panel.classList.remove('active');
+            }
+        }
+    });
+})();
