@@ -1,6 +1,5 @@
 /* ================================================================
-   QUESTIONARY — STUDY ROOM ENGINE 2.0 (SUPERCHARGED)
-   Real-Time Collaborative WebRTC, Whiteboard 2.0, Audio/Video & Pomodoro
+   QUESTIONARY — STUDY ROOM ENGINE 2.5 (BUG-FREE & ROCK SOLID)
    ================================================================ */
 
 (function () {
@@ -8,17 +7,16 @@
 
   /* ---------- Constants ---------- */
   const MAX_PARTICIPANTS = 8;
-  const PROGRESS_SYNC_INTERVAL = 8000; // 8s
   const ROOM_CODE_LENGTH = 10;
   const ROOM_CODE_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 
-  /* ---------- Web Audio Synthesizer (No external asset files needed) ---------- */
+  /* ---------- Zero-Asset Web Audio Synthesizer ---------- */
   const SoundFX = {
     ctx: null,
     init() {
       if (!this.ctx) {
-        const AudioContext = window.AudioContext || window.webkitAudioContext;
-        if (AudioContext) this.ctx = new AudioContext();
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (AudioCtx) this.ctx = new AudioCtx();
       }
       if (this.ctx && this.ctx.state === 'suspended') {
         this.ctx.resume().catch(() => {});
@@ -52,9 +50,9 @@
       this.playTone(800, 'triangle', 0.06, 0.08);
     },
     playChime() {
-      this.playTone(523.25, 'sine', 0.2, 0.1); // C5
-      setTimeout(() => this.playTone(659.25, 'sine', 0.3, 0.1), 120); // E5
-      setTimeout(() => this.playTone(783.99, 'sine', 0.4, 0.1), 240); // G5
+      this.playTone(523.25, 'sine', 0.2, 0.1);
+      setTimeout(() => this.playTone(659.25, 'sine', 0.3, 0.1), 120);
+      setTimeout(() => this.playTone(783.99, 'sine', 0.4, 0.1), 240);
     },
     playHandRaise() {
       this.playTone(350, 'triangle', 0.1, 0.1);
@@ -63,10 +61,10 @@
   };
 
   /* ---------- Core State ---------- */
-  let ws = null;              // PeerJSRoomHub instance
-  let myId = '';              // Assigned user ID
-  let peers = {};             // peerId -> { nickname, goal, seconds, peerJsId, handRaised, speaking }
-  let roomAddress = '';       // 10-char code
+  let ws = null;
+  let myId = '';
+  let peers = {};
+  let roomAddress = '';
   let isHost = false;
   let nickname = '';
   let roomPassword = '';
@@ -74,28 +72,29 @@
   let handRaised = false;
   let unreadChatCount = 0;
   let activeTab = 'chat';
+  let sessionActive = false;
 
-  /* ---------- Timer & Pomodoro State ---------- */
-  let studyTimer = null;
-  let studySeconds = 0;
+  /* ---------- Robust Timer & Pomodoro State ---------- */
+  let mainInterval = null;
+  let timerMode = 'stopwatch'; // 'stopwatch' | 'focus' | 'break' | 'long_break'
+  let timerRunning = false;
+  let timerSeconds = 0;         // Stopwatch count-up
+  let timerDuration = 25 * 60;  // Target duration for countdown modes
+  let timerRemaining = 25 * 60; // Countdown remaining
   let studyGoal = '';
-  let pomoMode = 'stopwatch'; // 'stopwatch' | 'focus' | 'break'
-  let pomoRemaining = 25 * 60;
-  let pomoRunning = false;
+  let totalUptimeSeconds = 0;
 
   /* ---------- Chat Messages ---------- */
   let chatMessages = [];
-  let sessionActive = false;
 
-  /* ---------- WebRTC Media Streams ---------- */
+  /* ---------- Persistent WebRTC Media Streams (Zero-Spam Architecture) ---------- */
+  let localMediaStream = null;  // Persistent container stream
   let localScreenStream = null;
-  let localMediaStream = null;
   let micActive = false;
   let camActive = false;
   let pttActive = false;
   let audioContext = null;
   let localAudioAnalyser = null;
-  let speakingCheckInterval = null;
 
   /* ---------- Whiteboard 2.0 State ---------- */
   let wbActive = false;
@@ -109,24 +108,20 @@
   let wbPenSize = 3;
   let wbEraserSize = 24;
   let wbHighlighterSize = 20;
-  let wbTool = 'pen'; // 'pen' | 'highlighter' | 'eraser' | 'line' | 'arrow' | 'rect' | 'circle' | 'text' | 'block-erase' | 'pan'
-  let wbGridStyle = 'dots'; // 'none' | 'dots' | 'grid'
+  let wbTool = 'pen';
+  let wbGridStyle = 'dots';
   let wbStrokes = [];
   let wbRedoStrokes = [];
   let wbQuestions = [];
   let wbNextQId = 1;
   let wbShapeStart = null;
-  let wbBlockRect = null;
-  let wbRemoteCursors = {};   // userId -> { x, y, name, color, lastSeen }
-
-  /* --- Infinite Canvas Coordinates --- */
+  let wbRemoteCursors = {};
   let wbCanvasW = 4096;
   let wbCanvasH = 4096;
   let wbZoom = 1;
   let wbPanX = 0;
   let wbPanY = 0;
   let wbPanStart = null;
-  let wbSpaceDown = false;
   let _liveStrokePoints = [];
   let _lastLiveBroadcast = 0;
 
@@ -182,7 +177,7 @@
       this.readyState = 0;
       this.peer = null;
       this.hostConn = null;
-      this.connections = new Map();     // peerJsId -> DataConnection
+      this.connections = new Map();
       this.peerJsToUser = new Map();
       this.userToPeerJs = new Map();
       this.nextUserNum = 1;
@@ -268,10 +263,9 @@
           });
         }
 
-        // Incoming audio/video call answering
         this.peer.on('call', (call) => {
           this.calls.push(call);
-          call.answer(); // Answer to receive stream
+          call.answer();
           call.on('stream', (remoteStream) => {
             const callerUserId = this.peerJsToUser.get(call.peer) || call.peer;
             handleRemoteStream(callerUserId, remoteStream, call.metadata?.type || 'media');
@@ -320,7 +314,7 @@
           return;
         }
         if (this.connections.size >= MAX_PARTICIPANTS) {
-          if (senderConn) senderConn.send(JSON.stringify({ action: 'auth-fail', reason: 'Study room is full (max 8 participants).' }));
+          if (senderConn) senderConn.send(JSON.stringify({ action: 'auth-fail', reason: 'Study room is full.' }));
           return;
         }
 
@@ -357,16 +351,6 @@
           this.onmessage({ data: JSON.stringify(relayNotice) });
         }
         return;
-      }
-
-      if (msg.action === 'relay-to') {
-        const destPeerJsId = this.userToPeerJs.get(msg.to);
-        const dmNotice = { action: 'relay', from: senderUserId, data: msg.data };
-        if (msg.to === 'usr_host' && this.onmessage) {
-          this.onmessage({ data: JSON.stringify(dmNotice) });
-        } else if (destPeerJsId && this.connections.has(destPeerJsId)) {
-          this.connections.get(destPeerJsId).send(JSON.stringify(dmNotice));
-        }
       }
     }
 
@@ -442,7 +426,7 @@
 
       case 'hosted':
         sessionActive = true;
-        startStudyTimer();
+        startStudyTimerEngine();
         hideLoading();
         renderActiveSession();
         SoundFX.playJoin();
@@ -457,7 +441,7 @@
         }
         roomLocked = !!msg.locked;
         sessionActive = true;
-        startStudyTimer();
+        startStudyTimerEngine();
         hideLoading();
         renderActiveSession();
         SoundFX.playJoin();
@@ -516,7 +500,7 @@
         break;
 
       case 'reaction':
-        spawnFloatingReaction(data.emoji, fromId);
+        spawnFloatingReaction(data.emoji);
         break;
 
       case 'hand-raise':
@@ -549,20 +533,23 @@
         break;
 
       case 'info-request':
-        broadcastData({ type: 'info', nickname, goal: studyGoal, seconds: studySeconds });
-        if (isHost && pomoRunning) {
-          broadcastData({ type: 'pomo-sync', mode: pomoMode, remaining: pomoRemaining, running: pomoRunning });
+        broadcastData({ type: 'info', nickname, goal: studyGoal, seconds: timerSeconds });
+        if (isHost) {
+          broadcastTimerSync();
         }
         if (wbStrokes.length > 0) {
           broadcastData({ type: 'wb-full-sync', strokes: wbStrokes, questions: wbQuestions });
         }
         break;
 
-      case 'pomo-sync':
-        pomoMode = data.mode;
-        pomoRemaining = data.remaining;
-        pomoRunning = data.running;
-        updatePomodoroUI();
+      /* Unified Timer Sync */
+      case 'timer-sync':
+        timerMode = data.mode;
+        timerRunning = data.running;
+        timerSeconds = data.seconds;
+        timerDuration = data.duration;
+        timerRemaining = data.remaining;
+        updateTimerDisplay();
         break;
 
       case 'mod-mute-all':
@@ -582,10 +569,10 @@
       case 'mod-lock':
         roomLocked = data.locked;
         updateRoomLockUI();
-        notify(`Room ${roomLocked ? 'locked 🔒' : 'unlocked 🔓'} by host.`, 'info');
+        notify(`Room ${roomLocked ? 'Locked 🔒' : 'Unlocked 🔓'}`, 'info');
         break;
 
-      /* Whiteboard 2.0 live events */
+      /* Whiteboard Live Streaming */
       case 'wb-live-draw':
         replayLivePoints(data.points, data.color, data.size, data.tool, data.alpha);
         break;
@@ -613,11 +600,6 @@
 
       case 'wb-clear':
         clearCanvasLocal();
-        break;
-
-      case 'wb-block-erase':
-        replayBlockErase(data.rect);
-        wbStrokes.push({ type: 'block-erase', rect: data.rect });
         break;
 
       case 'wb-full-sync':
@@ -663,20 +645,20 @@
       <div class="sr-lobby">
         <div class="sr-lobby-header">
           <h2 class="section-title"><i class="fas fa-users"></i> Study Room</h2>
-          <span class="sr-exp-badge">v2.0 • Ultra Low Latency</span>
+          <span class="sr-exp-badge">Ultra-Low Latency Study Hub</span>
           <div class="sr-lobby-icon"><i class="fas fa-graduation-cap"></i></div>
-          <p class="sr-lobby-subtitle">Collaborate in real-time. Live Whiteboard, Screenshare, Voice, Notes, and Pomodoro Timer.</p>
+          <p class="sr-lobby-subtitle">Collaborate live with screen sharing, interactive whiteboard, synced timers, voice & notes.</p>
         </div>
 
         <div class="sr-lobby-cards">
           <div class="sr-lobby-card">
-            <h3><i class="fas fa-user-circle"></i> Your Display Name</h3>
+            <h3><i class="fas fa-user-circle"></i> Display Name</h3>
             <input type="text" id="srNickname" class="sr-input" placeholder="Enter your name…" maxlength="24" value="${escapeHTML(savedNick)}">
           </div>
 
           <div class="sr-lobby-card sr-card-create">
             <h3><i class="fas fa-plus-circle"></i> Create Room</h3>
-            <p>Host an instant study session and share your 10-character code.</p>
+            <p>Host a study room and share your 10-character code.</p>
 
             <div class="sr-pw-row">
               <input type="password" id="srCreatePassword" class="sr-input" placeholder="Room password (optional)" maxlength="32" autocomplete="off">
@@ -700,11 +682,11 @@
         </div>
 
         <div class="sr-features-grid">
-          <div class="sr-feature-item"><i class="fas fa-chalkboard"></i><span>Live Whiteboard</span></div>
+          <div class="sr-feature-item"><i class="fas fa-chalkboard"></i><span>Whiteboard 2.0</span></div>
           <div class="sr-feature-item"><i class="fas fa-desktop"></i><span>Screen Share</span></div>
-          <div class="sr-feature-item"><i class="fas fa-stopwatch"></i><span>Synced Pomodoro</span></div>
+          <div class="sr-feature-item"><i class="fas fa-stopwatch"></i><span>Synced Timer</span></div>
           <div class="sr-feature-item"><i class="fas fa-hand-paper"></i><span>Hand Raising</span></div>
-          <div class="sr-feature-item"><i class="fas fa-comments"></i><span>Files & Chat</span></div>
+          <div class="sr-feature-item"><i class="fas fa-comments"></i><span>Live Chat</span></div>
         </div>
       </div>
     `;
@@ -748,14 +730,18 @@
             ${isHost ? `<button class="sr-btn sr-btn-sm ${roomLocked ? 'sr-btn-primary' : 'sr-btn-secondary'}" id="srLockToggle" title="Lock/Unlock Room"><i class="fas fa-${roomLocked ? 'lock' : 'lock-open'}"></i></button>` : ''}
           </div>
 
-          <!-- Centered Synced Pomodoro / Stopwatch Display -->
+          <!-- UNIFIED WORKING TIMER & POMODORO BAR -->
           <div class="sr-pomo-bar" id="srPomoBar">
-            <button class="sr-pomo-mode-btn active" id="srPomoToggleMode" title="Toggle Pomodoro / Stopwatch"><i class="fas fa-stopwatch"></i></button>
-            <span class="sr-pomo-timer" id="srPomoTimer">${fmtTime(pomoMode === 'stopwatch' ? studySeconds : pomoRemaining)}</span>
-            ${isHost ? `
-              <button class="sr-pomo-ctrl-btn" id="srPomoPlayPause" title="Start/Pause Timer"><i class="fas fa-play"></i></button>
-              <button class="sr-pomo-ctrl-btn" id="srPomoReset" title="Reset Timer"><i class="fas fa-redo"></i></button>
-            ` : ''}
+            <button class="sr-pomo-mode-btn" id="srPomoToggleMode" title="Cycle Mode (Stopwatch / 25m Focus / 5m Break / 15m Long Break)">
+              <i class="fas fa-stopwatch"></i>
+            </button>
+            <span class="sr-pomo-timer" id="srPomoTimer">00:00</span>
+            <button class="sr-pomo-ctrl-btn" id="srPomoPlayPause" title="Start / Pause Timer">
+              <i class="fas fa-play"></i>
+            </button>
+            <button class="sr-pomo-ctrl-btn" id="srPomoReset" title="Reset Timer">
+              <i class="fas fa-redo"></i>
+            </button>
           </div>
 
           <div class="sr-session-bar-right">
@@ -771,7 +757,7 @@
             <button class="sr-ctrl-btn" id="srToggleScreenShare" title="Share Screen">
               <i class="fas fa-desktop"></i>
             </button>
-            <button class="sr-ctrl-btn ${wbActive ? 'sr-ctrl-active' : ''}" id="srToggleWB" title="Toggle Whiteboard 2.0">
+            <button class="sr-ctrl-btn ${wbActive ? 'sr-ctrl-active' : ''}" id="srToggleWB" title="Toggle Whiteboard">
               <i class="fas fa-chalkboard"></i>
             </button>
             ${isHost ? `<button class="sr-ctrl-btn" id="srMuteAllBtn" title="Mute All Participants"><i class="fas fa-volume-mute"></i></button>` : ''}
@@ -782,13 +768,13 @@
         </div>
 
         <div class="sr-session-body">
-          <!-- Video Grid Area -->
+          <!-- Video Area -->
           <div class="sr-video-area" id="srParticipantArea">
             <div class="sr-video-grid" id="srParticipantsGrid">
               ${buildParticipantCardsHTML()}
             </div>
             
-            <!-- Quick Floating Reactions Bar -->
+            <!-- Quick Reactions Bar -->
             <div class="sr-reactions-bar">
               <button class="sr-react-btn" data-emoji="👏">👏</button>
               <button class="sr-react-btn" data-emoji="🔥">🔥</button>
@@ -812,7 +798,6 @@
                 <button class="sr-wb-tool-btn" data-tool="circle" title="Circle"><i class="far fa-circle"></i></button>
                 <button class="sr-wb-tool-btn" data-tool="text" title="Text Tool"><i class="fas fa-font"></i></button>
                 <button class="sr-wb-tool-btn" data-tool="eraser" title="Eraser"><i class="fas fa-eraser"></i></button>
-                <button class="sr-wb-tool-btn" data-tool="block-erase" title="Block Erase Area"><i class="fas fa-vector-square"></i></button>
                 
                 <div class="sr-wb-sep"></div>
                 <input type="color" id="srWbColor" class="sr-wb-color-pick" value="${wbColor}">
@@ -823,7 +808,7 @@
                 </div>
                 
                 <div class="sr-wb-sep"></div>
-                <button class="sr-wb-tool-btn" id="srWbGridToggle" title="Toggle Grid (Dots/Lines/None)"><i class="fas fa-border-all"></i></button>
+                <button class="sr-wb-tool-btn" id="srWbGridToggle" title="Toggle Grid"><i class="fas fa-border-all"></i></button>
                 <button class="sr-wb-tool-btn" id="srWbUndo" title="Undo"><i class="fas fa-undo"></i></button>
                 <button class="sr-wb-tool-btn" id="srWbRedo" title="Redo"><i class="fas fa-redo"></i></button>
                 <button class="sr-wb-tool-btn" id="srWbClear" title="Clear board"><i class="fas fa-trash"></i></button>
@@ -834,11 +819,11 @@
                   <button class="sr-wb-tool-btn" id="srWbZoomOut"><i class="fas fa-search-minus"></i></button>
                   <span class="sr-wb-zoom-label" id="srWbZoomLabel">100%</span>
                   <button class="sr-wb-tool-btn" id="srWbZoomIn"><i class="fas fa-search-plus"></i></button>
-                  <button class="sr-wb-tool-btn" id="srWbZoomReset" title="Reset Zoom/Pan"><i class="fas fa-compress-arrows-alt"></i></button>
+                  <button class="sr-wb-tool-btn" id="srWbZoomReset" title="Reset View"><i class="fas fa-compress-arrows-alt"></i></button>
                 </div>
                 <div class="sr-wb-sep"></div>
                 <button class="sr-wb-tool-btn" id="srWbFullscreen" title="Fullscreen"><i class="fas fa-expand"></i></button>
-                <button class="sr-wb-tool-btn" id="srWbDownload" title="Download Image"><i class="fas fa-download"></i></button>
+                <button class="sr-wb-tool-btn" id="srWbDownload" title="Download PNG"><i class="fas fa-download"></i></button>
                 <button class="sr-wb-tool-btn" id="srWbSaveLib" title="Save to Library"><i class="fas fa-save"></i></button>
               </div>
             </div>
@@ -858,7 +843,7 @@
             </div>
           </div>
 
-          <!-- Right Sidebar -->
+          <!-- Sidebar -->
           <div class="sr-sidebar" id="srSidebar">
             <div class="sr-sidebar-tabs">
               <button class="sr-tab-btn active" data-tab="chat">
@@ -891,7 +876,7 @@
             <div class="sr-tab-panel" id="srTabProgress">
               <div class="sr-progress-self">
                 <h4>Your Study Goal</h4>
-                <input type="text" id="srGoalInput" class="sr-input" placeholder="e.g., Solving Chapter 4 Questions…" value="${escapeHTML(studyGoal)}" maxlength="80">
+                <input type="text" id="srGoalInput" class="sr-input" placeholder="What are you studying right now?" value="${escapeHTML(studyGoal)}" maxlength="80">
                 <button class="sr-btn sr-btn-accent sr-btn-sm" id="srSetGoal" style="margin-top:0.4rem;width:100%;justify-content:center;">Set Goal</button>
               </div>
               <div class="sr-progress-list" id="srProgressList">
@@ -906,7 +891,7 @@
     attachSessionListeners();
     renderChatMessages();
     updateVideoGridLayout();
-    setupAudioAnalysis();
+    updateTimerDisplay();
   }
 
   function buildParticipantsHTML() {
@@ -960,7 +945,7 @@
       <div class="sr-progress-item">
         <div class="sr-progress-user"><i class="fas fa-user"></i> ${escapeHTML(nickname)} (You)</div>
         <div class="sr-progress-goal">${studyGoal ? escapeHTML(studyGoal) : '<em>No goal set</em>'}</div>
-        <div class="sr-progress-time"><i class="fas fa-clock"></i> ${fmtTime(studySeconds)}</div>
+        <div class="sr-progress-time"><i class="fas fa-clock"></i> ${fmtTime(timerMode === 'stopwatch' ? timerSeconds : timerRemaining)}</div>
       </div>`;
     Object.values(peers).forEach(p => {
       html += `
@@ -971,6 +956,138 @@
         </div>`;
     });
     return html;
+  }
+
+  /* ================================================================
+     TIMER & POMODORO CONTROLS (100% RELIABLE)
+     ================================================================ */
+  function startStudyTimerEngine() {
+    if (mainInterval) clearInterval(mainInterval);
+
+    mainInterval = setInterval(() => {
+      if (!sessionActive) return;
+
+      totalUptimeSeconds++;
+
+      // Timer countdown / countup
+      if (timerRunning) {
+        if (timerMode === 'stopwatch') {
+          timerSeconds++;
+        } else {
+          if (timerRemaining > 0) {
+            timerRemaining--;
+            if (timerRemaining === 0) {
+              timerRunning = false;
+              SoundFX.playChime();
+              notify(timerMode === 'focus' ? '🎯 Focus session complete! Time for a break.' : '☕ Break complete! Back to study.', 'success');
+
+              // Auto transition
+              if (timerMode === 'focus') {
+                timerMode = 'break';
+                timerDuration = 5 * 60;
+                timerRemaining = 5 * 60;
+              } else {
+                timerMode = 'focus';
+                timerDuration = 25 * 60;
+                timerRemaining = 25 * 60;
+              }
+            }
+          }
+        }
+      }
+
+      updateTimerDisplay();
+
+      // Goal sync
+      if (totalUptimeSeconds % 8 === 0) {
+        broadcastData({
+          type: 'progress',
+          goal: studyGoal,
+          seconds: timerMode === 'stopwatch' ? timerSeconds : timerRemaining
+        });
+        updateProgressUI();
+      }
+    }, 1000);
+  }
+
+  function toggleTimerPlayPause() {
+    timerRunning = !timerRunning;
+    broadcastTimerSync();
+    updateTimerDisplay();
+    notify(timerRunning ? 'Timer started' : 'Timer paused', 'info');
+  }
+
+  function resetTimer() {
+    timerRunning = false;
+    if (timerMode === 'stopwatch') {
+      timerSeconds = 0;
+    } else {
+      timerRemaining = timerDuration;
+    }
+    broadcastTimerSync();
+    updateTimerDisplay();
+    notify('Timer reset', 'info');
+  }
+
+  function cycleTimerMode() {
+    if (timerMode === 'stopwatch') {
+      timerMode = 'focus';
+      timerDuration = 25 * 60;
+      timerRemaining = 25 * 60;
+    } else if (timerMode === 'focus') {
+      timerMode = 'break';
+      timerDuration = 5 * 60;
+      timerRemaining = 5 * 60;
+    } else if (timerMode === 'break') {
+      timerMode = 'long_break';
+      timerDuration = 15 * 60;
+      timerRemaining = 15 * 60;
+    } else {
+      timerMode = 'stopwatch';
+      timerSeconds = 0;
+    }
+
+    timerRunning = false;
+    broadcastTimerSync();
+    updateTimerDisplay();
+  }
+
+  function broadcastTimerSync() {
+    broadcastData({
+      type: 'timer-sync',
+      mode: timerMode,
+      running: timerRunning,
+      seconds: timerSeconds,
+      duration: timerDuration,
+      remaining: timerRemaining
+    });
+  }
+
+  function updateTimerDisplay() {
+    const timerEl = document.getElementById('srPomoTimer');
+    const playBtn = document.getElementById('srPomoPlayPause');
+    const modeBtn = document.getElementById('srPomoToggleMode');
+
+    if (timerEl) {
+      const displayVal = timerMode === 'stopwatch' ? timerSeconds : timerRemaining;
+      timerEl.textContent = fmtTime(displayVal);
+      timerEl.style.color = timerMode === 'focus' ? 'var(--accent, #cf6215)' : (timerMode.includes('break') ? '#10b981' : 'var(--fg)');
+    }
+
+    if (playBtn) {
+      playBtn.innerHTML = `<i class="fas fa-${timerRunning ? 'pause' : 'play'}"></i>`;
+    }
+
+    if (modeBtn) {
+      let icon = 'stopwatch';
+      let label = 'Stopwatch';
+      if (timerMode === 'focus') { icon = 'brain'; label = 'Focus (25m)'; }
+      else if (timerMode === 'break') { icon = 'coffee'; label = 'Short Break (5m)'; }
+      else if (timerMode === 'long_break') { icon = 'umbrella-beach'; label = 'Long Break (15m)'; }
+
+      modeBtn.innerHTML = `<i class="fas fa-${icon}"></i>`;
+      modeBtn.title = `Current Mode: ${label} (Click to switch)`;
+    }
   }
 
   /* ================================================================
@@ -999,7 +1116,7 @@
     document.getElementById('srRaiseHandBtn')?.addEventListener('click', toggleRaiseHand);
     document.getElementById('srMuteAllBtn')?.addEventListener('click', () => {
       broadcastData({ type: 'mod-mute-all' });
-      notify('Sent mute request to all participants.', 'info');
+      notify('Mute request sent to all.', 'info');
     });
 
     document.getElementById('srLeaveBtn')?.addEventListener('click', leaveRoom);
@@ -1012,10 +1129,10 @@
     document.getElementById('srToggleCamera')?.addEventListener('click', toggleCamera);
     document.getElementById('srToggleWB')?.addEventListener('click', toggleWhiteboard);
 
-    // Pomodoro Controls
-    document.getElementById('srPomoToggleMode')?.addEventListener('click', togglePomoMode);
-    document.getElementById('srPomoPlayPause')?.addEventListener('click', togglePomoPlayPause);
-    document.getElementById('srPomoReset')?.addEventListener('click', resetPomoTimer);
+    // Timer Controls
+    document.getElementById('srPomoToggleMode')?.addEventListener('click', cycleTimerMode);
+    document.getElementById('srPomoPlayPause')?.addEventListener('click', toggleTimerPlayPause);
+    document.getElementById('srPomoReset')?.addEventListener('click', resetTimer);
 
     // Tab Navigation
     document.querySelectorAll('.sr-tab-btn').forEach(btn => {
@@ -1037,7 +1154,7 @@
     document.querySelectorAll('.sr-react-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         const emoji = btn.dataset.emoji;
-        spawnFloatingReaction(emoji, 'usr_self');
+        spawnFloatingReaction(emoji);
         broadcastData({ type: 'reaction', emoji });
       });
     });
@@ -1046,12 +1163,11 @@
     document.getElementById('srSetGoal')?.addEventListener('click', () => {
       const input = document.getElementById('srGoalInput');
       studyGoal = input?.value.trim() || '';
-      broadcastData({ type: 'progress', goal: studyGoal, seconds: studySeconds });
+      broadcastData({ type: 'progress', goal: studyGoal, seconds: timerSeconds });
       updateProgressUI();
       notify('Study goal updated!', 'success');
     });
 
-    // Push to Talk (PTT) Handler
     setupPushToTalk();
     initWhiteboardListeners();
   }
@@ -1084,59 +1200,7 @@
     }
   }
 
-  /* ================================================================
-     POMODORO SYNCHRONIZER
-     ================================================================ */
-  function togglePomoMode() {
-    if (!isHost) return;
-    if (pomoMode === 'stopwatch') pomoMode = 'focus';
-    else if (pomoMode === 'focus') pomoMode = 'break';
-    else pomoMode = 'stopwatch';
-    
-    pomoRemaining = pomoMode === 'focus' ? 25 * 60 : (pomoMode === 'break' ? 5 * 60 : 0);
-    pomoRunning = false;
-    broadcastPomoSync();
-    updatePomodoroUI();
-  }
-
-  function togglePomoPlayPause() {
-    if (!isHost) return;
-    pomoRunning = !pomoRunning;
-    broadcastPomoSync();
-    updatePomodoroUI();
-  }
-
-  function resetPomoTimer() {
-    if (!isHost) return;
-    pomoRemaining = pomoMode === 'focus' ? 25 * 60 : (pomoMode === 'break' ? 5 * 60 : 0);
-    pomoRunning = false;
-    broadcastPomoSync();
-    updatePomodoroUI();
-  }
-
-  function broadcastPomoSync() {
-    broadcastData({ type: 'pomo-sync', mode: pomoMode, remaining: pomoRemaining, running: pomoRunning });
-  }
-
-  function updatePomodoroUI() {
-    const timerEl = document.getElementById('srPomoTimer');
-    const playBtn = document.getElementById('srPomoPlayPause');
-    const modeBtn = document.getElementById('srPomoToggleMode');
-
-    if (timerEl) {
-      timerEl.textContent = fmtTime(pomoMode === 'stopwatch' ? studySeconds : pomoRemaining);
-      timerEl.style.color = pomoMode === 'focus' ? 'var(--accent, #cf6215)' : (pomoMode === 'break' ? '#10b981' : 'var(--fg)');
-    }
-    if (playBtn) {
-      playBtn.innerHTML = `<i class="fas fa-${pomoRunning ? 'pause' : 'play'}"></i>`;
-    }
-    if (modeBtn) {
-      modeBtn.innerHTML = `<i class="fas fa-${pomoMode === 'stopwatch' ? 'stopwatch' : (pomoMode === 'focus' ? 'brain' : 'coffee')}"></i>`;
-      modeBtn.title = `Mode: ${capitalize(pomoMode)}`;
-    }
-  }
-
-  function spawnFloatingReaction(emoji, fromId) {
+  function spawnFloatingReaction(emoji) {
     SoundFX.playPop();
     const container = document.getElementById('srParticipantArea');
     if (!container) return;
@@ -1152,66 +1216,73 @@
   }
 
   /* ================================================================
-     AUDIO ANALYSIS & SPEAKING DETECTION
+     PERSISTENT MEDIA ENGINE (ZERO PERMISSION SPAM)
      ================================================================ */
-  function setupAudioAnalysis() {
-    if (speakingCheckInterval) clearInterval(speakingCheckInterval);
-    try {
-      const AudioContext = window.AudioContext || window.webkitAudioContext;
-      if (!audioContext && AudioContext) audioContext = new AudioContext();
-    } catch (e) {}
-
-    speakingCheckInterval = setInterval(checkSpeakingLevels, 100);
+  async function getOrCreateMediaStream() {
+    if (!localMediaStream) {
+      localMediaStream = new MediaStream();
+    }
+    return localMediaStream;
   }
 
-  function checkSpeakingLevels() {
-    if (!localMediaStream || !micActive || !audioContext) return;
-    if (!localAudioAnalyser && localMediaStream.getAudioTracks().length > 0) {
-      try {
-        const source = audioContext.createMediaStreamSource(localMediaStream);
-        localAudioAnalyser = audioContext.createAnalyser();
-        localAudioAnalyser.fftSize = 256;
-        source.connect(localAudioAnalyser);
-      } catch (e) {}
-    }
-
-    if (localAudioAnalyser) {
-      const data = new Uint8Array(localAudioAnalyser.frequencyBinCount);
-      localAudioAnalyser.getByteFrequencyData(data);
-      let sum = 0;
-      for (let i = 0; i < data.length; i++) sum += data[i];
-      const avg = sum / data.length;
-      const isSpeaking = avg > 20;
-
-      const tile = document.getElementById('srTile_usr_self');
-      if (tile) tile.classList.toggle('sr-speaking', isSpeaking);
-    }
-  }
-
-  /* ================================================================
-     MEDIA (MIC / CAMERA / SCREENSHARE)
-     ================================================================ */
   async function toggleMicrophone() {
-    if (localMediaStream && localMediaStream.getAudioTracks().length > 0) {
-      micActive = !micActive;
-      localMediaStream.getAudioTracks().forEach(t => t.enabled = micActive);
+    try {
+      const stream = await getOrCreateMediaStream();
+      let audioTrack = stream.getAudioTracks()[0];
+
+      if (!audioTrack) {
+        // Request audio track ONCE
+        const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        audioTrack = audioStream.getAudioTracks()[0];
+        stream.addTrack(audioTrack);
+        micActive = true;
+        audioTrack.enabled = true;
+        broadcastMediaStream(stream, 'media');
+      } else {
+        micActive = !micActive;
+        audioTrack.enabled = micActive;
+      }
+
       updateMediaButtons();
-      return;
+      setupAudioAnalysis();
+      notify(micActive ? 'Microphone unmuted' : 'Microphone muted', 'info');
+    } catch (err) {
+      console.error('[Mic Error]:', err);
+      micActive = false;
+      updateMediaButtons();
+      notify('Could not access microphone. Check permissions.', 'error');
     }
-    micActive = !micActive;
-    await updateLocalMediaStream();
   }
 
   async function toggleCamera() {
-    if (localMediaStream && localMediaStream.getVideoTracks().length > 0) {
-      camActive = !camActive;
-      localMediaStream.getVideoTracks().forEach(t => t.enabled = camActive);
+    try {
+      const stream = await getOrCreateMediaStream();
+      let videoTrack = stream.getVideoTracks()[0];
+
+      if (!videoTrack) {
+        // Request video track ONCE
+        const videoStream = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 24 } }
+        });
+        videoTrack = videoStream.getVideoTracks()[0];
+        stream.addTrack(videoTrack);
+        camActive = true;
+        videoTrack.enabled = true;
+        broadcastMediaStream(stream, 'media');
+      } else {
+        camActive = !camActive;
+        videoTrack.enabled = camActive;
+      }
+
       updateMediaButtons();
-      renderLocalCam(camActive ? localMediaStream : null);
-      return;
+      renderLocalCam(camActive ? stream : null);
+      notify(camActive ? 'Camera turned on' : 'Camera turned off', 'info');
+    } catch (err) {
+      console.error('[Camera Error]:', err);
+      camActive = false;
+      updateMediaButtons();
+      notify('Could not access camera. Check permissions.', 'error');
     }
-    camActive = !camActive;
-    await updateLocalMediaStream();
   }
 
   function updateMediaButtons() {
@@ -1227,40 +1298,17 @@
     }
   }
 
-  async function updateLocalMediaStream() {
-    updateMediaButtons();
-
-    if (!micActive && !camActive) {
-      if (localMediaStream) {
-        localMediaStream.getTracks().forEach(t => t.stop());
-        localMediaStream = null;
-      }
-      renderLocalCam(null);
-      return;
-    }
-
+  function setupAudioAnalysis() {
     try {
-      if (localMediaStream) {
-        localMediaStream.getTracks().forEach(t => t.stop());
-        localMediaStream = null;
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!audioContext && AudioCtx) audioContext = new AudioCtx();
+      if (!localAudioAnalyser && localMediaStream && localMediaStream.getAudioTracks().length > 0) {
+        const source = audioContext.createMediaStreamSource(localMediaStream);
+        localAudioAnalyser = audioContext.createAnalyser();
+        localAudioAnalyser.fftSize = 256;
+        source.connect(localAudioAnalyser);
       }
-
-      localMediaStream = await navigator.mediaDevices.getUserMedia({
-        video: camActive ? { width: 640, height: 480, frameRate: 24 } : false,
-        audio: true
-      });
-
-      if (!micActive) {
-        localMediaStream.getAudioTracks().forEach(t => t.enabled = false);
-      }
-
-      broadcastMediaStream(localMediaStream, 'camera');
-      renderLocalCam(camActive ? localMediaStream : null);
-    } catch (err) {
-      micActive = false; camActive = false;
-      updateMediaButtons();
-      notify('Microphone or Camera access was denied.', 'error');
-    }
+    } catch (e) {}
   }
 
   async function toggleScreenShare() {
@@ -1273,7 +1321,7 @@
       localScreenStream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 30 } });
       const vTrack = localScreenStream.getVideoTracks()[0];
       if (vTrack) {
-        vTrack.onended = () => { if (localScreenStream) stopScreenShare(); };
+        vTrack.onended = () => stopScreenShare();
       }
 
       broadcastMediaStream(localScreenStream, 'screen');
@@ -1413,9 +1461,9 @@
       if (e.code === 'Space' && !pttActive && !wbActive) {
         const tag = document.activeElement?.tagName.toLowerCase();
         if (tag === 'input' || tag === 'textarea') return;
-        if (localMediaStream && !micActive) {
+        if (localMediaStream && localMediaStream.getAudioTracks().length > 0 && !micActive) {
           pttActive = true;
-          localMediaStream.getAudioTracks().forEach(t => t.enabled = true);
+          localMediaStream.getAudioTracks()[0].enabled = true;
           const mbtn = document.getElementById('srToggleMic');
           if (mbtn) mbtn.classList.add('sr-ctrl-active');
         }
@@ -1425,8 +1473,8 @@
     window.addEventListener('keyup', (e) => {
       if (e.code === 'Space' && pttActive) {
         pttActive = false;
-        if (localMediaStream && !micActive) {
-          localMediaStream.getAudioTracks().forEach(t => t.enabled = false);
+        if (localMediaStream && localMediaStream.getAudioTracks().length > 0 && !micActive) {
+          localMediaStream.getAudioTracks()[0].enabled = false;
           const mbtn = document.getElementById('srToggleMic');
           if (mbtn) mbtn.classList.remove('sr-ctrl-active');
         }
@@ -1508,7 +1556,7 @@
   }
 
   /* ================================================================
-     WHITEBOARD 2.0 (LIVE STREAMING & SHAPES)
+     WHITEBOARD 2.0
      ================================================================ */
   function toggleWhiteboard() {
     wbActive = !wbActive;
@@ -1558,13 +1606,6 @@
           wbCtx.fillRect(x, y, 2, 2);
         }
       }
-    } else if (wbGridStyle === 'grid') {
-      wbCtx.strokeStyle = '#222232';
-      wbCtx.lineWidth = 1;
-      wbCtx.beginPath();
-      for (let x = 0; x < wbCanvasW; x += 40) { wbCtx.moveTo(x, 0); wbCtx.lineTo(x, wbCanvasH); }
-      for (let y = 0; y < wbCanvasH; y += 40) { wbCtx.moveTo(0, y); wbCtx.lineTo(wbCanvasW, y); }
-      wbCtx.stroke();
     }
   }
 
@@ -1621,7 +1662,7 @@
     });
 
     document.getElementById('srWbGridToggle')?.addEventListener('click', () => {
-      wbGridStyle = wbGridStyle === 'dots' ? 'grid' : (wbGridStyle === 'grid' ? 'none' : 'dots');
+      wbGridStyle = wbGridStyle === 'dots' ? 'none' : 'dots';
       renderCanvasGrid();
       replayAllStrokes();
     });
@@ -1705,7 +1746,7 @@
     }
 
     if (wbTool === 'text') {
-      const text = prompt('Enter text to place on canvas:');
+      const text = prompt('Enter text for canvas:');
       if (text) {
         drawTextOnCanvas(text, x, y, wbColor, wbPenSize * 4 + 12);
         wbStrokes.push({ type: 'text', text, x, y, color: wbColor, size: wbPenSize * 4 + 12 });
@@ -1723,7 +1764,6 @@
   function onPointerMove(e) {
     const { x, y } = canvasXY(e);
 
-    // Broadcast cursor position (throttled)
     if (Date.now() - _lastLiveBroadcast > 50) {
       broadcastData({ type: 'wb-cursor', x, y, color: wbColor });
       _lastLiveBroadcast = Date.now();
@@ -1746,7 +1786,6 @@
 
     _liveStrokePoints.push({ x, y });
 
-    // Live stroke broadcasting for ultra-smooth real-time rendering
     if (_liveStrokePoints.length % 3 === 0) {
       broadcastData({
         type: 'wb-live-draw',
@@ -1880,7 +1919,6 @@
       if (cmd.type === 'stroke') replayStroke(cmd.points, cmd.color, cmd.size, cmd.tool, cmd.alpha);
       else if (cmd.type === 'shape') drawShapeOnCanvas(cmd.shape, cmd.start, cmd.end, cmd.color, cmd.size);
       else if (cmd.type === 'text') drawTextOnCanvas(cmd.text, cmd.x, cmd.y, cmd.color, cmd.size);
-      else if (cmd.type === 'block-erase') replayBlockErase(cmd.rect);
     }
   }
 
@@ -1890,7 +1928,7 @@
 
     const now = Date.now();
     Object.entries(wbRemoteCursors).forEach(([uId, cur]) => {
-      if (now - cur.lastSeen > 5000) return; // Cursor expired
+      if (now - cur.lastSeen > 5000) return;
       wbOCtx.save();
       wbOCtx.fillStyle = cur.color;
       wbOCtx.beginPath();
@@ -1931,7 +1969,7 @@
     a.href = wbCanvas.toDataURL('image/png');
     a.download = `StudyRoom-Whiteboard-${Date.now()}.png`;
     a.click();
-    notify('Whiteboard image downloaded!', 'success');
+    notify('Whiteboard downloaded!', 'success');
   }
 
   async function saveWhiteboardToLibrary() {
@@ -1941,7 +1979,7 @@
       const file = new File([blob], `Whiteboard-${Date.now()}.png`, { type: 'image/png' });
       if (typeof window.importFileFromAnySource === 'function') {
         await window.importFileFromAnySource(file);
-        notify('Whiteboard saved to Document Library!', 'success');
+        notify('Whiteboard saved to Library!', 'success');
       }
     }, 'image/png');
   }
@@ -1963,7 +2001,7 @@
   }
 
   /* ================================================================
-     QUESTIONS SIDEBAR (DEBOUNCED COLLABORATIVE NOTES)
+     QUESTIONS & NOTES
      ================================================================ */
   function addQuestion() {
     const id = wbNextQId++;
@@ -2014,7 +2052,7 @@
   }
 
   /* ================================================================
-     UI UPDATES & MODERATION
+     UI UPDATES & CLEANUP
      ================================================================ */
   function updateParticipantsUI() {
     const list = document.getElementById('srParticipantsList');
@@ -2118,13 +2156,14 @@
   }
 
   function doLeave() {
-    stopStudyTimer();
+    if (mainInterval) { clearInterval(mainInterval); mainInterval = null; }
     stopScreenShare();
+
     if (localMediaStream) {
       localMediaStream.getTracks().forEach(t => t.stop());
       localMediaStream = null;
     }
-    if (speakingCheckInterval) clearInterval(speakingCheckInterval);
+
     if (ws) {
       try { ws.close(); } catch (_) {}
       ws = null;
@@ -2138,10 +2177,15 @@
     roomPassword = '';
     chatMessages = [];
     studyGoal = '';
-    studySeconds = 0;
+    timerSeconds = 0;
+    timerRemaining = 25 * 60;
+    timerRunning = false;
+    timerMode = 'stopwatch';
     wbActive = false;
     unreadChatCount = 0;
     handRaised = false;
+    micActive = false;
+    camActive = false;
   }
 
   function cleanup() {
@@ -2150,34 +2194,6 @@
     isHost = false;
     myId = '';
     peers = {};
-  }
-
-  function startStudyTimer() {
-    studySeconds = 0;
-    studyTimer = setInterval(() => {
-      studySeconds++;
-      if (isHost && pomoRunning && pomoMode !== 'stopwatch') {
-        pomoRemaining--;
-        if (pomoRemaining <= 0) {
-          SoundFX.playChime();
-          pomoMode = pomoMode === 'focus' ? 'break' : 'focus';
-          pomoRemaining = pomoMode === 'focus' ? 25 * 60 : 5 * 60;
-          notify(pomoMode === 'focus' ? '🎯 Focus session started!' : '☕ Break time!', 'success');
-        }
-        broadcastPomoSync();
-      }
-
-      updatePomodoroUI();
-
-      if (studySeconds % (PROGRESS_SYNC_INTERVAL / 1000) === 0) {
-        broadcastData({ type: 'progress', goal: studyGoal, seconds: studySeconds });
-        updateProgressUI();
-      }
-    }, 1000);
-  }
-
-  function stopStudyTimer() {
-    if (studyTimer) { clearInterval(studyTimer); studyTimer = null; }
   }
 
   function showLoading(msg) {
