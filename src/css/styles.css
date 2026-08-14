@@ -1659,37 +1659,99 @@ body.enhanced-focus .tile:focus {
 .empty-state h3 { font-size: 0.9rem; margin-bottom: 0.2rem; color: var(--fg); }
 .empty-state p { font-size: 0.8rem; }
 
-/* ── PDF VIEWER ── */
-#pdfViewerContainer { position: relative; }
-#pdfViewer { width: 100%; height: calc(100vh - 250px); min-height: 500px; border: none; border-radius: 12px; background: var(--surface); display: block; }
-.pdf-toolbar { display: flex; align-items: center; gap: 0.4rem; padding: 0.4rem 0; margin-bottom: 0.4rem; flex-wrap: wrap; }
-.pdf-name { font-weight: 600; font-size: 0.8rem; flex: 1; }
-.pdf-toolbar-actions { display: flex; gap: 0.3rem; }
-.pdf-content-wrapper { display: flex; gap: 0.75rem; }
+/* ================================================================
+   EXPANDED FULL-SCREEN PDF & DOCUMENT VIEWER
+   ================================================================ */
+
+/* Remove width constraint on container when a document is open */
+.container:has(#pdfViewerContainer[style*="display: block"]),
+.container:has(#imageViewerContainer[style*="display: block"]),
+.container:has(#textViewerContainer[style*="display: block"]),
+.container:has(#docxViewerContainer[style*="display: block"]),
+body.pdf-view-active .container {
+    max-width: 100% !important;
+    width: 100% !important;
+    padding-left: 12px !important;
+    padding-right: 12px !important;
+    padding-top: 8px !important;
+    padding-bottom: 8px !important;
+}
+
+/* Container for PDF Viewer */
+#pdfViewerContainer,
+#imageViewerContainer,
+#textViewerContainer,
+#docxViewerContainer {
+    position: relative;
+    width: 100% !important;
+    height: calc(100vh - 72px) !important;
+    display: flex;
+    flex-direction: column;
+    margin: 0 !important;
+}
+
+/* Compact Toolbar */
+.pdf-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 4px 0 8px 0;
+    margin: 0;
+    flex-shrink: 0;
+    min-height: 40px;
+}
+
+.pdf-name {
+    font-weight: 600;
+    font-size: 0.9rem;
+    color: var(--fg);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex: 1;
+    margin: 0 8px;
+}
+
+.pdf-toolbar-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+/* Full-Bleed Iframe & Wrapper */
+.pdf-content-wrapper {
+    display: flex;
+    flex: 1;
+    height: calc(100% - 44px) !important;
+    min-height: 0;
+    gap: 10px;
+    width: 100%;
+}
+
+#pdfViewer {
+    width: 100% !important;
+    height: 100% !important;
+    min-height: 100% !important;
+    flex: 1;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--surface);
+    display: block;
+}
+
+/* Bookmarks Panel attached to full-height wrapper */
 .bookmarks-panel {
-    width: 240px; flex-shrink: 0; background: var(--surface); border: 1px solid var(--line);
-    border-radius: 8px; padding: 0.75rem; max-height: calc(100vh - 200px); overflow-y: auto;
+    width: 260px;
+    flex-shrink: 0;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 12px;
+    height: 100%;
+    overflow-y: auto;
 }
-.bookmarks-panel-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem; }
-.bookmarks-panel-header h4 { font-size: 0.8rem; margin: 0; display: flex; align-items: center; gap: 6px; }
-.bookmarks-close-btn {
-    background: none; border: none; color: var(--fg3); cursor: pointer; padding: 0.2rem 0.35rem;
-    border-radius: 4px; font-size: 0.75rem; line-height: 1; transition: all 0.15s;
-}
-.bookmarks-close-btn:hover { background: var(--hover); color: var(--fg); }
-.bookmarks-panel h4 { font-size: 0.8rem; margin: 0 0 0.5rem; display: flex; align-items: center; gap: 6px; }
-.bookmarks-list { display: flex; flex-direction: column; gap: 0.3rem; }
-.bookmark-item {
-    display: flex; align-items: center; gap: 0.5rem;
-    padding: 0.4rem 0.5rem; border-radius: 4px; cursor: pointer; transition: background 0.1s;
-    font-size: 0.78rem;
-}
-.bookmark-item:hover { background: var(--hover); }
-.bookmark-item i.fa-bookmark { color: var(--accent); font-size: 0.7rem; }
-.bookmark-title { flex: 1; font-weight: 500; }
-.bookmark-page { font-size: 0.7rem; color: var(--fg3); white-space: nowrap; }
-.bookmark-delete { background: none; border: none; cursor: pointer; color: var(--fg3); padding: 2px; font-size: 0.65rem; }
-.bookmark-delete:hover { color: var(--error); }
 
 /* ── SETTINGS ── */
 .settings-card {

@@ -1113,21 +1113,8 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
       const streakEl = document.getElementById('dashboardStreak');
       if (streakEl) streakEl.textContent = studyStats.streak || 0;
     }
-
     function showPDF(url) {
       if (!url || url === '' || url === '#') return;
-      if (typeof url === 'string' && url.startsWith('blob-id:')) {
-        const blobId = url.replace('blob-id:', '');
-        if (typeof getPdfBlob === 'function') {
-          getPdfBlob(blobId).then(blob => {
-            if (blob) showPDF(URL.createObjectURL(blob));
-            else showNotification('PDF data not found', 'error');
-          }).catch(err => {
-            showNotification('Failed to load PDF', 'error');
-          });
-        }
-        return;
-      }
 
       const pdfViewer = document.getElementById('pdfViewer');
       const pdfViewerContainer = document.getElementById('pdfViewerContainer');
@@ -1137,12 +1124,13 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
       const breadcrumbContainer = document.querySelector('.breadcrumb-container');
       const tilesSection = document.getElementById('tilesSection');
 
+      document.body.classList.add('pdf-view-active');
+
       const filename = url.split('/').pop().replace('.pdf', '').replace(/%20/g, ' ');
       window.setCurrentPDF && window.setCurrentPDF(url, filename);
 
       if (pdfViewer) {
         const absoluteUrl = new URL(url, window.location.href).href;
-        
         const viewerUrl = (window.hotCodeUpdater && typeof window.hotCodeUpdater.getViewerUrl === 'function')
             ? window.hotCodeUpdater.getViewerUrl(absoluteUrl)
             : 'pdfviewer.html?file=' + encodeURIComponent(absoluteUrl);
@@ -1159,12 +1147,16 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
       if (tilesContainer) tilesContainer.style.display = 'none';
       if (sectionHeader) sectionHeader.style.display = 'none';
       if (dashboardHeader) dashboardHeader.style.display = 'none';
+      
+      // HIDE redundant breadcrumb bar while PDF is open
+      if (breadcrumbContainer) breadcrumbContainer.style.display = 'none';
+
       const importedSection = document.getElementById('importedSection');
       if (importedSection) importedSection.style.display = 'none';
       if (typeof hideHomeTagsPanels === 'function') hideHomeTagsPanels();
 
       if (pdfViewerContainer) {
-        pdfViewerContainer.style.display = 'block';
+        pdfViewerContainer.style.display = 'flex';
         const pdfNameEl = document.getElementById('currentPdfName');
         if (pdfNameEl) pdfNameEl.textContent = filename;
 
@@ -1173,9 +1165,6 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
         else window.currentPdfUrlForBookmarks = url;
       }
 
-      if (breadcrumbContainer) breadcrumbContainer.style.display = 'flex';
-      updateBreadcrumb();
-
       const timerPanel = document.getElementById('timerPanel');
       if (timerPanel) timerPanel.style.display = 'flex';
       if (typeof initializeTimer === 'function') initializeTimer();
@@ -1183,11 +1172,14 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
     }
 
     function closePDF() {
+      document.body.classList.remove('pdf-view-active');
+
       const pdfViewer = document.getElementById('pdfViewer');
       const pdfViewerContainer = document.getElementById('pdfViewerContainer');
       const tilesContainer = document.getElementById('tilesContainer');
       const sectionHeader = document.querySelector('#tilesSection .section-header');
       const dashboardHeader = document.querySelector('.dashboard-header');
+      const breadcrumbContainer = document.querySelector('.breadcrumb-container');
 
       window.clearCurrentPDF && window.clearCurrentPDF();
 
@@ -1200,6 +1192,9 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
       const bookmarksPanel = document.getElementById('pdfBookmarksPanel');
       if (bookmarksPanel) bookmarksPanel.style.display = 'none';
       window.currentPdfUrlForBookmarks = null;
+
+      // RESTORE breadcrumbs and document grid
+      if (breadcrumbContainer) breadcrumbContainer.style.display = 'flex';
 
       if (tilesContainer) {
         const isListView = tilesContainer.classList.contains('list-view');
@@ -1217,7 +1212,6 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
       if (typeof hideTimerCompletely === 'function') hideTimerCompletely();
       if (typeof trackPdfViewEnd === 'function') trackPdfViewEnd(path.join('/'));
     }
-
     /* --- Image Viewer --- */
     var _currentImageBlobUrl = window._currentImageBlobUrl || null;
     var _currentImageName = window._currentImageName || '';
