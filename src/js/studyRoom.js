@@ -5,8 +5,11 @@
 (function () {
   'use strict';
 
-  /* ---------- Constants ---------- */
-const CONNECT_TIMEOUT_MS = 20000;
+/* ---------- Constants ---------- */
+  const MAX_PARTICIPANTS = 8;
+  const ROOM_CODE_LENGTH = 10;
+  const ROOM_CODE_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  const CONNECT_TIMEOUT_MS = 20000;
 
   /* Fast Google STUN + PeerJS Official TURN Relay */
   const ICE_CONFIG = {
@@ -21,7 +24,6 @@ const CONNECT_TIMEOUT_MS = 20000;
     ],
     sdpSemantics: 'unified-plan'
   };
-
   /* ---------- Zero-Asset Web Audio Synthesizer ---------- */
   const SoundFX = {
     ctx: null,
