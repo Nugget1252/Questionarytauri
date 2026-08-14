@@ -2,6 +2,8 @@
    QUESTIONARY — STUDY ROOM ENGINE 4.0 (HIGH-SPEED P2P + MULTI-MESH)
    ================================================================ */
 
+window.STUDY_ROOM_ENGINE_VERSION = '4.0';
+
 (function () {
   'use strict';
 
@@ -194,6 +196,7 @@
       this.readyState = 0; // 0: connecting, 1: open, 3: closed
       this.peer = null;
       this.hostConn = null;
+      this.targetHostPeerId = '';
       this.connections = new Map(); // peerJsId -> DataConnection
       this.activeCalls = new Map(); // peerJsId -> MediaConnection
       this.peerJsToUser = new Map(); // peerJsId -> userId
@@ -206,6 +209,18 @@
       this.connectTimeoutTimer = null;
       this.outboxQueue = [];
       this.hasJoined = false;
+      this.processedMids = new Set();
+    }
+
+    isDuplicate(mid) {
+      if (!mid) return false;
+      if (this.processedMids.has(mid)) return true;
+      this.processedMids.add(mid);
+      if (this.processedMids.size > 2000) {
+        const first = this.processedMids.values().next().value;
+        this.processedMids.delete(first);
+      }
+      return false;
     }
 
     init(targetRoomId) {
@@ -238,6 +253,32 @@
           return reject(err);
         }
 
+        this.targetHostPeerId = targetHostPeerId;
+
+        // Listen for WebSocket Relay messages (fallback & fast path)
+        this.peer.on('relay-data', (msg, senderPeerJsId) => {
+          if (!msg || typeof msg !== 'object') return;
+          if (msg._mid && this.isDuplicate(msg._mid)) return;
+
+          if (isHost) {
+            this.handleHostIncoming(null, msg, senderPeerJsId);
+          } else {
+            if (this.readyState !== 1) {
+              this.readyState = 1;
+              clearTimeout(this.connectTimeoutTimer);
+              if (this.onopen) this.onopen();
+              if (!isResolved) {
+                isResolved = true;
+                resolve();
+              }
+            }
+            if (this.onmessage) {
+              const dataStr = typeof msg === 'string' ? msg : JSON.stringify(msg);
+              this.onmessage({ data: dataStr });
+            }
+          }
+        });
+
         // Handle signaling connection open
         this.peer.on('open', (assignedId) => {
           console.log(`[StudyRoom-Debug] PeerJS Signaling open. Assigned ID: ${assignedId}`);
@@ -251,48 +292,76 @@
             if (this.onopen) this.onopen();
             resolve();
           } else {
-            console.log(`[StudyRoom-Debug] Guest establishing WebRTC DataChannel to Host: ${targetHostPeerId}`);
+            console.log(`[StudyRoom-Debug] Guest establishing connection to Host: ${targetHostPeerId}`);
             this.peerJsToUser.set(targetHostPeerId, 'usr_host');
             this.userToPeerJs.set('usr_host', targetHostPeerId);
 
-            // Connect to host with JSON serialization
-            this.hostConn = this.peer.connect(targetHostPeerId, {
-              serialization: 'json',
-              reliable: true
-            });
+            // 1. Send immediate join handshake via Signaling Relay
+            const joinHandshake = {
+              _mid: 'join_' + Date.now(),
+              action: 'join',
+              nickname: nickname || 'Student',
+              password: roomPassword || ''
+            };
+            if (typeof this.peer.sendRelay === 'function') {
+              this.peer.sendRelay(targetHostPeerId, joinHandshake);
+            }
 
-            this.hostConn.on('open', () => {
-              console.log('[StudyRoom-Debug] Guest DataChannel to Host is OPEN & READY.');
-              clearTimeout(this.connectTimeoutTimer);
-              this.readyState = 1;
-              if (this.onopen) this.onopen();
-              this.flushOutbox();
+            // 2. Also establish WebRTC DataChannel if supported
+            try {
+              this.hostConn = this.peer.connect(targetHostPeerId, {
+                serialization: 'json',
+                reliable: true
+              });
+
+              this.hostConn.on('open', () => {
+                console.log('[StudyRoom-Debug] Guest DataChannel to Host is OPEN & READY.');
+                clearTimeout(this.connectTimeoutTimer);
+                this.readyState = 1;
+                if (this.onopen) this.onopen();
+                this.flushOutbox();
+                if (!isResolved) {
+                  isResolved = true;
+                  resolve();
+                }
+              });
+
+              this.hostConn.on('data', (raw) => {
+                const msg = typeof raw === 'string' ? JSON.parse(raw) : raw;
+                if (msg && msg._mid && this.isDuplicate(msg._mid)) return;
+                if (this.readyState !== 1) {
+                  this.readyState = 1;
+                  clearTimeout(this.connectTimeoutTimer);
+                  if (this.onopen) this.onopen();
+                  if (!isResolved) {
+                    isResolved = true;
+                    resolve();
+                  }
+                }
+                if (this.onmessage) {
+                  const dataStr = typeof raw === 'string' ? raw : JSON.stringify(raw);
+                  this.onmessage({ data: dataStr });
+                }
+              });
+
+              this.hostConn.on('error', (err) => {
+                console.warn('[StudyRoom-Debug] Guest DataChannel notice:', err);
+              });
+
+              this.hostConn.on('close', () => {
+                console.warn('[StudyRoom-Debug] Guest DataChannel to Host closed.');
+              });
+            } catch (err) {
+              console.warn('[StudyRoom-Debug] WebRTC DataChannel connect bypassed, operating via WebSocket Relay:', err);
+              // Resolved via relay
               if (!isResolved) {
+                this.readyState = 1;
+                clearTimeout(this.connectTimeoutTimer);
+                if (this.onopen) this.onopen();
                 isResolved = true;
                 resolve();
               }
-            });
-
-            this.hostConn.on('data', (raw) => {
-              if (this.readyState !== 1) {
-                this.readyState = 1;
-                clearTimeout(this.connectTimeoutTimer);
-              }
-              if (this.onmessage) {
-                const dataStr = typeof raw === 'string' ? raw : JSON.stringify(raw);
-                this.onmessage({ data: dataStr });
-              }
-            });
-
-            this.hostConn.on('error', (err) => {
-              console.error('[StudyRoom-Debug] Guest DataChannel error:', err);
-            });
-
-            this.hostConn.on('close', () => {
-              console.warn('[StudyRoom-Debug] Guest DataChannel to Host closed.');
-              this.readyState = 3;
-              if (this.onclose) this.onclose();
-            });
+            }
           }
         });
 
@@ -390,28 +459,38 @@
 
     send(str) {
       const payload = typeof str === 'string' ? JSON.parse(str) : str;
+      if (!payload._mid) payload._mid = 'm_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
 
       if (isHost) {
-        this.handleHostIncoming(null, payload);
+        this.handleHostIncoming(null, payload, this.peer ? this.peer.id : 'usr_host');
         return true;
       }
 
+      // 1. Send via DataChannel if open
+      let sentDC = false;
       if (this.hostConn && this.hostConn.open) {
         try {
           this.hostConn.send(payload);
-          return true;
-        } catch (e) {
-          this.outboxQueue.push(str);
-          return false;
-        }
-      } else {
-        this.outboxQueue.push(str);
+          sentDC = true;
+        } catch (e) {}
+      }
+
+      // 2. Send via WebSocket Signaling Relay
+      let sentRelay = false;
+      if (this.peer && typeof this.peer.sendRelay === 'function' && this.targetHostPeerId) {
+        sentRelay = this.peer.sendRelay(this.targetHostPeerId, payload);
+      }
+
+      if (!sentDC && !sentRelay) {
+        this.outboxQueue.push(payload);
         return false;
       }
+      return true;
     }
 
-    handleHostIncoming(senderConn, msg) {
-      const senderPeerJsId = senderConn ? senderConn.peer : (this.peer ? this.peer.id : 'usr_host');
+    handleHostIncoming(senderConn, msg, optSenderPeerJsId = null) {
+      const senderPeerJsId = senderConn ? senderConn.peer : (optSenderPeerJsId || (this.peer ? this.peer.id : 'usr_host'));
+      if (msg && msg._mid && this.isDuplicate(msg._mid)) return;
 
       if (msg.action === 'host') {
         myId = 'usr_host';
@@ -426,15 +505,15 @@
         console.log(`[StudyRoom-Debug] Host processing join from ${senderPeerJsId} (${msg.nickname})`);
 
         if (roomLocked) {
-          if (senderConn && senderConn.open) {
-            senderConn.send({ action: 'auth-fail', reason: 'Room is locked by host.' });
-          }
+          const authFailMsg = { _mid: 'af_' + Date.now(), action: 'auth-fail', reason: 'Room is locked by host.' };
+          if (senderConn && senderConn.open) senderConn.send(authFailMsg);
+          if (this.peer && typeof this.peer.sendRelay === 'function') this.peer.sendRelay(senderPeerJsId, authFailMsg);
           return;
         }
         if (roomPassword && msg.password !== roomPassword) {
-          if (senderConn && senderConn.open) {
-            senderConn.send({ action: 'auth-fail', reason: 'Incorrect room password.' });
-          }
+          const authFailMsg = { _mid: 'af_' + Date.now(), action: 'auth-fail', reason: 'Incorrect room password.' };
+          if (senderConn && senderConn.open) senderConn.send(authFailMsg);
+          if (this.peer && typeof this.peer.sendRelay === 'function') this.peer.sendRelay(senderPeerJsId, authFailMsg);
           return;
         }
 
@@ -446,7 +525,7 @@
           this.userToPeerJs.set(newUserId, senderPeerJsId);
         }
 
-        // Build list of all existing peers for the newcomer
+        // Build list of all existing peers for newcomer
         const currentPeersList = [];
         for (const [uId, pId] of this.userToPeerJs.entries()) {
           if (uId !== newUserId) {
@@ -455,13 +534,20 @@
           }
         }
 
+        const welcomeMsg = { _mid: 'w_' + Date.now(), action: 'welcome', id: newUserId };
+        const joinedMsg = { _mid: 'j_' + Date.now(), action: 'joined', peers: currentPeersList, locked: roomLocked };
+
         if (senderConn && senderConn.open) {
-          senderConn.send({ action: 'welcome', id: newUserId });
-          senderConn.send({ action: 'joined', peers: currentPeersList, locked: roomLocked });
+          senderConn.send(welcomeMsg);
+          senderConn.send(joinedMsg);
+        }
+        if (this.peer && typeof this.peer.sendRelay === 'function') {
+          this.peer.sendRelay(senderPeerJsId, welcomeMsg);
+          this.peer.sendRelay(senderPeerJsId, joinedMsg);
         }
 
         if (isNewUser) {
-          const joinNotice = { action: 'peer-joined', id: newUserId, nickname: msg.nickname, peerJsId: senderPeerJsId };
+          const joinNotice = { _mid: 'pj_' + Date.now(), action: 'peer-joined', id: newUserId, nickname: msg.nickname, peerJsId: senderPeerJsId };
           this.broadcastToAll(joinNotice, newUserId);
           if (this.onmessage) this.onmessage({ data: JSON.stringify(joinNotice) });
         }
@@ -471,7 +557,7 @@
       const senderUserId = this.peerJsToUser.get(senderPeerJsId) || 'usr_host';
 
       if (msg.action === 'relay') {
-        const relayNotice = { action: 'relay', from: senderUserId, data: msg.data };
+        const relayNotice = { _mid: msg._mid || ('r_' + Date.now()), action: 'relay', from: senderUserId, data: msg.data };
         this.broadcastToAll(relayNotice, senderUserId);
         if (senderUserId !== 'usr_host' && this.onmessage) {
           this.onmessage({ data: JSON.stringify(relayNotice) });
@@ -481,10 +567,22 @@
     }
 
     broadcastToAll(msgObj, excludeUserId = null) {
+      if (!msgObj._mid) msgObj._mid = 'b_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+
+      // 1. Broadcast via DataConnections
       for (const [pId, conn] of this.connections.entries()) {
         const uId = this.peerJsToUser.get(pId);
         if (uId !== excludeUserId && conn.open) {
           try { conn.send(msgObj); } catch (e) {}
+        }
+      }
+
+      // 2. Broadcast via WebSocket Signaling Relay
+      if (this.peer && typeof this.peer.sendRelay === 'function') {
+        for (const [uId, pId] of this.userToPeerJs.entries()) {
+          if (uId !== excludeUserId && uId !== 'usr_host') {
+            try { this.peer.sendRelay(pId, msgObj); } catch (e) {}
+          }
         }
       }
     }

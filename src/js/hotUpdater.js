@@ -147,6 +147,14 @@
 
         for (const filename of executionOrder) {
             const content = stored[filename];
+            if (filename === 'js/studyRoom.js' && window.STUDY_ROOM_ENGINE_VERSION === '4.0') {
+                if (!content || !content.includes('STUDY_ROOM_ENGINE_VERSION = "4.0"')) {
+                    console.log('[HotUpdate] Skipping stale js/studyRoom.js cache in favor of native v4.0');
+                    delete stored['js/studyRoom.js'];
+                    saveStoredCodeFiles(stored);
+                    continue;
+                }
+            }
             if (content && content.trim().length > 50) {
                 try {
                     console.log(`[HotUpdate] Applying stored JS override: ${filename}`);
