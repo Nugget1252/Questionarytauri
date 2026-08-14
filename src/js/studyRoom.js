@@ -1,5 +1,5 @@
 /* ================================================================
-   QUESTIONARY — STUDY ROOM ENGINE 3.2 (BULLETPROOF CONNECTION)
+   QUESTIONARY — STUDY ROOM ENGINE 3.5 (BULLETPROOF P2P + TURN)
    ================================================================ */
 
 (function () {
@@ -9,16 +9,34 @@
   const MAX_PARTICIPANTS = 8;
   const ROOM_CODE_LENGTH = 10;
   const ROOM_CODE_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-  const CONNECT_TIMEOUT_MS = 10000;
+  const CONNECT_TIMEOUT_MS = 15000;
 
-  /* ---------- 2 Fast STUN Servers (No Discovery Warnings) ---------- */
+  /* ---------- STUN + Open Relay TURN Configuration ---------- */
   const ICE_CONFIG = {
-    config: {
-      iceServers: [
-        { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:global.stun.twilio.com:3478' }
-      ]
-    }
+    iceServers: [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' },
+      { urls: 'stun:stun2.l.google.com:19302' },
+      { urls: 'stun:stun.relay.metered.ca:80' },
+      { urls: 'stun:global.stun.twilio.com:3478' },
+      /* OpenRelay Public TURN for Cross-Network NAT Traversal */
+      {
+        urls: 'turn:openrelay.metered.ca:80',
+        username: 'openrelay',
+        credential: 'openrelay'
+      },
+      {
+        urls: 'turn:openrelay.metered.ca:443',
+        username: 'openrelay',
+        credential: 'openrelay'
+      },
+      {
+        urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+        username: 'openrelay',
+        credential: 'openrelay'
+      }
+    ],
+    iceCandidatePoolSize: 10
   };
 
   /* ---------- Zero-Asset Web Audio Synthesizer ---------- */
@@ -180,35 +198,45 @@
     }
   }
 
-  /* Safe Host Message Dispatcher (Guarantees no dropped packets) */
-  function safeSendToConnection(conn, dataObj) {
-    if (!conn) return;
-    const str = typeof dataObj === 'string' ? dataObj : JSON.stringify(dataObj);
+  /* Reliable Message Dispatcher with Persistent Retry Queue */
+  function safeSend(conn, msg) {
+    if (!conn) return false;
+    const str = typeof msg === 'string' ? msg : JSON.stringify(msg);
 
-    const trySend = () => {
-      try {
+    try {
+      if (conn.open) {
         conn.send(str);
-      } catch (err) {
-        setTimeout(() => {
-          try { conn.send(str); } catch(e) {}
-        }, 100);
+        return true;
       }
-    };
-
-    if (conn.open) {
-      trySend();
-    } else {
-      conn.once ? conn.once('open', trySend) : conn.on('open', trySend);
-      setTimeout(trySend, 250);
+    } catch (e) {
+      console.warn('[StudyRoom-Debug] Initial send failed, queuing retry:', e);
     }
+
+    let attempts = 0;
+    const interval = setInterval(() => {
+      attempts++;
+      try {
+        if (conn.open) {
+          conn.send(str);
+          clearInterval(interval);
+          return;
+        }
+      } catch (err) {}
+      if (attempts >= 40) {
+        clearInterval(interval);
+        console.warn('[StudyRoom-Debug] safeSend timed out after 40 attempts (~4s)');
+      }
+    }, 100);
+
+    return false;
   }
 
   /* ================================================================
-     PEERJS ROOM HUB (Host-Coordinated P2P Network)
+     PEERJS ROOM HUB (Host-Coordinated Mesh Network)
      ================================================================ */
   class PeerJSRoomHub {
     constructor() {
-      this.readyState = 0;
+      this.readyState = 0; // 0: connecting, 1: open, 3: closed
       this.peer = null;
       this.hostConn = null;
       this.connections = new Map();
@@ -227,21 +255,30 @@
     init(targetRoomId) {
       return new Promise((resolve, reject) => {
         const targetPeerId = 'qroom-' + targetRoomId.toLowerCase();
+        console.log(`[StudyRoom-Debug] Initializing Hub (isHost: ${isHost}, target: ${targetPeerId})`);
 
         this.connectTimeoutTimer = setTimeout(() => {
           if (this.readyState !== 1) {
+            console.error('[StudyRoom-Debug] Connection timed out after', CONNECT_TIMEOUT_MS, 'ms');
             this.close();
             reject(new Error('Connection timed out. Make sure host is online and room code is correct.'));
           }
         }, CONNECT_TIMEOUT_MS);
 
-        if (isHost) {
-          this.peer = new Peer(targetPeerId, ICE_CONFIG);
-        } else {
-          this.peer = new Peer(ICE_CONFIG);
+        try {
+          if (isHost) {
+            this.peer = new Peer(targetPeerId, { config: ICE_CONFIG, debug: 0 });
+          } else {
+            this.peer = new Peer({ config: ICE_CONFIG, debug: 0 });
+          }
+        } catch (err) {
+          clearTimeout(this.connectTimeoutTimer);
+          return reject(err);
         }
 
         this.peer.on('open', (id) => {
+          console.log(`[StudyRoom-Debug] PeerJS Signaling registered with ID: ${id}`);
+
           if (isHost) {
             clearTimeout(this.connectTimeoutTimer);
             this.readyState = 1;
@@ -250,17 +287,18 @@
             if (this.onopen) this.onopen();
             resolve();
           } else {
+            console.log(`[StudyRoom-Debug] Guest connecting to Host Peer: ${targetPeerId}`);
+            this.peerJsToUser.set(targetPeerId, 'usr_host');
+            this.userToPeerJs.set('usr_host', targetPeerId);
+
             this.hostConn = this.peer.connect(targetPeerId, { reliable: true });
 
             const onConnectionReady = () => {
+              console.log('[StudyRoom-Debug] Guest connection to Host established (DataChannel OPEN).');
               clearTimeout(this.connectTimeoutTimer);
               this.readyState = 1;
               if (this.onopen) this.onopen();
-
-              while (this.outboxQueue.length > 0) {
-                const msg = this.outboxQueue.shift();
-                try { this.hostConn.send(msg); } catch(e) {}
-              }
+              this.flushOutbox();
               resolve();
             };
 
@@ -277,12 +315,14 @@
             });
 
             this.hostConn.on('error', (err) => {
+              console.error('[StudyRoom-Debug] Guest hostConn error:', err);
               clearTimeout(this.connectTimeoutTimer);
               if (this.onerror) this.onerror(err);
               reject(err);
             });
 
             this.hostConn.on('close', () => {
+              console.warn('[StudyRoom-Debug] Guest hostConn closed by remote peer.');
               this.readyState = 3;
               if (this.onclose) this.onclose();
             });
@@ -291,9 +331,11 @@
 
         if (isHost) {
           this.peer.on('connection', (conn) => {
+            console.log('[StudyRoom-Debug] Host received DataConnection request from:', conn.peer);
             this.connections.set(conn.peer, conn);
 
             conn.on('open', () => {
+              console.log('[StudyRoom-Debug] Host connection with peer OPEN:', conn.peer);
               this.connections.set(conn.peer, conn);
             });
 
@@ -302,26 +344,34 @@
                 const msg = typeof raw === 'string' ? JSON.parse(raw) : raw;
                 this.handleHostIncoming(conn, msg);
               } catch (e) {
-                console.error('[Host Data Error]:', e);
+                console.error('[StudyRoom-Debug] Host Data Parse Error:', e);
               }
             });
 
+            conn.on('error', (err) => {
+              console.warn('[StudyRoom-Debug] Host connection error with:', conn.peer, err);
+            });
+
             conn.on('close', () => {
+              console.log('[StudyRoom-Debug] Host connection closed with:', conn.peer);
               this.handleHostDisconnect(conn.peer);
             });
           });
         }
 
         this.peer.on('call', (call) => {
+          console.log('[StudyRoom-Debug] Incoming WebRTC media call from:', call.peer);
           this.calls.push(call);
-          call.answer();
+          call.answer(localMediaStream || undefined);
           call.on('stream', (remoteStream) => {
-            const callerUserId = this.peerJsToUser.get(call.peer) || call.peer;
+            const callerUserId = this.peerJsToUser.get(call.peer) || (call.peer === this.userToPeerJs.get('usr_host') ? 'usr_host' : call.peer);
+            console.log('[StudyRoom-Debug] Stream established with:', callerUserId, 'Type:', call.metadata?.type);
             handleRemoteStream(callerUserId, remoteStream, call.metadata?.type || 'media');
           });
         });
 
         this.peer.on('error', (err) => {
+          console.error('[StudyRoom-Debug] PeerJS Root Error:', err);
           clearTimeout(this.connectTimeoutTimer);
           if (this.onerror) this.onerror(err);
           reject(err);
@@ -329,19 +379,35 @@
       });
     }
 
+    flushOutbox() {
+      while (this.outboxQueue.length > 0 && this.hostConn && this.hostConn.open) {
+        const msg = this.outboxQueue.shift();
+        try {
+          this.hostConn.send(msg);
+        } catch (e) {
+          this.outboxQueue.unshift(msg);
+          break;
+        }
+      }
+    }
+
     send(str) {
       if (!isHost) {
-        if (this.hostConn && (this.hostConn.open || this.readyState === 1)) {
+        if (this.hostConn && this.hostConn.open) {
           try {
             this.hostConn.send(str);
-          } catch(e) {
+          } catch (e) {
             this.outboxQueue.push(str);
           }
         } else {
           this.outboxQueue.push(str);
+          if (this.hostConn) {
+            safeSend(this.hostConn, str);
+          }
         }
         return;
       }
+
       try {
         const msg = typeof str === 'string' ? JSON.parse(str) : str;
         this.handleHostIncoming(null, msg);
@@ -349,9 +415,10 @@
     }
 
     handleHostIncoming(senderConn, msg) {
-      const senderPeerJsId = senderConn ? senderConn.peer : this.peer.id;
+      const senderPeerJsId = senderConn ? senderConn.peer : (this.peer ? this.peer.id : 'usr_host');
 
       if (msg.action === 'host') {
+        console.log('[StudyRoom-Debug] Host session initialized locally.');
         myId = 'usr_host';
         if (this.onmessage) {
           this.onmessage({ data: JSON.stringify({ action: 'welcome', id: 'usr_host' }) });
@@ -361,22 +428,27 @@
       }
 
       if (msg.action === 'join') {
+        console.log(`[StudyRoom-Debug] Processing join request from PeerJS ID: ${senderPeerJsId} (${msg.nickname})`);
+
         if (roomLocked) {
-          if (senderConn) safeSendToConnection(senderConn, { action: 'auth-fail', reason: 'Room is locked by the host.' });
+          if (senderConn) safeSend(senderConn, { action: 'auth-fail', reason: 'Room is locked by the host.' });
           return;
         }
         if (roomPassword && msg.password !== roomPassword) {
-          if (senderConn) safeSendToConnection(senderConn, { action: 'auth-fail', reason: 'Incorrect room password.' });
+          if (senderConn) safeSend(senderConn, { action: 'auth-fail', reason: 'Incorrect room password.' });
           return;
         }
-        if (this.connections.size >= MAX_PARTICIPANTS) {
-          if (senderConn) safeSendToConnection(senderConn, { action: 'auth-fail', reason: 'Study room is full (max 8).' });
+        if (this.connections.size > MAX_PARTICIPANTS) {
+          if (senderConn) safeSend(senderConn, { action: 'auth-fail', reason: 'Study room is full (max 8).' });
           return;
         }
 
-        const newUserId = 'usr_' + (this.nextUserNum++);
-        this.peerJsToUser.set(senderPeerJsId, newUserId);
-        this.userToPeerJs.set(newUserId, senderPeerJsId);
+        let newUserId = this.peerJsToUser.get(senderPeerJsId);
+        if (!newUserId) {
+          newUserId = 'usr_' + (this.nextUserNum++);
+          this.peerJsToUser.set(senderPeerJsId, newUserId);
+          this.userToPeerJs.set(newUserId, senderPeerJsId);
+        }
 
         const currentPeersList = [];
         for (const [uId, pId] of this.userToPeerJs.entries()) {
@@ -386,9 +458,11 @@
           }
         }
 
+        console.log(`[StudyRoom-Debug] Assigning ${newUserId} to guest. Sending welcome + peers list (${currentPeersList.length} peers).`);
+
         if (senderConn) {
-          safeSendToConnection(senderConn, { action: 'welcome', id: newUserId });
-          safeSendToConnection(senderConn, { action: 'joined', peers: currentPeersList, locked: roomLocked });
+          safeSend(senderConn, { action: 'welcome', id: newUserId });
+          safeSend(senderConn, { action: 'joined', peers: currentPeersList, locked: roomLocked });
         }
 
         const joinNotice = { action: 'peer-joined', id: newUserId, nickname: msg.nickname, peerJsId: senderPeerJsId };
@@ -415,7 +489,7 @@
       for (const [pId, conn] of this.connections.entries()) {
         const uId = this.peerJsToUser.get(pId);
         if (uId !== excludeUserId) {
-          safeSendToConnection(conn, str);
+          safeSend(conn, str);
         }
       }
     }
@@ -455,7 +529,7 @@
     ws = new PeerJSRoomHub();
     ws.onopen = () => {};
     ws.onclose = () => handleDisconnect();
-    ws.onerror = (err) => console.warn('[Hub Error]:', err);
+    ws.onerror = (err) => console.warn('[StudyRoom-Debug] Hub encountered error:', err);
     ws.onmessage = (event) => {
       try { handleServerMessage(JSON.parse(event.data)); }
       catch(e) {}
@@ -479,6 +553,7 @@
   function handleServerMessage(msg) {
     switch (msg.action) {
       case 'welcome':
+        console.log('[StudyRoom-Debug] Received assigned user ID:', msg.id);
         myId = msg.id;
         break;
 
@@ -492,9 +567,14 @@
         break;
 
       case 'joined':
+        console.log('[StudyRoom-Debug] Joined successfully. Synchronizing peers:', msg.peers);
         if (Array.isArray(msg.peers)) {
           msg.peers.forEach(p => {
             peers[p.id] = { nickname: p.nickname, goal: '', seconds: 0, peerJsId: p.peerJsId, handRaised: false };
+            if (ws && p.peerJsId) {
+              ws.peerJsToUser.set(p.peerJsId, p.id);
+              ws.userToPeerJs.set(p.id, p.peerJsId);
+            }
           });
         }
         roomLocked = !!msg.locked;
@@ -515,7 +595,12 @@
         break;
 
       case 'peer-joined':
+        console.log(`[StudyRoom-Debug] Peer joined: ${msg.id} (${msg.nickname})`);
         peers[msg.id] = { nickname: msg.nickname, goal: '', seconds: 0, peerJsId: msg.peerJsId, handRaised: false };
+        if (ws && msg.peerJsId) {
+          ws.peerJsToUser.set(msg.peerJsId, msg.id);
+          ws.userToPeerJs.set(msg.id, msg.peerJsId);
+        }
         SoundFX.playJoin();
         addSystemMessage(`${msg.nickname} joined the room.`);
         updateParticipantsUI();
@@ -525,6 +610,7 @@
 
       case 'peer-left': {
         const leftNick = peers[msg.id]?.nickname || 'A participant';
+        console.log(`[StudyRoom-Debug] Peer left: ${msg.id}`);
         SoundFX.playLeave();
         addSystemMessage(`${leftNick} left the room.`);
         delete peers[msg.id];
@@ -650,7 +736,7 @@
         break;
 
       case 'wb-cursor':
-        wbRemoteCursors[fromId] = { x: data.x, y: data.y, name: peers[fromId]?.nickname || 'Student', color: data.color || '#f59e0b', lastSeen: Date.now() };
+        wbRemoteCursors[fromId] = { x: data.x, y: data.y, name: peers[fromId]?.nickname || 'Student', color: data.color || '#cf6215', lastSeen: Date.now() };
         renderRemoteCursors();
         break;
 
@@ -788,7 +874,7 @@
 
           <!-- UNIFIED TIMER & POMODORO BAR -->
           <div class="sr-pomo-bar" id="srPomoBar">
-            <button class="sr-pomo-mode-btn" id="srPomoToggleMode" title="Cycle Mode (Stopwatch / 25m Focus / 5m Break / 15m Long Break)">
+            <button class="sr-pomo-mode-btn" id="srPomoToggleMode" title="Cycle Mode (Stopwatch / Focus / Break / Long Break)">
               <i class="fas fa-stopwatch"></i>
             </button>
             <span class="sr-pomo-timer" id="srPomoTimer">00:00</span>
@@ -830,7 +916,7 @@
               ${buildParticipantCardsHTML()}
             </div>
             
-            <!-- Quick Reactions Bar (Emojis Restored) -->
+            <!-- Quick Reactions Bar -->
             <div class="sr-reactions-bar">
               <button class="sr-react-btn" data-emoji="👏" title="Clap">👏</button>
               <button class="sr-react-btn" data-emoji="🔥" title="Fire">🔥</button>
@@ -841,7 +927,7 @@
             </div>
           </div>
 
-          <!-- Whiteboard 2.0 Panel -->
+          <!-- Whiteboard Panel -->
           <div class="sr-wb-panel" id="srWhiteboardPanel" style="display:none;">
             <div class="sr-wb-toolbar">
               <div class="sr-wb-tools">
@@ -995,7 +1081,6 @@
     return html;
   }
 
-  /* Live-Ticking Goals Tab HTML */
   function buildProgressHTML() {
     let html = '';
     html += `
@@ -1053,12 +1138,10 @@
 
       updateTimerDisplay();
 
-      // Update the Goals tab timer live every single second
       document.querySelectorAll('.sr-my-goal-timer').forEach(el => {
         el.textContent = fmtTime(timerMode === 'stopwatch' ? timerSeconds : timerRemaining);
       });
 
-      // Sync progress to peers every 8s
       if (totalUptimeSeconds % 8 === 0) {
         broadcastData({
           type: 'progress',
@@ -1210,7 +1293,7 @@
       });
     });
 
-    // Floating Reactions (Emojis Restored)
+    // Floating Reactions
     document.querySelectorAll('.sr-react-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         const emoji = btn.dataset.emoji;
@@ -1276,7 +1359,7 @@
   }
 
   /* ================================================================
-     PERSISTENT MEDIA ENGINE (ZERO PERMISSION SPAM)
+     MEDIA ENGINE
      ================================================================ */
   async function getOrCreateMediaStream() {
     if (!localMediaStream) {
@@ -1306,7 +1389,7 @@
       setupAudioAnalysis();
       notify(micActive ? 'Microphone unmuted' : 'Microphone muted', 'info');
     } catch (err) {
-      console.error('[Mic Error]:', err);
+      console.error('[StudyRoom-Debug] Mic Error:', err);
       micActive = false;
       updateMediaButtons();
       notify('Could not access microphone. Check permissions.', 'error');
@@ -1336,7 +1419,7 @@
       renderLocalCam(camActive ? stream : null);
       notify(camActive ? 'Camera turned on' : 'Camera turned off', 'info');
     } catch (err) {
-      console.error('[Camera Error]:', err);
+      console.error('[StudyRoom-Debug] Camera Error:', err);
       camActive = false;
       updateMediaButtons();
       notify('Could not access camera. Check permissions.', 'error');
@@ -1404,9 +1487,16 @@
 
   function broadcastMediaStream(stream, type) {
     if (!ws || !ws.peer) return;
+    console.log(`[StudyRoom-Debug] Broadcasting media stream (${type}) to ${Object.keys(peers).length} peers`);
     Object.entries(peers).forEach(([uId, p]) => {
       if (p.peerJsId) {
-        ws.peer.call(p.peerJsId, stream, { metadata: { type } });
+        const call = ws.peer.call(p.peerJsId, stream, { metadata: { type } });
+        if (call) {
+          ws.calls.push(call);
+          call.on('stream', (remoteStream) => {
+            handleRemoteStream(uId, remoteStream, type);
+          });
+        }
       }
     });
   }
@@ -1614,7 +1704,7 @@
   }
 
   /* ================================================================
-     WHITEBOARD 2.0
+     WHITEBOARD
      ================================================================ */
   function toggleWhiteboard() {
     wbActive = !wbActive;
@@ -2189,16 +2279,20 @@
     try {
       showLoading('Connecting to study room…');
       await connectHub(parsedCode);
-      
-      // Send join request through verified open connection
+
       sendToServer({ action: 'join', nickname, password: roomPassword });
 
-      // Backup fail-safe: re-send join if no response in 2s
-      setTimeout(() => {
-        if (!sessionActive && ws) {
-          sendToServer({ action: 'join', nickname, password: roomPassword });
+      // Fallback heartbeat to ensure join delivery if initial packet was queued
+      let joinRetries = 0;
+      const joinInterval = setInterval(() => {
+        if (sessionActive || joinRetries >= 5) {
+          clearInterval(joinInterval);
+          return;
         }
-      }, 2000);
+        joinRetries++;
+        console.log('[StudyRoom-Debug] Verifying join request delivery...');
+        sendToServer({ action: 'join', nickname, password: roomPassword });
+      }, 1500);
 
     } catch (err) {
       hideLoading();
