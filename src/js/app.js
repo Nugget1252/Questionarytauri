@@ -1137,10 +1137,7 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
     // ================================================================
     // FULL-SCREEN MAXIMIZED PDF & DOCUMENT VIEWERS
     // ================================================================
-/* ================================================================
-   FIXED PDF OPEN & CLOSE CONTROLLERS (Restores Container Width)
-   ================================================================ */
-    async function showPDF(url, customName = null) {
+    function showPDF(url) {
       if (!url || url === '' || url === '#') return;
 
       const pdfViewer = document.getElementById('pdfViewer');
@@ -1151,39 +1148,21 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
       const breadcrumbContainer = document.querySelector('.breadcrumb-container');
       const tilesSection = document.getElementById('tilesSection');
 
-      // Activate PDF full-bleed mode
       document.body.classList.add('pdf-view-active');
 
-      // Calculate clean display name
-      let filename = customName;
-      if (!filename) {
-        if (url.startsWith('blob:') || url.startsWith('data:')) {
-          filename = 'Document';
-        } else {
-          filename = url.split('/').pop().replace('.pdf', '').replace(/%20/g, ' ');
-        }
-      }
-
-      if (typeof window.setCurrentPDF === 'function') {
-        window.setCurrentPDF(url, filename);
-      }
+      const filename = url.split('/').pop().replace('.pdf', '').replace(/%20/g, ' ');
+      window.setCurrentPDF && window.setCurrentPDF(url, filename);
 
       if (pdfViewer) {
-        let viewerUrl;
-        if (window.hotCodeUpdater && typeof window.hotCodeUpdater.getViewerUrl === 'function') {
-          viewerUrl = await window.hotCodeUpdater.getViewerUrl(url);
-        } else {
-          const absoluteUrl = url.startsWith('blob:') ? url : new URL(url, window.location.href).href;
-          viewerUrl = 'pdfviewer.html?file=' + encodeURIComponent(absoluteUrl);
-        }
+        const absoluteUrl = new URL(url, window.location.href).href;
+        const viewerUrl = (window.hotCodeUpdater && typeof window.hotCodeUpdater.getViewerUrl === 'function')
+            ? window.hotCodeUpdater.getViewerUrl(absoluteUrl)
+            : 'pdfviewer.html?file=' + encodeURIComponent(absoluteUrl);
 
         pdfViewer.src = viewerUrl;
         pdfViewer.classList.add('active');
-
-        pdfViewer.onload = function () {
-          const match = viewerUrl.match(/[?#]file=([^&]+)/);
-          const targetLoadUrl = match ? decodeURIComponent(match[1]) : url;
-          pdfViewer.contentWindow.postMessage({ type: 'loadPdf', url: targetLoadUrl }, '*');
+        pdfViewer.onload = function() {
+          pdfViewer.contentWindow.postMessage({ type: 'loadPdf', url: absoluteUrl }, '*');
           pdfViewer.onload = null;
         };
       }
@@ -1192,6 +1171,8 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
       if (tilesContainer) tilesContainer.style.display = 'none';
       if (sectionHeader) sectionHeader.style.display = 'none';
       if (dashboardHeader) dashboardHeader.style.display = 'none';
+      
+      // Hide redundant breadcrumb bar when viewing documents
       if (breadcrumbContainer) breadcrumbContainer.style.display = 'none';
 
       const importedSection = document.getElementById('importedSection');
@@ -1215,6 +1196,8 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
     }
 
     function closePDF() {
+      document.body.classList.remove('pdf-view-active');
+
       const pdfViewer = document.getElementById('pdfViewer');
       const pdfViewerContainer = document.getElementById('pdfViewerContainer');
       const tilesContainer = document.getElementById('tilesContainer');
@@ -1222,29 +1205,38 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
       const dashboardHeader = document.querySelector('.dashboard-header');
       const breadcrumbContainer = document.querySelector('.breadcrumb-container');
 
-      // CRUCIAL: Remove the class that widens the entire container!
-      document.body.classList.remove('pdf-view-active');
+      window.clearCurrentPDF && window.clearCurrentPDF();
+
+      if (pdfViewer) {
+        pdfViewer.classList.remove('active');
+        pdfViewer.src = '';
+      }
 
       if (pdfViewerContainer) pdfViewerContainer.style.display = 'none';
-      if (pdfViewer) {
-        pdfViewer.src = '';
-        pdfViewer.classList.remove('active');
-      }
+      const bookmarksPanel = document.getElementById('pdfBookmarksPanel');
+      if (bookmarksPanel) bookmarksPanel.style.display = 'none';
+      window.currentPdfUrlForBookmarks = null;
+
+      // Restore breadcrumbs
+      if (breadcrumbContainer) breadcrumbContainer.style.display = 'flex';
 
       if (tilesContainer) {
         const isListView = tilesContainer.classList.contains('list-view');
         tilesContainer.style.display = isListView ? 'flex' : 'grid';
       }
       if (sectionHeader) sectionHeader.style.display = 'flex';
-      if (dashboardHeader) dashboardHeader.style.display = 'flex';
-      if (breadcrumbContainer) breadcrumbContainer.style.display = 'flex';
 
-      window.currentPdfUrlForBookmarks = null;
+      if (path.length === 0) {
+        if (dashboardHeader) dashboardHeader.style.display = window.innerWidth <= 768 ? 'grid' : 'flex';
+        const importedSection = document.getElementById('importedSection');
+        if (importedSection) importedSection.style.display = 'block';
+        if (typeof showHomeTagsPanels === 'function') showHomeTagsPanels();
+      }
+
+      if (typeof hideTimerCompletely === 'function') hideTimerCompletely();
+      if (typeof trackPdfViewEnd === 'function') trackPdfViewEnd(path.join('/'));
     }
 
-    // Make sure global bindings exist
-    window.showPDF = showPDF;
-    window.closePDF = closePDF;
     /* --- Image Viewer --- */
     var _currentImageBlobUrl = window._currentImageBlobUrl || null;
     var _currentImageName = window._currentImageName || '';
