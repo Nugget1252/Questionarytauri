@@ -970,7 +970,7 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
     section.innerHTML = `
       <div class="sr-lobby">
         <div class="sr-lobby-header">
-          <h2 class="section-title"><i class="fas fa-users"></i> Study Room</h2>
+          <h2 class="section-title"><i class="fas fa-users"></i>Study Room</h2>
           <span class="sr-exp-badge">Study Room Beta</span>
           <div class="sr-lobby-icon"><i class="fas fa-graduation-cap"></i></div>
           <p class="sr-lobby-subtitle">Collaborate live with screen sharing, interactive whiteboard, synced timers, voice & notes.</p>
