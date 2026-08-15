@@ -1137,7 +1137,10 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
     // ================================================================
     // FULL-SCREEN MAXIMIZED PDF & DOCUMENT VIEWERS
     // ================================================================
-    async function showPDF(url) {
+/* ================================================================
+   FIXED PDF OPEN & CLOSE CONTROLLERS (Restores Container Width)
+   ================================================================ */
+    async function showPDF(url, customName = null) {
       if (!url || url === '' || url === '#') return;
 
       const pdfViewer = document.getElementById('pdfViewer');
@@ -1148,32 +1151,38 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
       const breadcrumbContainer = document.querySelector('.breadcrumb-container');
       const tilesSection = document.getElementById('tilesSection');
 
+      // Activate PDF full-bleed mode
       document.body.classList.add('pdf-view-active');
 
-      const filename = url.split('/').pop().replace('.pdf', '').replace(/%20/g, ' ');
+      // Calculate clean display name
+      let filename = customName;
+      if (!filename) {
+        if (url.startsWith('blob:') || url.startsWith('data:')) {
+          filename = 'Document';
+        } else {
+          filename = url.split('/').pop().replace('.pdf', '').replace(/%20/g, ' ');
+        }
+      }
+
       if (typeof window.setCurrentPDF === 'function') {
         window.setCurrentPDF(url, filename);
       }
 
       if (pdfViewer) {
-        const absoluteUrl = new URL(url, window.location.href).href;
-        
-        // Asynchronously resolve whether to use local file, IndexedDB blob, or updated viewer
         let viewerUrl;
         if (window.hotCodeUpdater && typeof window.hotCodeUpdater.getViewerUrl === 'function') {
           viewerUrl = await window.hotCodeUpdater.getViewerUrl(url);
         } else {
+          const absoluteUrl = url.startsWith('blob:') ? url : new URL(url, window.location.href).href;
           viewerUrl = 'pdfviewer.html?file=' + encodeURIComponent(absoluteUrl);
         }
 
         pdfViewer.src = viewerUrl;
         pdfViewer.classList.add('active');
-        
-        pdfViewer.onload = function() {
-          // Extract the target file from the viewerUrl or fallback to absoluteUrl
+
+        pdfViewer.onload = function () {
           const match = viewerUrl.match(/[?#]file=([^&]+)/);
-          const targetLoadUrl = match ? decodeURIComponent(match[1]) : absoluteUrl;
-          
+          const targetLoadUrl = match ? decodeURIComponent(match[1]) : url;
           pdfViewer.contentWindow.postMessage({ type: 'loadPdf', url: targetLoadUrl }, '*');
           pdfViewer.onload = null;
         };
@@ -1183,8 +1192,6 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
       if (tilesContainer) tilesContainer.style.display = 'none';
       if (sectionHeader) sectionHeader.style.display = 'none';
       if (dashboardHeader) dashboardHeader.style.display = 'none';
-      
-      // Hide redundant breadcrumb bar when viewing documents
       if (breadcrumbContainer) breadcrumbContainer.style.display = 'none';
 
       const importedSection = document.getElementById('importedSection');
@@ -1206,9 +1213,8 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
       if (typeof initializeTimer === 'function') initializeTimer();
       if (typeof trackPdfViewStart === 'function') trackPdfViewStart();
     }
-    function closePDF() {
-      document.body.classList.remove('pdf-view-active');
 
+    function closePDF() {
       const pdfViewer = document.getElementById('pdfViewer');
       const pdfViewerContainer = document.getElementById('pdfViewerContainer');
       const tilesContainer = document.getElementById('tilesContainer');
@@ -1216,38 +1222,29 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
       const dashboardHeader = document.querySelector('.dashboard-header');
       const breadcrumbContainer = document.querySelector('.breadcrumb-container');
 
-      window.clearCurrentPDF && window.clearCurrentPDF();
-
-      if (pdfViewer) {
-        pdfViewer.classList.remove('active');
-        pdfViewer.src = '';
-      }
+      // CRUCIAL: Remove the class that widens the entire container!
+      document.body.classList.remove('pdf-view-active');
 
       if (pdfViewerContainer) pdfViewerContainer.style.display = 'none';
-      const bookmarksPanel = document.getElementById('pdfBookmarksPanel');
-      if (bookmarksPanel) bookmarksPanel.style.display = 'none';
-      window.currentPdfUrlForBookmarks = null;
-
-      // Restore breadcrumbs
-      if (breadcrumbContainer) breadcrumbContainer.style.display = 'flex';
+      if (pdfViewer) {
+        pdfViewer.src = '';
+        pdfViewer.classList.remove('active');
+      }
 
       if (tilesContainer) {
         const isListView = tilesContainer.classList.contains('list-view');
         tilesContainer.style.display = isListView ? 'flex' : 'grid';
       }
       if (sectionHeader) sectionHeader.style.display = 'flex';
+      if (dashboardHeader) dashboardHeader.style.display = 'flex';
+      if (breadcrumbContainer) breadcrumbContainer.style.display = 'flex';
 
-      if (path.length === 0) {
-        if (dashboardHeader) dashboardHeader.style.display = window.innerWidth <= 768 ? 'grid' : 'flex';
-        const importedSection = document.getElementById('importedSection');
-        if (importedSection) importedSection.style.display = 'block';
-        if (typeof showHomeTagsPanels === 'function') showHomeTagsPanels();
-      }
-
-      if (typeof hideTimerCompletely === 'function') hideTimerCompletely();
-      if (typeof trackPdfViewEnd === 'function') trackPdfViewEnd(path.join('/'));
+      window.currentPdfUrlForBookmarks = null;
     }
 
+    // Make sure global bindings exist
+    window.showPDF = showPDF;
+    window.closePDF = closePDF;
     /* --- Image Viewer --- */
     var _currentImageBlobUrl = window._currentImageBlobUrl || null;
     var _currentImageName = window._currentImageName || '';

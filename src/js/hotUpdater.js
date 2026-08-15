@@ -1,8 +1,12 @@
 /* =========================================================================
- *   QUESTIONARY HOT UPDATER ENGINE v6.0 (Unified Code, DB & Document Sync)
+ *   QUESTIONARY UNIFIED HOT UPDATER & ASSET ENGINE v6.5
  *   Repository: Nugget1252/Questionarytauri (beta -> main)
- *   - Code -> localStorage (Global Execution Scope)
- *   - SQLite .db & Documents -> IndexedDB (Zero Memory Spikes / Zero OOM)
+ *   
+ *   Architecture:
+ *   - Code (JS/CSS/HTML)      -> localStorage (Evaluated in Global Scope)
+ *   - SQLite (questionary.db) -> IndexedDB ("QuestionaryDB")
+ *   - Documents (*.pdf)       -> IndexedDB ("QuestionaryDocumentCache")
+ *   - Networking              -> Direct Raw GitHub + GitHub API (Zero CORS)
  *   ========================================================================= */
 
 (function (global) {
@@ -11,23 +15,27 @@
     if (global._HOT_UPDATER_ENGINE_ACTIVE) return;
     global._HOT_UPDATER_ENGINE_ACTIVE = true;
 
-    /* ---------- Configuration ---------- */
+    /* ================================================================
+     * 1. CONSTANTS & CONFIGURATION
+     * ================================================================ */
     const REPO_OWNER = 'Nugget1252';
     const REPO_NAME = 'Questionarytauri';
     const PRIMARY_BRANCH = 'beta';
     const FALLBACK_BRANCH = 'main';
 
+    /* Storage Keys */
     const STORAGE_KEY_FILES = 'questionary_hot_files';
     const STORAGE_KEY_COMMIT = 'questionary_hot_commit_sha';
     const STORAGE_KEY_BRANCH = 'questionary_hot_branch';
+    const STORAGE_KEY_BACKUP = 'questionary_hot_backup_manifest';
 
-    /* Database Constants */
+    /* IndexedDB Namespaces */
     const DB_INDEXEDDB_NAME = 'QuestionaryDB';
     const DB_STORE_NAME = 'db_store';
     const DOC_INDEXEDDB_NAME = 'QuestionaryDocumentCache';
     const DOC_STORE_NAME = 'docs_store';
 
-    /* Target Core Code Files */
+    /* Baseline Managed Code Files */
     const CORE_CODE_FILES = [
         'index.html',
         'pdfviewer.html',
@@ -39,6 +47,26 @@
         'js/app.js'
     ];
 
+    /* Excluded from Dynamic Sync */
+    const IGNORED_FILES = [
+        'package.json',
+        'package-lock.json',
+        'code-manifest.json',
+        'content-manifest.json',
+        'tauri.conf.json',
+        'Cargo.toml',
+        'Cargo.lock'
+    ];
+
+    const IGNORED_PATH_PREFIXES = [
+        '.github/',
+        '.git',
+        'src-tauri/',
+        'target/',
+        'node_modules/',
+        '.vscode/'
+    ];
+
     /* Global State */
     global.codeUpdateState = {
         checking: false,
@@ -48,10 +76,13 @@
         installedCommitSha: localStorage.getItem(STORAGE_KEY_COMMIT) || null,
         activeBranch: PRIMARY_BRANCH,
         discoveredFiles: [],
-        progress: 0
+        progress: 0,
+        statusMessage: 'Idle'
     };
 
-    /* ---------- Logging & Notifications ---------- */
+    /* ================================================================
+     * 2. LOGGING & NOTIFICATIONS
+     * ================================================================ */
     function log(msg, type = 'info') {
         const prefix = '[HotUpdater]';
         if (type === 'error') console.error(`${prefix} ${msg}`);
@@ -67,24 +98,31 @@
         }
     }
 
-    /* ---------- Helpers & Sanitization ---------- */
     function normalizePath(filePath) {
         return filePath.replace(/^src\//, '').replace(/^\/+/, '');
     }
 
+    /* ================================================================
+     * 3. STORAGE LAYER (Sanitized & Memory Safe)
+     * ================================================================ */
     function getStoredCodeFiles() {
         try {
             const raw = localStorage.getItem(STORAGE_KEY_FILES);
             if (!raw) return {};
             const parsed = JSON.parse(raw);
-            let sanitized = false;
+
+            // Auto-clean any legacy binary entries
+            let needsPurge = false;
             Object.keys(parsed).forEach(k => {
                 if (k.endsWith('.db') || k.endsWith('.pdf') || typeof parsed[k] !== 'string') {
                     delete parsed[k];
-                    sanitized = true;
+                    needsPurge = true;
                 }
             });
-            if (sanitized) localStorage.setItem(STORAGE_KEY_FILES, JSON.stringify(parsed));
+
+            if (needsPurge) {
+                localStorage.setItem(STORAGE_KEY_FILES, JSON.stringify(parsed));
+            }
             return parsed;
         } catch (e) {
             localStorage.removeItem(STORAGE_KEY_FILES);
@@ -103,12 +141,14 @@
             localStorage.setItem(STORAGE_KEY_FILES, JSON.stringify(cleanMap));
             return true;
         } catch (e) {
-            log('Failed to save code to localStorage: ' + e.message, 'error');
+            log('Failed to write code files to localStorage: ' + e.message, 'error');
             return false;
         }
     }
 
-    /* ---------- IndexedDB Binary Layer (DB & PDFs) ---------- */
+    /* ================================================================
+     * 4. INDEXEDDB BINARY STORAGE (SQLite DB & Documents)
+     * ================================================================ */
     function saveDatabaseToIndexedDB(uInt8Array) {
         return new Promise((resolve, reject) => {
             const req = indexedDB.open(DB_INDEXEDDB_NAME, 1);
@@ -150,6 +190,7 @@
     }
 
     async function getDocumentBlobFromCache(docPath) {
+        if (!docPath || docPath.startsWith('blob:') || docPath.startsWith('data:')) return null;
         const cleanPath = normalizePath(docPath);
         return new Promise(resolve => {
             const req = indexedDB.open(DOC_INDEXEDDB_NAME, 1);
@@ -175,15 +216,18 @@
         });
     }
 
-    /* ---------- Cache Reset ---------- */
+    /* ================================================================
+     * 5. CACHE RESET & ROLLBACK ENGINE
+     * ================================================================ */
     async function resetCache(shouldReload = true) {
-        log('Purging local code and document caches...');
+        log('Resetting all hot-code and document caches...');
         localStorage.removeItem(STORAGE_KEY_FILES);
         localStorage.removeItem(STORAGE_KEY_COMMIT);
         localStorage.removeItem(STORAGE_KEY_BRANCH);
+        localStorage.removeItem(STORAGE_KEY_BACKUP);
         localStorage.removeItem('questionary-code-files');
 
-        // Delete Document Cache in IndexedDB
+        indexedDB.deleteDatabase(DB_INDEXEDDB_NAME);
         indexedDB.deleteDatabase(DOC_INDEXEDDB_NAME);
 
         delete global._HOT_APP_JS_LOADED;
@@ -191,14 +235,14 @@
         delete global._HOT_FEATURES_LOADED;
         delete global._HOT_CONTENT_UPDATER_LOADED;
 
-        notify('Cache cleared. Reloading...', 'info');
+        notify('Cache wiped. Reloading clean application...', 'info');
         if (shouldReload) {
             setTimeout(() => location.reload(), 400);
         }
     }
 
     /* ================================================================
-     * 1. LIVE DOM & SCRIPT INJECTION
+     * 6. DOM RECONCILER & GLOBAL SCRIPT EXECUTION
      * ================================================================ */
     function applyHotCSS(filename, content) {
         if (!content || content.trim().length < 5) return;
@@ -212,7 +256,7 @@
             document.head.appendChild(styleEl);
         }
         styleEl.textContent = content;
-        log(`Applied stylesheet: ${norm}`);
+        log(`Live hot-swapped stylesheet: ${norm}`);
     }
 
     function applyStoredCSS() {
@@ -235,25 +279,30 @@
             'js/app.js'
         ];
 
-        for (const filename of executionOrder) {
+        const additionalJs = Object.keys(stored).filter(k => k.endsWith('.js') && !executionOrder.includes(k));
+        const finalOrder = [...executionOrder, ...additionalJs];
+
+        for (const filename of finalOrder) {
             const content = stored[filename];
             if (content && typeof content === 'string' && content.trim().length > 30) {
                 try {
-                    const scriptId = `hot-js-${filename.replace(/[^a-zA-Z0-9]/g, '-')}`;
+                    const norm = normalizePath(filename);
+                    const scriptId = `hot-js-${norm.replace(/[^a-zA-Z0-9]/g, '-')}`;
                     const oldScript = document.getElementById(scriptId);
                     if (oldScript) oldScript.remove();
 
-                    if (filename.includes('app.js')) global._HOT_APP_JS_LOADED = true;
-                    if (filename.includes('studyRoom.js')) global._HOT_STUDY_ROOM_LOADED = true;
-                    if (filename.includes('features.js')) global._HOT_FEATURES_LOADED = true;
-                    if (filename.includes('contentUpdater.js')) global._HOT_CONTENT_UPDATER_LOADED = true;
+                    if (norm.includes('app.js')) global._HOT_APP_JS_LOADED = true;
+                    if (norm.includes('studyRoom.js')) global._HOT_STUDY_ROOM_LOADED = true;
+                    if (norm.includes('features.js')) global._HOT_FEATURES_LOADED = true;
+                    if (norm.includes('contentUpdater.js')) global._HOT_CONTENT_UPDATER_LOADED = true;
 
+                    // Execute directly in global scope
                     const scriptEl = document.createElement('script');
                     scriptEl.id = scriptId;
                     scriptEl.type = 'text/javascript';
-                    scriptEl.textContent = `${content}\n//# sourceURL=hotUpdate://${filename}`;
+                    scriptEl.textContent = `${content}\n//# sourceURL=hotUpdate://${norm}`;
                     document.head.appendChild(scriptEl);
-                    log(`Hot script loaded: ${filename}`);
+                    log(`Hot script evaluated in global scope: ${norm}`);
                 } catch (err) {
                     log(`Script eval error (${filename}): ${err.message}`, 'error');
                 }
@@ -270,13 +319,15 @@
             const parser = new DOMParser();
             const newDoc = parser.parseFromString(storedHtml, 'text/html');
 
+            // 1. Header & Navigation Sync
             const newHeader = newDoc.querySelector('header.header') || newDoc.querySelector('.header');
             const curHeader = document.querySelector('header.header') || document.querySelector('.header');
             if (newHeader && curHeader && newHeader.innerHTML !== curHeader.innerHTML) {
                 curHeader.innerHTML = newHeader.innerHTML;
-                log('Hot-patched navigation header');
+                log('Hot-patched navigation & header');
             }
 
+            // 2. Core Interactive Container Sync
             const syncContainers = [
                 'accessibilityPanel',
                 'quickLinksPanel',
@@ -291,10 +342,11 @@
                 const curEl = document.getElementById(id);
                 if (newEl && curEl && newEl.innerHTML !== curEl.innerHTML) {
                     curEl.innerHTML = newEl.innerHTML;
-                    log(`Hot-patched container #${id}`);
+                    log(`Hot-patched #${id}`);
                 }
             });
 
+            // 3. Modals Sync
             const newModals = newDoc.querySelectorAll('.modal-overlay');
             newModals.forEach(newModal => {
                 if (newModal.id) {
@@ -309,46 +361,65 @@
                 }
             });
         } catch (err) {
-            log(`HTML patch error: ${err.message}`, 'error');
+            log(`DOM patch error: ${err.message}`, 'error');
         }
     }
 
     /* ================================================================
-     * 2. CORS-SAFE GITHUB NETWORK LAYER (NO PREFLIGHT HEADERS)
+     * 7. PREFLIGHT-FREE GITHUB & TAURI NETWORK ENGINE
      * ================================================================ */
     async function fetchRawAsset(repoPath, commitSha) {
         const branch = global.codeUpdateState.activeBranch || PRIMARY_BRANCH;
         const ref = commitSha || branch;
         const nonce = `${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
         const rawUrl = `https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${ref}/${repoPath}?_nc=${nonce}`;
-
         const isBinary = repoPath.endsWith('.db') || repoPath.endsWith('.pdf');
 
+        // TIER 1: Standard Simple GET (No custom headers to prevent CORS 403 preflight)
         try {
-            // Simple GET with no custom headers to prevent CORS OPTIONS preflight
             const res = await fetch(rawUrl);
             if (res.ok) {
                 if (isBinary) {
                     const buffer = await res.arrayBuffer();
-                    if (buffer && buffer.byteLength > 50) {
-                        return { isBinary: true, buffer: buffer };
-                    }
+                    if (buffer && buffer.byteLength > 50) return { isBinary: true, buffer };
                 } else {
                     const text = await res.text();
                     const trimmed = text.trim();
                     if (trimmed.length > 5 && !trimmed.startsWith('404: Not Found') && !trimmed.startsWith('<!DOCTYPE html>')) {
-                        return { isBinary: false, text: text };
+                        return { isBinary: false, text };
                     }
                 }
             }
         } catch (err) {
-            log(`Fetch failed for ${repoPath}: ${err.message}`, 'warn');
+            log(`Standard fetch failed for ${repoPath}: ${err.message}`, 'warn');
+        }
+
+        // TIER 2: Tauri Native HTTP Plugin (Bypasses all webview networking)
+        if (global.__TAURI__ && (global.__TAURI__.http || global.__TAURI__.core)) {
+            try {
+                const http = global.__TAURI__.http || global.__TAURI__.core;
+                const tauriRes = await http.fetch(rawUrl, {
+                    method: 'GET',
+                    responseType: isBinary ? 3 : 2
+                });
+                if (tauriRes && tauriRes.ok) {
+                    if (isBinary) {
+                        return { isBinary: true, buffer: new Uint8Array(tauriRes.data).buffer };
+                    } else {
+                        const txt = typeof tauriRes.data === 'string' ? tauriRes.data : new TextDecoder().decode(new Uint8Array(tauriRes.data));
+                        return { isBinary: false, text: txt };
+                    }
+                }
+            } catch (tErr) {
+                log(`Tauri HTTP plugin notice on ${repoPath}: ${tErr.message}`, 'warn');
+            }
         }
 
         return null;
     }
 
     async function getLatestCommitSha(branch) {
+        // Method A: Direct GitHub REST API
         try {
             const apiUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/commits/${branch}?_t=${Date.now()}`;
             const res = await fetch(apiUrl);
@@ -358,6 +429,7 @@
             }
         } catch (e) {}
 
+        // Method B: Un-rate-limited GitHub Atom Feed Fallback
         try {
             const feedUrl = `https://github.com/${REPO_OWNER}/${REPO_NAME}/commits/${branch}.atom?_nc=${Date.now()}`;
             const res = await fetch(feedUrl);
@@ -372,7 +444,7 @@
     }
 
     /* ================================================================
-     * 3. DISCOVERY (Git Trees API for Code, DB & Documents)
+     * 8. DYNAMIC ASSET DISCOVERY (Git Trees API)
      * ================================================================ */
     async function discoverAllSyncableFiles(targetSha) {
         const fileMap = new Map();
@@ -388,22 +460,26 @@
                         if (item.type === 'blob') {
                             const rawPath = item.path;
                             const norm = normalizePath(rawPath);
+                            const filename = norm.split('/').pop();
 
-                            // Match Code, Database, or Documents
-                            const isCode = ['.html', '.css', '.js'].some(ext => norm.endsWith(ext));
-                            const isDb = norm === 'questionary.db';
-                            const isDoc = norm.startsWith('documents/') && norm.endsWith('.pdf');
+                            const isIgnoredPrefix = IGNORED_PATH_PREFIXES.some(p => rawPath.startsWith(p));
+                            const isIgnoredFile = IGNORED_FILES.includes(filename);
 
-                            if (isCode || isDb || isDoc) {
-                                // Deduplicate (e.g. prefer root over src/)
-                                if (!fileMap.has(norm) || !rawPath.startsWith('src/')) {
-                                    fileMap.set(norm, {
-                                        repoPath: rawPath,
-                                        normPath: norm,
-                                        isDb: isDb,
-                                        isDoc: isDoc,
-                                        isCode: isCode
-                                    });
+                            if (!isIgnoredPrefix && !isIgnoredFile) {
+                                const isCode = ['.html', '.css', '.js'].some(ext => norm.endsWith(ext));
+                                const isDb = norm === 'questionary.db';
+                                const isDoc = norm.startsWith('documents/') && norm.endsWith('.pdf');
+
+                                if (isCode || isDb || isDoc) {
+                                    if (!fileMap.has(norm) || !rawPath.startsWith('src/')) {
+                                        fileMap.set(norm, {
+                                            repoPath: rawPath,
+                                            normPath: norm,
+                                            isDb: isDb,
+                                            isDoc: isDoc,
+                                            isCode: isCode
+                                        });
+                                    }
                                 }
                             }
                         }
@@ -411,14 +487,14 @@
                 }
             }
         } catch (err) {
-            log(`Tree API notice: ${err.message}`, 'warn');
+            log(`Tree API discovery notice: ${err.message}`, 'warn');
         }
 
         if (fileMap.size > 0) {
             return Array.from(fileMap.values());
         }
 
-        // Fallback core files list
+        // Fallback file list if Tree API is rate-limited
         return CORE_CODE_FILES.map(f => ({
             repoPath: f,
             normPath: normalizePath(f),
@@ -435,7 +511,7 @@
     }
 
     /* ================================================================
-     * 4. CHECK & SEQUENTIAL STREAMING SYNC
+     * 9. TRANSACTIONAL UPDATE & SYNC CONTROLLER
      * ================================================================ */
     async function checkForCodeUpdates(silent = false) {
         if (global.codeUpdateState.checking || global.codeUpdateState.downloading) {
@@ -492,7 +568,6 @@
         let fileList = global.codeUpdateState.discoveredFiles;
 
         if (!targetSha || !fileList.length || force) {
-            global.codeUpdateState.checking = false;
             fileList = await checkForCodeUpdates(false);
             targetSha = global.codeUpdateState.latestCommitSha;
             if (!fileList || !fileList.length) {
@@ -509,7 +584,6 @@
         const codeStaging = {};
         let successCount = 0;
 
-        // Download sequentially to keep memory flat
         for (let i = 0; i < fileList.length; i++) {
             const item = fileList[i];
             global.codeUpdateState.progress = Math.round(((i + 1) / fileList.length) * 100);
@@ -517,34 +591,32 @@
 
             try {
                 const asset = await fetchRawAsset(item.repoPath, targetSha);
-                if (!asset) {
-                    log(`Could not fetch ${item.normPath}`, 'warn');
-                    continue;
-                }
+                if (!asset) continue;
 
                 if (item.isDb) {
-                    // Save SQLite DB directly to IndexedDB
+                    // SQLite Database handling
                     const uInt8 = new Uint8Array(asset.buffer);
-                    // Validate SQLite magic header: "SQLite format 3\0"
-                    if (uInt8.length > 100 && uInt8[0] === 0x53 && uInt8[1] === 0x51 && uInt8[2] === 0x4C) {
+                    // Verify SQLite format signature
+                    if (uInt8.length > 5000 && uInt8[0] === 0x53 && uInt8[1] === 0x51 && uInt8[2] === 0x4C) {
                         await saveDatabaseToIndexedDB(uInt8);
-                        log('Successfully updated questionary.db in IndexedDB');
-                        // Live reload DbService if active
+                        log('Successfully synced questionary.db to IndexedDB');
                         if (global.DbService && global.DbService.SQL) {
                             global.DbService.db = new global.DbService.SQL.Database(uInt8);
                         }
                         successCount++;
                     }
-                    asset.buffer = null; // Free memory immediately
+                    asset.buffer = null; // Free RAM immediately
                 } else if (item.isDoc) {
-                    // Save PDF directly to Document Cache in IndexedDB
+                    // PDF Document handling
                     const uInt8 = new Uint8Array(asset.buffer);
-                    await saveDocumentToIndexedDB(item.normPath, uInt8);
-                    log(`Cached updated document: ${item.normPath}`);
-                    asset.buffer = null; // Free memory immediately
-                    successCount++;
+                    if (uInt8.length > 100) {
+                        await saveDocumentToIndexedDB(item.normPath, uInt8);
+                        log(`Cached document: ${item.normPath}`);
+                        successCount++;
+                    }
+                    asset.buffer = null; // Free RAM immediately
                 } else if (item.isCode) {
-                    // Staged for localStorage
+                    // Code handling
                     codeStaging[item.normPath] = asset.text;
                     successCount++;
                 }
@@ -555,7 +627,6 @@
 
         hideProgressBar();
 
-        // Commit code to localStorage only if core code succeeded
         if (successCount >= 1) {
             const currentCode = getStoredCodeFiles();
             const mergedCode = { ...currentCode, ...codeStaging };
@@ -566,20 +637,19 @@
                 localStorage.setItem(STORAGE_KEY_BRANCH, global.codeUpdateState.activeBranch);
             }
 
-            log(`Sync complete (${successCount} assets updated). Reloading...`);
-            notify(`Update installed! Refreshing app...`, 'success');
-            setTimeout(() => location.reload(), 600);
+            notify(`Update installed (${successCount} files)! Reloading...`, 'success');
+            setTimeout(() => location.reload(), 500);
             return true;
         }
 
-        notify('Update failed. Keeping current version.', 'error');
+        notify('Update failed validation. Preserving current version.', 'error');
         global.codeUpdateState.downloading = false;
         updateUIState('idle');
         return false;
     }
 
     /* ================================================================
-     * 5. UI CONTROLS & PROGRESS
+     * 10. UI CONTROLS & EVENT LISTENERS
      * ================================================================ */
     function updateUIState(state) {
         const btn = document.getElementById('checkUpdatesBtn');
@@ -623,9 +693,7 @@
 
     function hideProgressBar() {
         const bar = document.getElementById('downloadProgressBar');
-        if (bar) {
-            setTimeout(() => { bar.style.display = 'none'; }, 800);
-        }
+        if (bar) setTimeout(() => { bar.style.display = 'none'; }, 800);
     }
 
     function attachListeners() {
@@ -674,39 +742,38 @@
     }
 
     /* ================================================================
-     * 6. DOCUMENT & PDF INTERCEPTOR
+     * 11. PDF VIEWER INTERCEPTOR
      * ================================================================ */
     async function getViewerUrl(fileUrl) {
-        const stored = getCleanStoredCodeFiles();
-        let targetFile = fileUrl;
+        if (!fileUrl) return 'pdfviewer.html';
 
-        // Check if an updated PDF exists in IndexedDB Document Cache
+        if (fileUrl.startsWith('blob:') || fileUrl.startsWith('data:')) {
+            return 'pdfviewer.html?file=' + encodeURIComponent(fileUrl);
+        }
+
         try {
             const cachedBlob = await getDocumentBlobFromCache(fileUrl);
             if (cachedBlob) {
-                targetFile = URL.createObjectURL(cachedBlob);
+                const blobUrl = URL.createObjectURL(cachedBlob);
+                return 'pdfviewer.html?file=' + encodeURIComponent(blobUrl);
             }
         } catch (e) {}
 
-        const html = stored['pdfviewer.html'];
-        if (html && html.includes('pdfjsLib')) {
-            const blob = new Blob([html], { type: 'text/html' });
-            return URL.createObjectURL(blob) + '#file=' + encodeURIComponent(targetFile);
-        }
-        return 'pdfviewer.html?file=' + encodeURIComponent(targetFile);
+        const absoluteUrl = new URL(fileUrl, window.location.href).href;
+        return 'pdfviewer.html?file=' + encodeURIComponent(absoluteUrl);
     }
 
     /* ================================================================
-     * 7. BOOTSTRAP
+     * 12. BOOTSTRAP INITIALIZER
      * ================================================================ */
     async function initHotUpdater() {
-        log('Booting Unified Hot Updater Engine...');
+        log('Booting Unified Hot Updater Engine v6.5...');
         applyStoredHTML();
         applyStoredCSS();
         applyStoredJS();
         attachListeners();
 
-        // Silent update check 4 seconds after page is idle
+        // Silent background check 4 seconds after boot
         setTimeout(async () => {
             const pending = await checkForCodeUpdates(true);
             if (pending && pending.length > 0) {
@@ -736,4 +803,4 @@
         initHotUpdater();
     }
 
-})(typeof window !== 'undefined' ? window : this);  
+})(typeof window !== 'undefined' ? window : this);

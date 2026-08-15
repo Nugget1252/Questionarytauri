@@ -466,6 +466,7 @@ function downloadDocxContent() {
     URL.revokeObjectURL(url);
 }
 
+/* Top/Middle of js/features.js */
 async function openAnyDocument(urlOrBlob, fileName) {
     const category = getFileTypeCategory(fileName);
     if (category === 'image') {
@@ -483,18 +484,39 @@ async function openAnyDocument(urlOrBlob, fileName) {
     } else if (category === 'docx') {
         await showDocxFile(urlOrBlob, fileName);
     } else {
+        // PDF handler
         let pdfSrc = urlOrBlob;
         if (typeof urlOrBlob === 'string' && urlOrBlob.startsWith('blob-id:')) {
             const blobId = urlOrBlob.replace('blob-id:', '');
             const blob = await UserLibraryFileStore.getFileBlob(blobId);
-            pdfSrc = URL.createObjectURL(blob);
+            if (blob) {
+                pdfSrc = URL.createObjectURL(blob);
+            }
         } else if (urlOrBlob instanceof Blob) {
             pdfSrc = URL.createObjectURL(urlOrBlob);
         }
-        if (typeof window.showPDF === 'function') window.showPDF(pdfSrc);
+        
+        // Pass the actual fileName to showPDF so it displays properly!
+        if (typeof window.showPDF === 'function') {
+            await window.showPDF(pdfSrc, fileName);
+        }
     }
 }
 
+function closePdfViewer() {
+    // Sync with closePDF
+    if (typeof window.closePDF === 'function') {
+        window.closePDF();
+    } else {
+        document.body.classList.remove('pdf-view-active');
+        const container = document.getElementById('pdfViewerContainer');
+        const tilesContainer = document.getElementById('tilesContainer');
+        const pdfViewer = document.getElementById('pdfViewer');
+        if (container) container.style.display = 'none';
+        if (tilesContainer) tilesContainer.style.display = 'grid';
+        if (pdfViewer) pdfViewer.src = '';
+    }
+}
 // ============================================
 // 3. PDF ANNOTATIONS & HIGHLIGHTING
 // ============================================
