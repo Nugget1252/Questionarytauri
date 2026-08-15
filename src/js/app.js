@@ -1137,7 +1137,7 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
     // ================================================================
     // FULL-SCREEN MAXIMIZED PDF & DOCUMENT VIEWERS
     // ================================================================
-    function showPDF(url) {
+    async function showPDF(url) {
       if (!url || url === '' || url === '#') return;
 
       const pdfViewer = document.getElementById('pdfViewer');
@@ -1151,18 +1151,30 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
       document.body.classList.add('pdf-view-active');
 
       const filename = url.split('/').pop().replace('.pdf', '').replace(/%20/g, ' ');
-      window.setCurrentPDF && window.setCurrentPDF(url, filename);
+      if (typeof window.setCurrentPDF === 'function') {
+        window.setCurrentPDF(url, filename);
+      }
 
       if (pdfViewer) {
         const absoluteUrl = new URL(url, window.location.href).href;
-        const viewerUrl = (window.hotCodeUpdater && typeof window.hotCodeUpdater.getViewerUrl === 'function')
-            ? window.hotCodeUpdater.getViewerUrl(absoluteUrl)
-            : 'pdfviewer.html?file=' + encodeURIComponent(absoluteUrl);
+        
+        // Asynchronously resolve whether to use local file, IndexedDB blob, or updated viewer
+        let viewerUrl;
+        if (window.hotCodeUpdater && typeof window.hotCodeUpdater.getViewerUrl === 'function') {
+          viewerUrl = await window.hotCodeUpdater.getViewerUrl(url);
+        } else {
+          viewerUrl = 'pdfviewer.html?file=' + encodeURIComponent(absoluteUrl);
+        }
 
         pdfViewer.src = viewerUrl;
         pdfViewer.classList.add('active');
+        
         pdfViewer.onload = function() {
-          pdfViewer.contentWindow.postMessage({ type: 'loadPdf', url: absoluteUrl }, '*');
+          // Extract the target file from the viewerUrl or fallback to absoluteUrl
+          const match = viewerUrl.match(/[?#]file=([^&]+)/);
+          const targetLoadUrl = match ? decodeURIComponent(match[1]) : absoluteUrl;
+          
+          pdfViewer.contentWindow.postMessage({ type: 'loadPdf', url: targetLoadUrl }, '*');
           pdfViewer.onload = null;
         };
       }
@@ -1194,7 +1206,6 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
       if (typeof initializeTimer === 'function') initializeTimer();
       if (typeof trackPdfViewStart === 'function') trackPdfViewStart();
     }
-
     function closePDF() {
       document.body.classList.remove('pdf-view-active');
 
