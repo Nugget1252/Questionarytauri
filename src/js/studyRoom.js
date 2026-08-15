@@ -1007,14 +1007,6 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
           </div>
         </div>
 
-        <div class="sr-features-grid">
-          <div class="sr-feature-item"><i class="fas fa-chalkboard"></i><span>Whiteboard</span></div>
-          <div class="sr-feature-item"><i class="fas fa-desktop"></i><span>Screen Share</span></div>
-          <div class="sr-feature-item"><i class="fas fa-stopwatch"></i><span>Synced Timer</span></div>
-          <div class="sr-feature-item"><i class="fas fa-hand-paper"></i><span>Hand Raising</span></div>
-          <div class="sr-feature-item"><i class="fas fa-comments"></i><span>Live Chat</span></div>
-        </div>
-      </div>
     `;
 
     document.getElementById('srCreateBtn')?.addEventListener('click', handleCreate);
