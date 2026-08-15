@@ -2484,26 +2484,89 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
         }
       });
     }
-
+    // ================================================================
+    // CANONICAL ACCESSIBILITY & THEME CONTROLLER
+    // ================================================================
     function initializeAccessibility() {
-      setupAccessibilityToggle('highContrastToggle', 'highContrast', 'high-contrast');
-      setupAccessibilityToggle('largeTextToggle', 'largeText', 'large-text');
-      setupAccessibilityToggle('reducedMotionToggle', 'reducedMotion', 'reduced-motion');
-      setupAccessibilityToggle('enhancedFocusToggle', 'enhancedFocus', 'enhanced-focus');
-      applyAccessibilitySettings();
-      updateAccessibilityToggleStates();
+        const accessBtn = document.getElementById('accessibilityToggle');
+        const panel = document.getElementById('accessibilityPanel');
+        const themeBtn = document.getElementById('themeToggle');
+
+        // 1. Light / Dark Mode Toggle
+        if (themeBtn && !themeBtn.dataset.bound) {
+            themeBtn.dataset.bound = 'true';
+            themeBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const current = document.documentElement.getAttribute('data-theme') || 'dark';
+                const next = current === 'dark' ? 'light' : 'dark';
+                if (typeof window.setTheme === 'function') {
+                    window.setTheme(next);
+                } else {
+                    document.documentElement.setAttribute('data-theme', next);
+                    document.body.setAttribute('data-theme', next);
+                    localStorage.setItem('theme', next);
+                    const icon = document.getElementById('themeIcon');
+                    if (icon) icon.className = next === 'dark' ? 'fas fa-sun' : 'fas fa-moon';
+                }
+            });
+        }
+
+        // 2. Open / Close Menu & Outside Click Dismiss
+        if (accessBtn && panel && !accessBtn.dataset.bound) {
+            accessBtn.dataset.bound = 'true';
+            
+            accessBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                panel.classList.toggle('active');
+            });
+
+            // Close when clicking anywhere else on the page
+            document.addEventListener('click', (e) => {
+                if (panel.classList.contains('active')) {
+                    if (!panel.contains(e.target) && !accessBtn.contains(e.target)) {
+                        panel.classList.remove('active');
+                    }
+                }
+            });
+        }
+
+        // 3. The 4 Accessibility Mode Switches
+        const modes = [
+            { id: 'highContrastToggle', mode: 'high-contrast' },
+            { id: 'largeTextToggle', mode: 'large-text' },
+            { id: 'reducedMotionToggle', mode: 'reduced-motion' },
+            { id: 'enhancedFocusToggle', mode: 'enhanced-focus' }
+        ];
+
+        modes.forEach(({ id, mode }) => {
+            const optionEl = document.getElementById(id);
+            if (!optionEl || optionEl.dataset.bound) return;
+            optionEl.dataset.bound = 'true';
+
+            const switchEl = optionEl.querySelector('.accessibility-switch');
+            const storageKey = 'accessibility-' + mode;
+
+            // Restore saved preference on load
+            const isEnabled = localStorage.getItem(storageKey) === 'true';
+            document.body.classList.toggle(mode, isEnabled);
+            document.documentElement.classList.toggle(mode, isEnabled);
+            if (switchEl) switchEl.classList.toggle('active', isEnabled);
+
+            // Click handler for switch row
+            optionEl.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+
+                const isActive = document.body.classList.toggle(mode);
+                document.documentElement.classList.toggle(mode, isActive);
+
+                if (switchEl) switchEl.classList.toggle('active', isActive);
+                localStorage.setItem(storageKey, isActive ? 'true' : 'false');
+            });
+        });
     }
-
-    function setupAccessibilityToggle(toggleId, settingKey, className) {
-      const toggle = document.getElementById(toggleId);
-      if (!toggle) return;
-      const switchEl = toggle.querySelector('.accessibility-switch');
-
-      if (accessibilitySettings[settingKey]) {
-        toggle.classList.add('active');
-        if (switchEl) switchEl.classList.add('active');
-      }
-
       toggle.addEventListener('click', (e) => {
         e.stopPropagation();
         accessibilitySettings[settingKey] = !accessibilitySettings[settingKey];
