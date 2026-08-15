@@ -1,8 +1,15 @@
 /* STUDY_ROOM_ENGINE_VERSION = "4.0" */
 window.STUDY_ROOM_ENGINE_VERSION = "4.0";
-/* ================================================================
-   QUESTIONARY — STUDY ROOM ENGINE 4.0 (HIGH-SPEED P2P + MULTI-MESH)
-   ================================================================ */
+
+// HOT-UPDATE EXECUTION GUARD (Prevents static script tag from overwriting hot updates)
+if (window._HOT_STUDY_ROOM_LOADED && (!document.currentScript || !document.currentScript.id || !document.currentScript.id.includes('hot-js'))) {
+    console.log('[HotUpdate] Hot-updated studyRoom.js is active. Aborting bundled execution.');
+} else {
+    window._HOT_STUDY_ROOM_LOADED = true;
+
+    // ... (All your existing studyRoom.js code stays here) ...
+
+// <-- Don't forget to close the bracket at the very bottom of the file!
 
 (function () {
   'use strict';
@@ -2747,3 +2754,4 @@ window.STUDY_ROOM_ENGINE_VERSION = "4.0";
 
 })();
 
+} 
