@@ -1,8 +1,9 @@
+/* STUDY_ROOM_ENGINE_VERSION = "4.0" */
+window.STUDY_ROOM_ENGINE_VERSION = '4.0';
+
 /* ================================================================
    QUESTIONARY — STUDY ROOM ENGINE 4.0 (HIGH-SPEED P2P + MULTI-MESH)
    ================================================================ */
-
-window.STUDY_ROOM_ENGINE_VERSION = '4.0';
 
 (function () {
   'use strict';
@@ -189,18 +190,18 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
   }
 
   /* ================================================================
-     PEERJS ROOM HUB (Robust Host-Coordinated Mesh Network)
+     PEERJS ROOM HUB (Host-Coordinated Mesh Network)
      ================================================================ */
   class PeerJSRoomHub {
     constructor() {
-      this.readyState = 0; // 0: connecting, 1: open, 3: closed
+      this.readyState = 0;
       this.peer = null;
       this.hostConn = null;
       this.targetHostPeerId = '';
-      this.connections = new Map(); // peerJsId -> DataConnection
-      this.activeCalls = new Map(); // peerJsId -> MediaConnection
-      this.peerJsToUser = new Map(); // peerJsId -> userId
-      this.userToPeerJs = new Map(); // userId -> peerJsId
+      this.connections = new Map();
+      this.activeCalls = new Map();
+      this.peerJsToUser = new Map();
+      this.userToPeerJs = new Map();
       this.nextUserNum = 1;
       this.onmessage = null;
       this.onopen = null;
@@ -255,7 +256,6 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
 
         this.targetHostPeerId = targetHostPeerId;
 
-        // Listen for WebSocket Relay messages (fallback & fast path)
         this.peer.on('relay-data', (msg, senderPeerJsId) => {
           if (!msg || typeof msg !== 'object') return;
           if (msg._mid && this.isDuplicate(msg._mid)) return;
@@ -279,7 +279,6 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
           }
         });
 
-        // Handle signaling connection open
         this.peer.on('open', (assignedId) => {
           console.log(`[StudyRoom-Debug] PeerJS Signaling open. Assigned ID: ${assignedId}`);
 
@@ -296,7 +295,6 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
             this.peerJsToUser.set(targetHostPeerId, 'usr_host');
             this.userToPeerJs.set('usr_host', targetHostPeerId);
 
-            // 1. Send immediate join handshake via Signaling Relay
             const joinHandshake = {
               _mid: 'join_' + Date.now(),
               action: 'join',
@@ -307,7 +305,6 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
               this.peer.sendRelay(targetHostPeerId, joinHandshake);
             }
 
-            // 2. Also establish WebRTC DataChannel if supported
             try {
               this.hostConn = this.peer.connect(targetHostPeerId, {
                 serialization: 'json',
@@ -352,8 +349,7 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
                 console.warn('[StudyRoom-Debug] Guest DataChannel to Host closed.');
               });
             } catch (err) {
-              console.warn('[StudyRoom-Debug] WebRTC DataChannel connect bypassed, operating via WebSocket Relay:', err);
-              // Resolved via relay
+              console.warn('[StudyRoom-Debug] Operating via WebSocket Relay:', err);
               if (!isResolved) {
                 this.readyState = 1;
                 clearTimeout(this.connectTimeoutTimer);
@@ -365,14 +361,12 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
           }
         });
 
-        // Host handles incoming guest data connections
         if (isHost) {
           this.peer.on('connection', (conn) => {
-            console.log('[StudyRoom-Debug] Host received incoming DataChannel connection from:', conn.peer);
+            console.log('[StudyRoom-Debug] Host received incoming DataChannel from:', conn.peer);
             this.connections.set(conn.peer, conn);
 
             conn.on('open', () => {
-              console.log('[StudyRoom-Debug] Host DataChannel with peer is OPEN:', conn.peer);
               this.connections.set(conn.peer, conn);
             });
 
@@ -386,7 +380,6 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
             });
 
             conn.on('close', () => {
-              console.log('[StudyRoom-Debug] Peer disconnected:', conn.peer);
               this.handleHostDisconnect(conn.peer);
             });
 
@@ -396,13 +389,10 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
           });
         }
 
-        // Both Host and Guest handle incoming media calls
         this.peer.on('call', (call) => {
-          console.log('[StudyRoom-Debug] Received incoming media call from:', call.peer, 'Type:', call.metadata?.type);
           this.activeCalls.set(call.peer + '_' + (call.metadata?.type || 'media'), call);
-          
           call.answer(localMediaStream || undefined);
-          
+
           call.on('stream', (remoteStream) => {
             const callerUserId = this.peerJsToUser.get(call.peer) || (call.peer === this.userToPeerJs.get('usr_host') ? 'usr_host' : call.peer);
             handleRemoteStream(callerUserId, remoteStream, call.metadata?.type || 'media');
@@ -418,7 +408,6 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
           });
         });
 
-        // Peer-level error handler
         this.peer.on('error', (err) => {
           console.error('[StudyRoom-Debug] PeerJS Error:', err.type, err.message);
           clearTimeout(this.connectTimeoutTimer);
@@ -450,7 +439,6 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
           const payload = typeof msg === 'string' ? JSON.parse(msg) : msg;
           this.hostConn.send(payload);
         } catch (e) {
-          console.warn('[StudyRoom-Debug] Flush failed for item, re-queueing:', e);
           this.outboxQueue.unshift(msg);
           break;
         }
@@ -466,7 +454,6 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
         return true;
       }
 
-      // 1. Send via DataChannel if open
       let sentDC = false;
       if (this.hostConn && this.hostConn.open) {
         try {
@@ -475,7 +462,6 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
         } catch (e) {}
       }
 
-      // 2. Send via WebSocket Signaling Relay
       let sentRelay = false;
       if (this.peer && typeof this.peer.sendRelay === 'function' && this.targetHostPeerId) {
         sentRelay = this.peer.sendRelay(this.targetHostPeerId, payload);
@@ -502,8 +488,6 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
       }
 
       if (msg.action === 'join') {
-        console.log(`[StudyRoom-Debug] Host processing join from ${senderPeerJsId} (${msg.nickname})`);
-
         if (roomLocked) {
           const authFailMsg = { _mid: 'af_' + Date.now(), action: 'auth-fail', reason: 'Room is locked by host.' };
           if (senderConn && senderConn.open) senderConn.send(authFailMsg);
@@ -525,7 +509,6 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
           this.userToPeerJs.set(newUserId, senderPeerJsId);
         }
 
-        // Build list of all existing peers for newcomer
         const currentPeersList = [];
         for (const [uId, pId] of this.userToPeerJs.entries()) {
           if (uId !== newUserId) {
@@ -569,7 +552,6 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
     broadcastToAll(msgObj, excludeUserId = null) {
       if (!msgObj._mid) msgObj._mid = 'b_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
 
-      // 1. Broadcast via DataConnections
       for (const [pId, conn] of this.connections.entries()) {
         const uId = this.peerJsToUser.get(pId);
         if (uId !== excludeUserId && conn.open) {
@@ -577,7 +559,6 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
         }
       }
 
-      // 2. Broadcast via WebSocket Signaling Relay
       if (this.peer && typeof this.peer.sendRelay === 'function') {
         for (const [uId, pId] of this.userToPeerJs.entries()) {
           if (uId !== excludeUserId && uId !== 'usr_host') {
@@ -603,7 +584,6 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
     callPeer(targetPeerJsId, stream, type) {
       if (!this.peer || !targetPeerJsId || !stream) return null;
       try {
-        console.log(`[StudyRoom-Debug] Calling peer ${targetPeerJsId} with ${type} stream`);
         const call = this.peer.call(targetPeerJsId, stream, { metadata: { type } });
         if (call) {
           const key = targetPeerJsId + '_' + type;
@@ -634,7 +614,7 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
     close() {
       this.readyState = 3;
       clearTimeout(this.connectTimeoutTimer);
-      
+
       for (const call of this.activeCalls.values()) {
         try { call.close(); } catch (e) {}
       }
@@ -705,7 +685,6 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
   function handleServerMessage(msg) {
     switch (msg.action) {
       case 'welcome':
-        console.log('[StudyRoom-Debug] Assigned user ID:', msg.id);
         myId = msg.id;
         break;
 
@@ -719,7 +698,6 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
         break;
 
       case 'joined':
-        console.log('[StudyRoom-Debug] Joined room successfully. Syncing peers:', msg.peers);
         peers = {};
         if (Array.isArray(msg.peers)) {
           msg.peers.forEach(p => {
@@ -737,11 +715,8 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
         renderActiveSession();
         SoundFX.playJoin();
 
-        // Broadcast presence & request room sync
         broadcastData({ type: 'info-request' });
         notify('Connected to Study Room.', 'success');
-
-        // If local user has active streams, call peers
         syncLocalMediaToAllPeers();
         break;
 
@@ -753,7 +728,6 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
         break;
 
       case 'peer-joined':
-        console.log(`[StudyRoom-Debug] Peer joined: ${msg.id} (${msg.nickname})`);
         peers[msg.id] = { nickname: msg.nickname, goal: '', seconds: 0, peerJsId: msg.peerJsId, handRaised: false, isSpeaking: false };
         if (ws && msg.peerJsId) {
           ws.peerJsToUser.set(msg.peerJsId, msg.id);
@@ -764,7 +738,6 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
         updateParticipantsUI();
         updateProgressUI();
 
-        // Late-joiner media synchronization: send active media to new peer
         if (ws && msg.peerJsId) {
           if (localMediaStream && localMediaStream.getTracks().length > 0) {
             ws.callPeer(msg.peerJsId, localMediaStream, 'media');
@@ -777,7 +750,6 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
 
       case 'peer-left': {
         const leftNick = peers[msg.id]?.nickname || 'A participant';
-        console.log(`[StudyRoom-Debug] Peer left: ${msg.id}`);
         SoundFX.playLeave();
         addSystemMessage(`${leftNick} left the room.`);
         delete peers[msg.id];
@@ -853,9 +825,7 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
 
       case 'info-request':
         broadcastData({ type: 'info', nickname, goal: studyGoal, seconds: timerSeconds });
-        if (isHost) {
-          broadcastTimerSync();
-        }
+        if (isHost) broadcastTimerSync();
         if (wbStrokes.length > 0 || wbQuestions.length > 0) {
           broadcastData({ type: 'wb-full-sync', strokes: wbStrokes, questions: wbQuestions, nextId: wbNextQId });
         }
@@ -970,8 +940,8 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
     section.innerHTML = `
       <div class="sr-lobby">
         <div class="sr-lobby-header">
-          <h2 class="section-title"><i class="fas fa-users"></i> Study Room</h2>
-          <span class="sr-exp-badge">Ultra-Fast P2P Study Hub</span>
+          <h2 class="section-title"><i class="fas fa-users"></i>Study Room</h2>
+          <span class="sr-exp-badge">Study Room v4.0</span>
           <div class="sr-lobby-icon"><i class="fas fa-graduation-cap"></i></div>
           <p class="sr-lobby-subtitle">Collaborate live with screen sharing, interactive whiteboard, synced timers, voice & notes.</p>
         </div>
@@ -1005,14 +975,6 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
               <button type="button" class="sr-pw-toggle" id="srJoinPwToggle" title="Toggle password"><i class="fas fa-eye"></i></button>
             </div>
           </div>
-        </div>
-
-        <div class="sr-features-grid">
-          <div class="sr-feature-item"><i class="fas fa-chalkboard"></i><span>Whiteboard</span></div>
-          <div class="sr-feature-item"><i class="fas fa-desktop"></i><span>Screen Share</span></div>
-          <div class="sr-feature-item"><i class="fas fa-stopwatch"></i><span>Synced Timer</span></div>
-          <div class="sr-feature-item"><i class="fas fa-hand-paper"></i><span>Hand Raising</span></div>
-          <div class="sr-feature-item"><i class="fas fa-comments"></i><span>Live Chat</span></div>
         </div>
       </div>
     `;
@@ -1153,9 +1115,9 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
             </div>
 
             <div class="sr-wb-body">
-              <div class="sr-wb-canvas-wrap" id="srWbCanvasWrap">
-                <canvas id="srWbCanvas"></canvas>
-                <canvas id="srWbOverlay"></canvas>
+              <div class="sr-wb-canvas-wrap" id="srWbCanvasWrap" style="touch-action: none !important;">
+                <canvas id="srWbCanvas" style="touch-action: none !important;"></canvas>
+                <canvas id="srWbOverlay" style="touch-action: none !important;"></canvas>
               </div>
               <div class="sr-wb-questions">
                 <div class="sr-wb-q-header">
@@ -1264,7 +1226,6 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
     return html;
   }
 
-  /* Non-destructive DOM-preserving Video Tile Synchronizer */
   function syncVideoTiles() {
     const grid = document.getElementById('srParticipantsGrid');
     if (!grid) return;
@@ -1272,7 +1233,6 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
     const currentTileIds = new Set(['srTile_usr_self']);
     Object.keys(peers).forEach(uId => currentTileIds.add(`srTile_${uId}`));
 
-    // 1. Sync or create local user tile
     let selfTile = document.getElementById('srTile_usr_self');
     if (!selfTile) {
       selfTile = document.createElement('div');
@@ -1292,7 +1252,6 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
       if (hand) hand.style.display = handRaised ? 'block' : 'none';
     }
 
-    // 2. Sync or create remote peer tiles
     Object.entries(peers).forEach(([uId, p]) => {
       const tileId = `srTile_${uId}`;
       let tile = document.getElementById(tileId);
@@ -1316,7 +1275,6 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
       }
     });
 
-    // 3. Remove departed peer tiles
     Array.from(grid.children).forEach(tile => {
       if (tile.id && !currentTileIds.has(tile.id)) {
         tile.querySelectorAll('video, audio').forEach(el => {
@@ -1327,7 +1285,6 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
       }
     });
 
-    // 4. Update grid classes
     const totalTiles = grid.children.length;
     grid.classList.remove('sr-grid-1', 'sr-grid-2', 'sr-grid-3', 'sr-grid-4plus');
     if (totalTiles <= 1) grid.classList.add('sr-grid-1');
@@ -1510,12 +1467,10 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
     document.getElementById('srToggleCamera')?.addEventListener('click', toggleCamera);
     document.getElementById('srToggleWB')?.addEventListener('click', toggleWhiteboard);
 
-    // Timer Controls
     document.getElementById('srPomoToggleMode')?.addEventListener('click', cycleTimerMode);
     document.getElementById('srPomoPlayPause')?.addEventListener('click', toggleTimerPlayPause);
     document.getElementById('srPomoReset')?.addEventListener('click', resetTimer);
 
-    // Tab Navigation
     document.querySelectorAll('.sr-tab-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         document.querySelectorAll('.sr-tab-btn').forEach(b => b.classList.remove('active'));
@@ -1531,7 +1486,6 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
       });
     });
 
-    // Floating Reactions
     document.querySelectorAll('.sr-react-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         const emoji = btn.dataset.emoji;
@@ -1540,7 +1494,6 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
       });
     });
 
-    // Goal Setter
     const applyGoal = () => {
       const input = document.getElementById('srGoalInput');
       studyGoal = input?.value.trim() || '';
@@ -1852,7 +1805,6 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
     const hasVideo = stream.getVideoTracks().length > 0 && stream.getVideoTracks().some(t => t.enabled);
     const off = tile.querySelector('.sr-video-off');
 
-    // 1. Audio stream player (always attached to play sound)
     let audio = tile.querySelector('.sr-remote-audio');
     if (!audio) {
       audio = document.createElement('audio');
@@ -1863,7 +1815,6 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
     }
     audio.srcObject = stream;
 
-    // 2. Video element (only displayed if video track is active)
     let camVideo = tile.querySelector('.sr-cam-video');
     if (hasVideo) {
       if (off) off.style.display = 'none';
@@ -2190,7 +2141,7 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
       wbPanStart = { mx: e.clientX, my: e.clientY, px: wbPanX, py: wbPanY };
       return;
     }
-    if (e.button !== 0) return;
+    if (e.button !== 0 && e.pointerType === 'mouse') return;
 
     wbDrawing = true;
     wbRedoStrokes = [];
@@ -2658,12 +2609,124 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
   }
 
   /* ================================================================
+     MEDIA SETTINGS TESTING UTILITIES (Called by Settings Modal)
+     ================================================================ */
+  async function testMicrophone() {
+    try {
+      const select = document.getElementById('audioInputSelect');
+      const deviceId = select ? select.value : undefined;
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: deviceId ? { deviceId: { exact: deviceId } } : true
+      });
+
+      const row = document.getElementById('micTestVolumeRow');
+      const bar = document.getElementById('micTestVolumeBar');
+      if (row) row.style.display = 'flex';
+
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      const ctx = new AudioCtx();
+      const src = ctx.createMediaStreamSource(stream);
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 256;
+      src.connect(analyser);
+
+      const data = new Uint8Array(analyser.frequencyBinCount);
+      let count = 0;
+      const interval = setInterval(() => {
+        analyser.getByteFrequencyData(data);
+        let sum = 0;
+        for (let i = 0; i < data.length; i++) sum += data[i];
+        const vol = Math.min(100, Math.round((sum / data.length) * 2));
+        if (bar) bar.style.width = vol + '%';
+        count++;
+        if (count > 50) {
+          clearInterval(interval);
+          stream.getTracks().forEach(t => t.stop());
+          ctx.close();
+          if (row) row.style.display = 'none';
+        }
+      }, 100);
+      notify('Testing microphone for 5 seconds… Speak now.', 'info');
+    } catch (e) {
+      notify('Microphone test failed: ' + e.message, 'error');
+    }
+  }
+
+  function testSpeaker() {
+    SoundFX.playChime();
+    notify('Playing test sound…', 'info');
+  }
+
+  async function testCamera() {
+    const container = document.getElementById('camTestContainer');
+    const video = document.getElementById('camTestVideo');
+    const select = document.getElementById('videoInputSelect');
+    const deviceId = select ? select.value : undefined;
+
+    if (!container || !video) return;
+
+    if (container.style.display !== 'none' && video.srcObject) {
+      video.srcObject.getTracks().forEach(t => t.stop());
+      video.srcObject = null;
+      container.style.display = 'none';
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: deviceId ? { deviceId: { exact: deviceId } } : true
+      });
+      video.srcObject = stream;
+      container.style.display = 'block';
+      notify('Camera test active. Click Test again to stop.', 'info');
+    } catch (e) {
+      notify('Camera test failed: ' + e.message, 'error');
+    }
+  }
+
+  async function initStudyRoomMediaSettings() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const audioSelect = document.getElementById('audioInputSelect');
+      const videoSelect = document.getElementById('videoInputSelect');
+      const speakerSelect = document.getElementById('audioOutputSelect');
+
+      if (audioSelect) {
+        audioSelect.innerHTML = '<option value="">Default Microphone</option>';
+        devices.filter(d => d.kind === 'audioinput').forEach((d, i) => {
+          audioSelect.innerHTML += `<option value="${d.deviceId}">${d.label || `Microphone ${i + 1}`}</option>`;
+        });
+      }
+
+      if (videoSelect) {
+        videoSelect.innerHTML = '<option value="">Default Camera</option>';
+        devices.filter(d => d.kind === 'videoinput').forEach((d, i) => {
+          videoSelect.innerHTML += `<option value="${d.deviceId}">${d.label || `Camera ${i + 1}`}</option>`;
+        });
+      }
+
+      if (speakerSelect) {
+        speakerSelect.innerHTML = '<option value="">Default Speaker</option>';
+        devices.filter(d => d.kind === 'audiooutput').forEach((d, i) => {
+          speakerSelect.innerHTML += `<option value="${d.deviceId}">${d.label || `Speaker ${i + 1}`}</option>`;
+        });
+      }
+    } catch (e) {
+      console.warn('[StudyRoom-Debug] Enumerate devices notice:', e);
+    }
+  }
+
+  /* ================================================================
      GLOBAL EXPORTS
      ================================================================ */
   window.renderStudyRoom = renderStudyRoom;
   window.leaveStudyRoom = leaveRoom;
   window.srToggleMicrophone = toggleMicrophone;
   window.srToggleCamera = toggleCamera;
+  window.srToggleScreenShare = toggleScreenShare;
+  window.srToggleWB = toggleWhiteboard;
+  window.srToggleHand = toggleRaiseHand;
   window.srKickUser = (targetId) => {
     if (isHost) broadcastData({ type: 'mod-kick', targetId });
   };
@@ -2677,68 +2740,10 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
     broadcastData({ type: 'wb-redo' });
   };
   window.isWhiteboardActive = () => wbActive && sessionActive;
+  window.testMicrophone = testMicrophone;
+  window.testSpeaker = testSpeaker;
+  window.testCamera = testCamera;
+  window.initStudyRoomMediaSettings = initStudyRoomMediaSettings;
 
 })();
 
-/* ================================================================
-   DIRECT GLOBAL THEME & ACCESSIBILITY HANDLERS
-   ================================================================ */
-// 1. Theme Toggle
-window.toggleTheme = function(e) {
-    if (e) { e.preventDefault(); e.stopPropagation(); }
-    const current = document.documentElement.getAttribute('data-theme') || 'dark';
-    const next = current === 'dark' ? 'light' : 'dark';
-    document.documentElement.setAttribute('data-theme', next);
-    document.body.setAttribute('data-theme', next);
-    localStorage.setItem('theme', next);
-    const icon = document.getElementById('themeIcon');
-    if (icon) icon.className = next === 'dark' ? 'fas fa-sun' : 'fas fa-moon';
-};
-
-// 2. Accessibility Panel Open/Close
-window.toggleAccessibilityPanel = function(e) {
-    if (e) { e.preventDefault(); e.stopPropagation(); }
-    const panel = document.getElementById('accessibilityPanel');
-    if (!panel) return;
-    const isOpening = !panel.classList.contains('active');
-    panel.classList.toggle('active', isOpening);
-    panel.style.setProperty('display', isOpening ? 'flex' : 'none', 'important');
-};
-
-// 3. Accessibility Switch Options
-window.toggleAccessOption = function(mode, el) {
-    const isActive = document.body.classList.toggle(mode);
-    document.documentElement.classList.toggle(mode, isActive);
-    const sw = el.querySelector('.accessibility-switch');
-    if (sw) sw.classList.toggle('active', isActive);
-    localStorage.setItem(`access-${mode}`, isActive ? 'true' : 'false');
-};
-
-// 4. Close Panel on Outside Click
-document.addEventListener('click', function(e) {
-    const panel = document.getElementById('accessibilityPanel');
-    if (panel && panel.classList.contains('active')) {
-        if (!panel.contains(e.target) && !e.target.closest('#accessibilityToggle')) {
-            panel.classList.remove('active');
-            panel.style.setProperty('display', 'none', 'important');
-        }
-    }
-});
-
-// 5. Restore Saved Preferences on Load
-(function restorePreferences() {
-    const savedTheme = localStorage.getItem('theme') || 'dark';
-    document.documentElement.setAttribute('data-theme', savedTheme);
-    document.body.setAttribute('data-theme', savedTheme);
-    const icon = document.getElementById('themeIcon');
-    if (icon) icon.className = savedTheme === 'dark' ? 'fas fa-sun' : 'fas fa-moon';
-
-    ['high-contrast', 'large-text', 'reduced-motion', 'enhanced-focus'].forEach(mode => {
-        if (localStorage.getItem(`access-${mode}`) === 'true') {
-            document.body.classList.add(mode);
-            document.documentElement.classList.add(mode);
-            const opt = document.querySelector(`[onclick*="${mode}"]`);
-            opt?.querySelector('.accessibility-switch')?.classList.add('active');
-        }
-    });
-})();
