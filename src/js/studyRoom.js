@@ -1,5 +1,5 @@
 /* STUDY_ROOM_ENGINE_VERSION = "4.0" */
-window.STUDY_ROOM_ENGINE_VERSION = '4.0';
+window.STUDY_ROOM_ENGINE_VERSION = "4.0";
 
 /* ================================================================
    QUESTIONARY — STUDY ROOM ENGINE 4.0 (HIGH-SPEED P2P + MULTI-MESH)
