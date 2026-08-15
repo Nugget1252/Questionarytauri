@@ -1,7 +1,9 @@
-if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentScript.id || !document.currentScript.id.includes('hot-js'))) {
-    console.log('[HotUpdate] Hot-updated app.js is active. Aborting bundled app.js execution.');
+/* Top of js/app.js */
+if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScript.id?.startsWith('hot-js-')) {
+    console.log('[App] Stored hot-updated app.js is already running. Skipping base bundle.');
 } else {
-    window._HOT_APP_JS_LOADED = true;
+
+
 
     // ================================================================
     // LIVE GLOBAL SCOPE PATCHER (Forces updates into window scope)

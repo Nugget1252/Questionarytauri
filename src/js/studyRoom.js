@@ -948,7 +948,7 @@ if (window._HOT_STUDY_ROOM_LOADED && (!document.currentScript || !document.curre
       <div class="sr-lobby">
         <div class="sr-lobby-header">
           <h2 class="section-title"><i class="fas fa-users"></i>Study Room</h2>
-          <span class="sr-exp-badge">Study Room v4.0</span>
+          <span class="sr-exp-badge">Study Room Beta</span>
           <div class="sr-lobby-icon"><i class="fas fa-graduation-cap"></i></div>
           <p class="sr-lobby-subtitle">Collaborate live with screen sharing, interactive whiteboard, synced timers, voice & notes.</p>
         </div>

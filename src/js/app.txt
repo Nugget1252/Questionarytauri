@@ -3,6 +3,28 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
 } else {
     window._HOT_APP_JS_LOADED = true;
 
+    // ================================================================
+    // LIVE GLOBAL SCOPE PATCHER (Forces updates into window scope)
+    // ================================================================
+    (function applyLiveModuleOverrides() {
+        try {
+            const raw = localStorage.getItem('questionary-code-files');
+            if (raw) {
+                const files = JSON.parse(raw);
+                if (files['js/studyRoom.js']) {
+                    window.eval(files['js/studyRoom.js']);
+                    console.log('[HotUpdate] Force-evaluated latest js/studyRoom.js into global scope');
+                }
+                if (files['js/features.js']) {
+                    window.eval(files['js/features.js']);
+                    console.log('[HotUpdate] Force-evaluated latest js/features.js into global scope');
+                }
+            }
+        } catch (err) {
+            console.error('[HotUpdate] Module override error:', err);
+        }
+    })();
+
     // Top-level variables use var/window scope to allow safe hot-update re-evaluation
     var currentUser = window.currentUser || null;
     var path = window.path || [];
@@ -23,13 +45,11 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
     var currentStudyDeck = window.currentStudyDeck || null;
     var currentCardIndex = window.currentCardIndex || 0;
     var accessibilitySettings = window.accessibilitySettings || {
-      highContrast: localStorage.getItem('accessibility-high-contrast') === 'true',
-      largeText: localStorage.getItem('accessibility-large-text') === 'true',
-      reducedMotion: localStorage.getItem('accessibility-reduced-motion') === 'true',
-      enhancedFocus: localStorage.getItem('accessibility-enhanced-focus') === 'true'
-    };
-
-    // ================================================================
+        highContrast: localStorage.getItem('accessibility-high-contrast') === 'true',
+        largeText: localStorage.getItem('accessibility-large-text') === 'true',
+        reducedMotion: localStorage.getItem('accessibility-reduced-motion') === 'true',
+        enhancedFocus: localStorage.getItem('accessibility-enhanced-focus') === 'true'
+    }
     // PREVENT ACCIDENTAL UI TEXT SELECTION ENGINE
     // ================================================================
     function preventAccidentalSelection() {
