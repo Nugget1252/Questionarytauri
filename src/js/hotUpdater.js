@@ -1,5 +1,5 @@
 /* =========================================================================
- *   QUESTIONARY HOT UPDATER ENGINE v5.0 (Atomic Direct-GitHub Engine)
+ *   QUESTIONARY HOT UPDATER ENGINE v5.1 (CORS-Safe Direct-GitHub Engine)
  *   Repository: Nugget1252/Questionarytauri
  *   Branch Pipeline: beta -> main (Fallback)
  *   ========================================================================= */
@@ -18,7 +18,7 @@
     const STORAGE_KEY_BRANCH = 'questionary_hot_branch';
     const STORAGE_KEY_MANIFEST = 'questionary_hot_manifest';
 
-    /* Core files fallback list (used if GitHub Tree API is rate-limited) */
+    /* Core files fallback list */
     const CORE_FALLBACK_FILES = [
         'index.html',
         'pdfviewer.html',
@@ -32,8 +32,17 @@
         'questionary.db'
     ];
 
-    /* Targeted extensions for dynamic repository tree tracking */
-    const ALLOWED_EXTENSIONS = ['.html', '.css', '.js', '.json', '.db'];
+    /* Files/Folders to ignore */
+    const IGNORED_FILES = [
+        'package.json',
+        'package-lock.json',
+        'code-manifest.json',
+        'content-manifest.json',
+        'tauri.conf.json',
+        'Cargo.toml',
+        'Cargo.lock'
+    ];
+
     const IGNORED_PATH_PREFIXES = [
         '.github/',
         '.git',
@@ -77,7 +86,6 @@
             const raw = localStorage.getItem(STORAGE_KEY_FILES);
             return raw ? JSON.parse(raw) : {};
         } catch (e) {
-            log('Error reading stored files from localStorage', 'warn');
             return {};
         }
     }
@@ -87,14 +95,26 @@
             localStorage.setItem(STORAGE_KEY_FILES, JSON.stringify(filesMap));
             return true;
         } catch (e) {
-            log('Error writing to localStorage (Quota exceeded?): ' + e.message, 'error');
+            log('Storage error: ' + e.message, 'error');
             return false;
         }
     }
 
-    /* ---------- Cache Reset & Rollback ---------- */
+    /* Normalize paths so `src/js/app.js` and `js/app.js` map to `js/app.js` */
+    function normalizeAppPath(filePath) {
+        return filePath.replace(/^src\//, '').replace(/^\/+/, '');
+    }
+
+    /* Base64 UTF-8 Decoder for GitHub API Blobs */
+    function b64DecodeUnicode(str) {
+        return decodeURIComponent(atob(str.replace(/\s/g, '')).split('').map(function(c) {
+            return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+        }).join(''));
+    }
+
+    /* ---------- Cache Reset ---------- */
     async function resetCache(shouldReload = true) {
-        log('Resetting local hot-code cache...');
+        log('Resetting hot update cache...');
         localStorage.removeItem(STORAGE_KEY_FILES);
         localStorage.removeItem(STORAGE_KEY_COMMIT);
         localStorage.removeItem(STORAGE_KEY_BRANCH);
@@ -105,7 +125,7 @@
         delete window._HOT_FEATURES_LOADED;
         delete window._HOT_CONTENT_UPDATER_LOADED;
 
-        notify('Cache cleared. Fetching pristine files from GitHub...', 'info');
+        notify('Cache cleared. Syncing with GitHub...', 'info');
 
         const success = await downloadCodeUpdates(true);
         if (!success && shouldReload) {
@@ -114,13 +134,12 @@
     }
 
     /* ================================================================
-     * 1. LIVE ASSET INJECTORS (Global Execution Scope)
+     * 1. LIVE DOM & SCRIPT INJECTION (Global Execution Scope)
      * ================================================================ */
-    
-    // Injects / Updates CSS dynamically in the document head
     function applyHotCSS(filename, content) {
         if (!content || content.trim().length < 5) return;
-        const styleId = `hot-css-${filename.replace(/[^a-zA-Z0-9]/g, '-')}`;
+        const norm = normalizeAppPath(filename);
+        const styleId = `hot-css-${norm.replace(/[^a-zA-Z0-9]/g, '-')}`;
         let styleEl = document.getElementById(styleId);
 
         if (!styleEl) {
@@ -129,7 +148,7 @@
             document.head.appendChild(styleEl);
         }
         styleEl.textContent = content;
-        log(`Live hot-swapped stylesheet: ${filename}`);
+        log(`Live hot-swapped CSS: ${norm}`);
     }
 
     function applyStoredCSS() {
@@ -141,12 +160,10 @@
         }
     }
 
-    // Injects & Executes JS in true global scope with correct dependency order
     function applyStoredJS() {
         const stored = getStoredFiles();
         if (Object.keys(stored).length === 0) return;
 
-        // Strict execution order to satisfy dependency hierarchies
         const executionOrder = [
             'js/features.js',
             'js/studyRoom.js',
@@ -154,56 +171,53 @@
             'js/app.js'
         ];
 
-        // Also gather any dynamically discovered custom JS scripts
         const allStoredJs = Object.keys(stored).filter(k => k.endsWith('.js') && !executionOrder.includes(k));
         const finalOrder = [...executionOrder, ...allStoredJs];
 
         for (const filename of finalOrder) {
-            const content = stored[filename];
+            const norm = normalizeAppPath(filename);
+            const content = stored[norm] || stored[filename];
+
             if (content && typeof content === 'string' && content.trim().length > 30) {
                 try {
-                    log(`Executing hot script in global scope: ${filename}`);
-                    const scriptId = `hot-js-${filename.replace(/[^a-zA-Z0-9]/g, '-')}`;
+                    log(`Executing hot script: ${norm}`);
+                    const scriptId = `hot-js-${norm.replace(/[^a-zA-Z0-9]/g, '-')}`;
                     const oldScript = document.getElementById(scriptId);
                     if (oldScript) oldScript.remove();
 
-                    if (filename.includes('app.js')) window._HOT_APP_JS_LOADED = true;
-                    if (filename.includes('studyRoom.js')) window._HOT_STUDY_ROOM_LOADED = true;
-                    if (filename.includes('features.js')) window._HOT_FEATURES_LOADED = true;
-                    if (filename.includes('contentUpdater.js')) window._HOT_CONTENT_UPDATER_LOADED = true;
+                    if (norm.includes('app.js')) window._HOT_APP_JS_LOADED = true;
+                    if (norm.includes('studyRoom.js')) window._HOT_STUDY_ROOM_LOADED = true;
+                    if (norm.includes('features.js')) window._HOT_FEATURES_LOADED = true;
+                    if (norm.includes('contentUpdater.js')) window._HOT_CONTENT_UPDATER_LOADED = true;
 
-                    // Append real <script> tag to ensure binding to window
                     const scriptEl = document.createElement('script');
                     scriptEl.id = scriptId;
                     scriptEl.type = 'text/javascript';
-                    scriptEl.textContent = `${content}\n//# sourceURL=hotUpdate://${filename}`;
+                    scriptEl.textContent = `${content}\n//# sourceURL=hotUpdate://${norm}`;
                     document.head.appendChild(scriptEl);
                 } catch (err) {
-                    log(`Error evaluating script ${filename}: ${err.message}`, 'error');
+                    log(`Script eval error (${norm}): ${err.message}`, 'error');
                 }
             }
         }
     }
 
-    // Hot-patches index.html structural elements (Navigation, Modals, Sections)
     function applyStoredHTML() {
         const stored = getStoredFiles();
-        const storedHtml = stored['index.html'];
+        const storedHtml = stored['index.html'] || stored['src/index.html'];
         if (!storedHtml || storedHtml.trim().length < 100) return;
 
         try {
             const parser = new DOMParser();
             const newDoc = parser.parseFromString(storedHtml, 'text/html');
 
-            // Sync Header & Navigation
             const newHeader = newDoc.querySelector('header.header') || newDoc.querySelector('.header');
             const curHeader = document.querySelector('header.header') || document.querySelector('.header');
             if (newHeader && curHeader && newHeader.innerHTML !== curHeader.innerHTML) {
                 curHeader.innerHTML = newHeader.innerHTML;
-                log('Hot-patched navigation & header from index.html');
+                log('Hot-patched navigation header');
             }
 
-            // Sync Critical Interactive Containers
             const syncContainers = [
                 'accessibilityPanel',
                 'quickLinksPanel',
@@ -222,7 +236,6 @@
                 }
             });
 
-            // Sync Modals
             const newModals = newDoc.querySelectorAll('.modal-overlay');
             newModals.forEach(newModal => {
                 if (newModal.id) {
@@ -237,85 +250,113 @@
                 }
             });
         } catch (err) {
-            log(`Error applying stored HTML: ${err.message}`, 'error');
+            log(`HTML patch error: ${err.message}`, 'error');
         }
     }
 
     /* ================================================================
-     * 2. DIRECT RAW GITHUB NETWORK ENGINE (NO CDN)
+     * 2. CORS-SAFE GITHUB FETCHER (NO PREFLIGHT HEADERS)
      * ================================================================ */
-    
-    // Generates a strict cache-busting timestamp
-    function getNonce() {
-        return `${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-    }
-
-    // Fetches text or binary directly from raw.githubusercontent.com
-    async function fetchRawFile(relativePath, commitSha) {
+    async function fetchFileContent(fileObj, commitSha) {
         const branch = window.codeUpdateState.activeBranch || PRIMARY_BRANCH;
         const ref = commitSha || branch;
-        const cleanPath = relativePath.replace(/^\/+/, '');
-        const rawUrl = `https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${ref}/${cleanPath}?_nc=${getNonce()}`;
+        const repoPath = typeof fileObj === 'string' ? fileObj : fileObj.path;
+        const blobSha = typeof fileObj === 'object' ? fileObj.sha : null;
+        const isDb = repoPath.endsWith('.db');
 
-        const fetchOptions = {
-            method: 'GET',
-            cache: 'no-store',
-            headers: {
-                'Cache-Control': 'no-cache, no-store, must-revalidate',
-                'Pragma': 'no-cache'
-            }
-        };
+        // TIER 1: Direct Simple GET from raw.githubusercontent.com (NO custom headers!)
+        const nonce = `${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+        const rawUrl = `https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${ref}/${repoPath}?_nc=${nonce}`;
 
-        // Standard fetch
         try {
-            const res = await fetch(rawUrl, fetchOptions);
+            // Note: NO custom headers! This prevents the browser from sending an OPTIONS preflight
+            const res = await fetch(rawUrl);
             if (res.ok) {
-                return res;
+                if (isDb) {
+                    const buf = await res.arrayBuffer();
+                    return { isDb: true, buffer: buf };
+                } else {
+                    const txt = await res.text();
+                    if (validateDownloadedContent(repoPath, txt)) {
+                        return { isDb: false, text: txt };
+                    }
+                }
             }
         } catch (err) {
-            log(`Standard fetch failed for ${cleanPath}: ${err.message}`, 'warn');
+            log(`Raw fetch failed for ${repoPath}: ${err.message}`, 'warn');
         }
 
-        // Native Tauri HTTP Fallback (for Tauri desktop/mobile runtime)
+        // TIER 2: GitHub API Blob Fetch (100% CORS-friendly REST endpoint)
+        if (blobSha) {
+            try {
+                const blobApiUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/git/blobs/${blobSha}?_t=${Date.now()}`;
+                const res = await fetch(blobApiUrl);
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data && data.content) {
+                        if (isDb) {
+                            const binStr = atob(data.content.replace(/\s/g, ''));
+                            const len = binStr.length;
+                            const bytes = new Uint8Array(len);
+                            for (let i = 0; i < len; i++) {
+                                bytes[i] = binStr.charCodeAt(i);
+                            }
+                            return { isDb: true, buffer: bytes.buffer };
+                        } else {
+                            const decoded = b64DecodeUnicode(data.content);
+                            if (validateDownloadedContent(repoPath, decoded)) {
+                                return { isDb: false, text: decoded };
+                            }
+                        }
+                    }
+                }
+            } catch (bErr) {
+                log(`Blob API fetch failed for ${repoPath}: ${bErr.message}`, 'warn');
+            }
+        }
+
+        // TIER 3: Native Tauri HTTP Plugin (if running in desktop/mobile Tauri shell)
         if (window.__TAURI__ && (window.__TAURI__.http || window.__TAURI__.core)) {
             try {
                 const http = window.__TAURI__.http || window.__TAURI__.core;
-                const isBinary = cleanPath.endsWith('.db');
                 const tauriRes = await http.fetch(rawUrl, {
                     method: 'GET',
-                    responseType: isBinary ? 3 : 2 // 3 = Binary/ArrayBuffer, 2 = Text
+                    responseType: isDb ? 3 : 2
                 });
                 if (tauriRes && tauriRes.ok) {
-                    return {
-                        ok: true,
-                        status: 200,
-                        text: async () => typeof tauriRes.data === 'string' ? tauriRes.data : new TextDecoder().decode(new Uint8Array(tauriRes.data)),
-                        arrayBuffer: async () => isBinary ? new Uint8Array(tauriRes.data).buffer : new TextEncoder().encode(tauriRes.data).buffer
-                    };
+                    if (isDb) {
+                        return { isDb: true, buffer: new Uint8Array(tauriRes.data).buffer };
+                    } else {
+                        const txt = typeof tauriRes.data === 'string' ? tauriRes.data : new TextDecoder().decode(new Uint8Array(tauriRes.data));
+                        return { isDb: false, text: txt };
+                    }
                 }
-            } catch (tErr) {
-                log(`Tauri native fetch fallback failed for ${cleanPath}: ${tErr.message}`, 'warn');
-            }
+            } catch (tErr) {}
         }
 
         return null;
     }
 
+    function validateDownloadedContent(filepath, textContent) {
+        if (!textContent || typeof textContent !== 'string') return false;
+        const trimmed = textContent.trim();
+        if (trimmed.length < 5) return false;
+        if (trimmed.startsWith('404: Not Found') || trimmed === 'Not Found') return false;
+        if ((filepath.endsWith('.js') || filepath.endsWith('.css')) && (trimmed.startsWith('<!DOCTYPE html>') || trimmed.startsWith('<html'))) {
+            return false;
+        }
+        return true;
+    }
+
     /* ================================================================
-     * 3. DISCOVERY & VALIDATION (Git Trees API)
+     * 3. DISCOVERY (Git Trees API)
      * ================================================================ */
-    
-    // Discovers files across the repository tree
-    async function discoverRepositoryFiles(targetSha, branch) {
-        const discovered = new Set();
+    async function discoverRepositoryFiles(targetSha) {
+        const fileMap = [];
 
         try {
-            // Fetch recursive git tree directly from GitHub API
-            const treeUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/git/trees/${targetSha}?recursive=1&_t=${getNonce()}`;
-            const res = await fetch(treeUrl, {
-                cache: 'no-store',
-                headers: { 'Accept': 'application/vnd.github.v3+json' }
-            });
+            const treeUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/git/trees/${targetSha}?recursive=1&_t=${Date.now()}`;
+            const res = await fetch(treeUrl);
 
             if (res.ok) {
                 const data = await res.json();
@@ -323,46 +364,48 @@
                     data.tree.forEach(item => {
                         if (item.type === 'blob') {
                             const path = item.path;
-                            const isIgnored = IGNORED_PATH_PREFIXES.some(prefix => path.startsWith(prefix));
-                            const hasAllowedExt = ALLOWED_EXTENSIONS.some(ext => path.toLowerCase().endsWith(ext));
+                            const filename = path.split('/').pop();
+                            const isIgnoredPrefix = IGNORED_PATH_PREFIXES.some(p => path.startsWith(p));
+                            const isIgnoredFile = IGNORED_FILES.includes(filename);
+                            const hasAllowedExt = ['.html', '.css', '.js', '.db'].some(ext => path.toLowerCase().endsWith(ext));
 
-                            if (!isIgnored && hasAllowedExt) {
-                                discovered.add(path);
+                            if (!isIgnoredPrefix && !isIgnoredFile && hasAllowedExt) {
+                                fileMap.push({
+                                    path: path,
+                                    sha: item.sha,
+                                    normPath: normalizeAppPath(path)
+                                });
                             }
                         }
                     });
                 }
             }
         } catch (err) {
-            log(`Tree API discovery skipped: ${err.message}. Using fallback manifest.`, 'warn');
+            log(`Tree API discovery notice: ${err.message}`, 'warn');
         }
 
-        // If tree discovery yielded results, use it. Otherwise, use CORE_FALLBACK_FILES
-        if (discovered.size > 0) {
-            return Array.from(discovered);
-        }
-        return [...CORE_FALLBACK_FILES];
+        if (fileMap.length > 0) return fileMap;
+
+        return CORE_FALLBACK_FILES.map(f => ({
+            path: f,
+            sha: null,
+            normPath: normalizeAppPath(f)
+        }));
     }
 
-    // Fetches the latest commit SHA for a branch
     async function getLatestCommitSha(branch) {
-        // Method A: Direct GitHub REST API
         try {
-            const apiUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/commits/${branch}?_t=${getNonce()}`;
-            const res = await fetch(apiUrl, {
-                cache: 'no-store',
-                headers: { 'Accept': 'application/vnd.github.v3+json' }
-            });
+            const apiUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/commits/${branch}?_t=${Date.now()}`;
+            const res = await fetch(apiUrl);
             if (res.ok) {
                 const data = await res.json();
                 if (data && data.sha) return data.sha;
             }
         } catch (e) {}
 
-        // Method B: Un-rate-limited GitHub Atom Feed Fallback
         try {
-            const feedUrl = `https://github.com/${REPO_OWNER}/${REPO_NAME}/commits/${branch}.atom?_nc=${getNonce()}`;
-            const res = await fetch(feedUrl, { cache: 'no-store' });
+            const feedUrl = `https://github.com/${REPO_OWNER}/${REPO_NAME}/commits/${branch}.atom?_nc=${Date.now()}`;
+            const res = await fetch(feedUrl);
             if (res.ok) {
                 const xml = await res.text();
                 const match = xml.match(/Commit\/([a-f0-9]{40})/i);
@@ -373,34 +416,8 @@
         return null;
     }
 
-    // Content Integrity & Safety Validation
-    function validateDownloadedContent(filepath, textContent) {
-        if (!textContent || typeof textContent !== 'string') return false;
-
-        const trimmed = textContent.trim();
-        // Reject empty or HTML 404 response pages
-        if (trimmed.length < 5) return false;
-        if (trimmed.startsWith('404: Not Found') || trimmed === 'Not Found') return false;
-
-        // JS files must not return HTML error pages
-        if (filepath.endsWith('.js')) {
-            if (trimmed.startsWith('<!DOCTYPE html>') || trimmed.startsWith('<html')) {
-                return false;
-            }
-        }
-
-        // CSS files must not return HTML error pages
-        if (filepath.endsWith('.css')) {
-            if (trimmed.startsWith('<!DOCTYPE html>') || trimmed.startsWith('<html')) {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
     /* ================================================================
-     * 4. UPDATE CHECKER
+     * 4. CHECK & ATOMIC INSTALL
      * ================================================================ */
     async function checkForCodeUpdates(silent = false) {
         if (window.codeUpdateState.checking || window.codeUpdateState.downloading) {
@@ -413,13 +430,9 @@
         let targetBranch = PRIMARY_BRANCH;
         let latestSha = await getLatestCommitSha(PRIMARY_BRANCH);
 
-        // Try fallback branch if primary branch fails
         if (!latestSha) {
-            log(`Checking fallback branch: ${FALLBACK_BRANCH}...`);
             latestSha = await getLatestCommitSha(FALLBACK_BRANCH);
-            if (latestSha) {
-                targetBranch = FALLBACK_BRANCH;
-            }
+            if (latestSha) targetBranch = FALLBACK_BRANCH;
         }
 
         window.codeUpdateState.activeBranch = targetBranch;
@@ -427,15 +440,15 @@
         if (!latestSha) {
             window.codeUpdateState.checking = false;
             updateUIState('idle');
-            if (!silent) notify('Could not reach GitHub updates server. Check internet connection.', 'error');
+            if (!silent) notify('Could not reach GitHub updates server.', 'error');
             return null;
         }
 
         const installedSha = localStorage.getItem(STORAGE_KEY_COMMIT);
-        log(`Latest Commit: ${latestSha.substring(0, 7)} | Installed: ${installedSha ? installedSha.substring(0, 7) : 'None'}`);
+        log(`Latest: ${latestSha.substring(0, 7)} | Installed: ${installedSha ? installedSha.substring(0, 7) : 'None'}`);
 
         if (latestSha !== installedSha) {
-            const fileList = await discoverRepositoryFiles(latestSha, targetBranch);
+            const fileList = await discoverRepositoryFiles(latestSha);
             window.codeUpdateState.available = true;
             window.codeUpdateState.latestCommitSha = latestSha;
             window.codeUpdateState.discoveredFiles = fileList;
@@ -454,9 +467,6 @@
         return null;
     }
 
-    /* ================================================================
-     * 5. ATOMIC DOWNLOADER & INSTALLER
-     * ================================================================ */
     async function downloadCodeUpdates(force = false) {
         if (window.codeUpdateState.downloading) return false;
 
@@ -468,93 +478,78 @@
             filesToDownload = await checkForCodeUpdates(false);
             targetSha = window.codeUpdateState.latestCommitSha;
             if (!filesToDownload || !filesToDownload.length) {
-                filesToDownload = [...CORE_FALLBACK_FILES];
+                filesToDownload = CORE_FALLBACK_FILES.map(f => ({ path: f, sha: null, normPath: normalizeAppPath(f) }));
             }
         }
 
         window.codeUpdateState.downloading = true;
         updateUIState('downloading');
-        notify('Downloading updates directly from GitHub...', 'info');
+        notify('Downloading update directly from GitHub...', 'info');
 
         const stagingBuffer = {};
         let downloadedCount = 0;
         let hasCriticalFailure = false;
 
         for (let i = 0; i < filesToDownload.length; i++) {
-            const filePath = filesToDownload[i];
+            const fileObj = filesToDownload[i];
+            const normPath = fileObj.normPath || normalizeAppPath(fileObj.path || fileObj);
+
             window.codeUpdateState.progress = Math.round(((i + 1) / filesToDownload.length) * 100);
-            updateProgressBar(window.codeUpdateState.progress, `Downloading ${filePath}...`);
+            updateProgressBar(window.codeUpdateState.progress, `Downloading ${normPath}...`);
 
             try {
-                const res = await fetchRawFile(filePath, targetSha);
+                const res = await fetchFileContent(fileObj, targetSha);
                 if (!res) {
-                    log(`Failed to fetch ${filePath}`, 'warn');
-                    // If a core app file is missing, mark critical failure
-                    if (['js/app.js', 'index.html', 'css/styles.css'].includes(filePath)) {
+                    log(`Failed to download ${normPath}`, 'warn');
+                    if (['js/app.js', 'index.html', 'css/styles.css'].includes(normPath)) {
                         hasCriticalFailure = true;
                     }
                     continue;
                 }
 
-                // SQLite Database Handling
-                if (filePath.endsWith('.db')) {
-                    const arrayBuffer = await res.arrayBuffer();
-                    const uInt8Array = new Uint8Array(arrayBuffer);
-
-                    if (uInt8Array.length > 100) {
-                        if (window.DbService && window.DbService.SQL) {
-                            window.DbService.db = new window.DbService.SQL.Database(uInt8Array);
-                            await window.DbService.saveToIndexedDB();
-                            downloadedCount++;
-                        }
+                if (res.isDb) {
+                    const uInt8Array = new Uint8Array(res.buffer);
+                    if (uInt8Array.length > 100 && window.DbService && window.DbService.SQL) {
+                        window.DbService.db = new window.DbService.SQL.Database(uInt8Array);
+                        await window.DbService.saveToIndexedDB();
+                        downloadedCount++;
                     }
                 } else {
-                    // Text / Code Files Handling
-                    const text = await res.text();
-                    if (validateDownloadedContent(filePath, text)) {
-                        stagingBuffer[filePath] = text;
-                        downloadedCount++;
-                    } else {
-                        log(`Validation failed for content in ${filePath}`, 'warn');
-                        if (['js/app.js', 'index.html'].includes(filePath)) {
-                            hasCriticalFailure = true;
-                        }
-                    }
+                    stagingBuffer[normPath] = res.text;
+                    downloadedCount++;
                 }
             } catch (err) {
-                log(`Download error on ${filePath}: ${err.message}`, 'error');
+                log(`Error on ${normPath}: ${err.message}`, 'error');
             }
         }
 
         hideProgressBar();
 
-        // ATOMIC COMMIT: Save to storage only if no critical failures occurred
         if (!hasCriticalFailure && downloadedCount >= 2) {
             const currentFiles = getStoredFiles();
             const mergedFiles = { ...currentFiles, ...stagingBuffer };
 
-            const saved = saveStoredFiles(mergedFiles);
-            if (saved) {
+            if (saveStoredFiles(mergedFiles)) {
                 if (targetSha) {
                     localStorage.setItem(STORAGE_KEY_COMMIT, targetSha);
                     localStorage.setItem(STORAGE_KEY_BRANCH, window.codeUpdateState.activeBranch);
                 }
                 log(`Successfully installed update (${downloadedCount} files)! Reloading...`);
-                notify(`Update complete (${downloadedCount} files)! Refreshing...`, 'success');
+                notify(`Update installed (${downloadedCount} files)! Refreshing...`, 'success');
                 setTimeout(() => location.reload(), 500);
                 return true;
             }
         }
 
-        log('Atomic update aborted: Staging validation failed or critical assets missing.', 'error');
-        notify('Update download failed integrity check. Preserving current version.', 'error');
+        log('Atomic update rejected due to validation failure or missing files.', 'error');
+        notify('Update download failed. Preserving current version.', 'error');
         window.codeUpdateState.downloading = false;
         updateUIState('idle');
         return false;
     }
 
     /* ================================================================
-     * 6. UI SYNCHRONIZATION & EVENT BINDINGS
+     * 5. UI & EVENT BINDINGS
      * ================================================================ */
     function updateUIState(state) {
         const btn = document.getElementById('checkUpdatesBtn');
@@ -604,7 +599,6 @@
     }
 
     function attachUIListeners() {
-        // Main Check Updates Button
         const btn = document.getElementById('checkUpdatesBtn');
         if (btn && !btn.dataset.updaterAttached) {
             btn.dataset.updaterAttached = 'true';
@@ -621,13 +615,12 @@
             btn.addEventListener('contextmenu', (e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                if (confirm('Force-clear hot-code cache and re-download all latest files from GitHub?')) {
+                if (confirm('Force-clear cache and re-download all latest files from GitHub?')) {
                     resetCache();
                 }
             });
         }
 
-        // Home Force Sync Button
         const homeSync = document.getElementById('homeSyncBtn');
         if (homeSync && !homeSync.dataset.updaterAttached) {
             homeSync.dataset.updaterAttached = 'true';
@@ -637,7 +630,6 @@
             });
         }
 
-        // Settings Cache Reset Buttons
         const resetBtns = [
             document.getElementById('resetCodeCacheBtn'),
             document.getElementById('resetCodeCacheBtnSettings')
@@ -655,12 +647,13 @@
     }
 
     /* ================================================================
-     * 7. BOOT & INITIALIZATION SEQUENCE
+     * 6. BOOTSTRAP
      * ================================================================ */
     function getViewerUrl(fileUrl) {
         const stored = getStoredFiles();
-        if (stored['pdfviewer.html'] && stored['pdfviewer.html'].includes('pdfjsLib')) {
-            const blob = new Blob([stored['pdfviewer.html']], { type: 'text/html' });
+        const html = stored['pdfviewer.html'] || stored['src/pdfviewer.html'];
+        if (html && html.includes('pdfjsLib')) {
+            const blob = new Blob([html], { type: 'text/html' });
             return URL.createObjectURL(blob) + '#file=' + encodeURIComponent(fileUrl);
         }
         return 'pdfviewer.html?file=' + encodeURIComponent(fileUrl);
@@ -673,7 +666,6 @@
         applyStoredJS();
         attachUIListeners();
 
-        // Background update check 3 seconds after boot
         setTimeout(async () => {
             const pending = await checkForCodeUpdates(true);
             if (pending && pending.length > 0) {
@@ -682,7 +674,6 @@
         }, 3000);
     }
 
-    /* ---------- Public API Exports ---------- */
     global.hotCodeUpdater = {
         check: checkForCodeUpdates,
         download: downloadCodeUpdates,
