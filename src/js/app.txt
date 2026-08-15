@@ -1,4 +1,3 @@
-// HOT-UPDATE EXECUTION GUARD (Prevents static script tag from overwriting hot updates)
 if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentScript.id || !document.currentScript.id.includes('hot-js'))) {
     console.log('[HotUpdate] Hot-updated app.js is active. Aborting bundled app.js execution.');
 } else {
@@ -901,7 +900,6 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
 
     function loadDocuments() { console.log('loadDocuments called'); }
     function trackDailyAccess() {
-      console.log('trackDailyAccess called');
       const today = new Date().toISOString().split('T')[0];
       const accessData = JSON.parse(localStorage.getItem('questionary-daily-access') || '{}');
       accessData[today] = (accessData[today] || 0) + 1;
@@ -1114,20 +1112,11 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
       if (streakEl) streakEl.textContent = studyStats.streak || 0;
     }
 
+    // ================================================================
+    // FULL-SCREEN MAXIMIZED PDF & DOCUMENT VIEWERS
+    // ================================================================
     function showPDF(url) {
       if (!url || url === '' || url === '#') return;
-      if (typeof url === 'string' && url.startsWith('blob-id:')) {
-        const blobId = url.replace('blob-id:', '');
-        if (typeof getPdfBlob === 'function') {
-          getPdfBlob(blobId).then(blob => {
-            if (blob) showPDF(URL.createObjectURL(blob));
-            else showNotification('PDF data not found', 'error');
-          }).catch(err => {
-            showNotification('Failed to load PDF', 'error');
-          });
-        }
-        return;
-      }
 
       const pdfViewer = document.getElementById('pdfViewer');
       const pdfViewerContainer = document.getElementById('pdfViewerContainer');
@@ -1137,12 +1126,13 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
       const breadcrumbContainer = document.querySelector('.breadcrumb-container');
       const tilesSection = document.getElementById('tilesSection');
 
+      document.body.classList.add('pdf-view-active');
+
       const filename = url.split('/').pop().replace('.pdf', '').replace(/%20/g, ' ');
       window.setCurrentPDF && window.setCurrentPDF(url, filename);
 
       if (pdfViewer) {
         const absoluteUrl = new URL(url, window.location.href).href;
-        
         const viewerUrl = (window.hotCodeUpdater && typeof window.hotCodeUpdater.getViewerUrl === 'function')
             ? window.hotCodeUpdater.getViewerUrl(absoluteUrl)
             : 'pdfviewer.html?file=' + encodeURIComponent(absoluteUrl);
@@ -1159,12 +1149,16 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
       if (tilesContainer) tilesContainer.style.display = 'none';
       if (sectionHeader) sectionHeader.style.display = 'none';
       if (dashboardHeader) dashboardHeader.style.display = 'none';
+      
+      // Hide redundant breadcrumb bar when viewing documents
+      if (breadcrumbContainer) breadcrumbContainer.style.display = 'none';
+
       const importedSection = document.getElementById('importedSection');
       if (importedSection) importedSection.style.display = 'none';
       if (typeof hideHomeTagsPanels === 'function') hideHomeTagsPanels();
 
       if (pdfViewerContainer) {
-        pdfViewerContainer.style.display = 'block';
+        pdfViewerContainer.style.display = 'flex';
         const pdfNameEl = document.getElementById('currentPdfName');
         if (pdfNameEl) pdfNameEl.textContent = filename;
 
@@ -1173,9 +1167,6 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
         else window.currentPdfUrlForBookmarks = url;
       }
 
-      if (breadcrumbContainer) breadcrumbContainer.style.display = 'flex';
-      updateBreadcrumb();
-
       const timerPanel = document.getElementById('timerPanel');
       if (timerPanel) timerPanel.style.display = 'flex';
       if (typeof initializeTimer === 'function') initializeTimer();
@@ -1183,11 +1174,14 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
     }
 
     function closePDF() {
+      document.body.classList.remove('pdf-view-active');
+
       const pdfViewer = document.getElementById('pdfViewer');
       const pdfViewerContainer = document.getElementById('pdfViewerContainer');
       const tilesContainer = document.getElementById('tilesContainer');
       const sectionHeader = document.querySelector('#tilesSection .section-header');
       const dashboardHeader = document.querySelector('.dashboard-header');
+      const breadcrumbContainer = document.querySelector('.breadcrumb-container');
 
       window.clearCurrentPDF && window.clearCurrentPDF();
 
@@ -1200,6 +1194,9 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
       const bookmarksPanel = document.getElementById('pdfBookmarksPanel');
       if (bookmarksPanel) bookmarksPanel.style.display = 'none';
       window.currentPdfUrlForBookmarks = null;
+
+      // Restore breadcrumbs
+      if (breadcrumbContainer) breadcrumbContainer.style.display = 'flex';
 
       if (tilesContainer) {
         const isListView = tilesContainer.classList.contains('list-view');
@@ -1253,7 +1250,7 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
       if (tilesContainer) tilesContainer.style.display = 'none';
       if (sectionHeader) sectionHeader.style.display = 'none';
       if (dashboardHeader) dashboardHeader.style.display = 'none';
-      if (breadcrumbContainer) breadcrumbContainer.style.display = 'flex';
+      if (breadcrumbContainer) breadcrumbContainer.style.display = 'none';
       updateBreadcrumb();
     }
     function closeImageViewer() {
@@ -1262,10 +1259,12 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
       const tilesContainer = document.getElementById('tilesContainer');
       const sectionHeader = document.querySelector('#tilesSection .section-header');
       const dashboardHeader = document.querySelector('.dashboard-header');
+      const breadcrumbContainer = document.querySelector('.breadcrumb-container');
       if (container) container.style.display = 'none';
       if (img) img.src = '';
       if (_currentImageBlobUrl && _currentImageBlobUrl.startsWith('blob:')) URL.revokeObjectURL(_currentImageBlobUrl);
       _currentImageBlobUrl = null;
+      if (breadcrumbContainer) breadcrumbContainer.style.display = 'flex';
       if (tilesContainer) {
         const isListView = tilesContainer.classList.contains('list-view');
         tilesContainer.style.display = isListView ? 'flex' : 'grid';
@@ -1280,6 +1279,7 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
       a.download = _currentImageName || 'whiteboard.png';
       a.click();
     }
+
     window.showImage = showImage;
     window.closeImageViewer = closeImageViewer;
     window.downloadCurrentImage = downloadCurrentImage;
@@ -1369,37 +1369,6 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
       <button class="btn-icon" onclick="deleteSession('${session.id}')" title="Delete session">
       <i class="fas fa-trash"></i>
       </button>
-      </div>
-      `).join('');
-    }
-
-    function renderFlashcardDecks() {
-      const container = document.getElementById('flashcardsGrid');
-      if (!container) return;
-      if (flashcardDecks.length === 0) {
-        container.innerHTML = '<p style="text-align: center; color: var(--text-secondary); padding: 2rem;">No flashcard decks yet.</p>';
-        return;
-      }
-      container.innerHTML = flashcardDecks.map(deck => `
-      <div class="deck-card">
-      <h4>${escapeHtml(deck.name)}</h4>
-      <p>${deck.cards.length} cards</p>
-      <div class="deck-actions">
-      <button class="btn-icon tag" onclick="event.stopPropagation(); openTagItemModal('deck_${deck.id}', '${escapeHtml(deck.name)}', 'flashcard')" title="Add Tags">
-      <i class="fas fa-tag"></i>
-      </button>
-      <button class="btn-icon delete" onclick="event.stopPropagation(); deleteDeck('${deck.id}')" title="Delete deck">
-      <i class="fas fa-trash"></i>
-      </button>
-      </div>
-      <div style="display: flex; gap: 0.5rem; margin-top: 1rem;">
-      <button class="btn btn-primary btn-sm" onclick="startStudyDeck('${deck.id}')" style="flex: 1;">
-      <i class="fas fa-play"></i> Study
-      </button>
-      <button class="btn btn-secondary btn-sm" onclick="startQuiz && startQuiz('${deck.id}')" style="flex: 1;">
-      <i class="fas fa-question-circle"></i> Quiz
-      </button>
-      </div>
       </div>
       `).join('');
     }
@@ -1709,7 +1678,9 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
     window.navigateToFlashcard = navigateToFlashcard;
     window.navigateToSession = navigateToSession;
 
-
+    // ================================================================
+    // NOTES SYSTEM
+    // ================================================================
     function loadNotes() { notes = JSON.parse(localStorage.getItem('questionary-notes') || '[]'); }
     function saveNotes() { localStorage.setItem('questionary-notes', JSON.stringify(notes)); }
 
@@ -1768,8 +1739,74 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
       });
     }
 
-    function loadFlashcardDecks() { flashcardDecks = JSON.parse(localStorage.getItem('questionary-flashcards') || '[]'); }
-    function saveFlashcardDecks() { localStorage.setItem('questionary-flashcards', JSON.stringify(flashcardDecks)); }
+    // ================================================================
+    // FLASHCARD ENGINE — BULLETPROOF SYNC & SAFE DELETION
+    // ================================================================
+    function loadFlashcardDecks() {
+      try {
+        const raw = localStorage.getItem('questionary-flashcards');
+        flashcardDecks = raw ? JSON.parse(raw) : [];
+        
+        let needsSave = false;
+        flashcardDecks.forEach((deck, idx) => {
+          if (!deck.id) {
+            deck.id = 'deck_' + Date.now() + '_' + idx;
+            needsSave = true;
+          }
+          if (!Array.isArray(deck.cards)) {
+            deck.cards = [];
+            needsSave = true;
+          }
+        });
+        
+        if (needsSave) saveFlashcardDecks();
+      } catch (e) {
+        console.error('Error parsing flashcards:', e);
+        flashcardDecks = [];
+      }
+      return flashcardDecks;
+    }
+
+    function saveFlashcardDecks() {
+      localStorage.setItem('questionary-flashcards', JSON.stringify(flashcardDecks));
+      window.flashcardDecks = flashcardDecks;
+    }
+
+    function renderFlashcardDecks() {
+      loadFlashcardDecks();
+      const container = document.getElementById('flashcardsGrid');
+      if (!container) return;
+
+      if (flashcardDecks.length === 0) {
+        container.innerHTML = '<p style="text-align: center; color: var(--text-secondary); padding: 2rem;">No flashcard decks yet. Click "New Deck" to create one!</p>';
+        return;
+      }
+
+      container.innerHTML = flashcardDecks.map(deck => `
+        <div class="deck-card" data-deck-id="${deck.id}">
+          <div class="deck-card-header">
+            <h4 class="deck-card-title">${escapeHtml(deck.name)}</h4>
+            <div class="deck-card-actions">
+              <button class="btn-icon tag" onclick="event.stopPropagation(); openTagItemModal('deck_${deck.id}', '${escapeHtml(deck.name)}', 'flashcard')" title="Add Tags">
+                <i class="fas fa-tag"></i>
+              </button>
+              <button class="btn-icon delete" onclick="event.stopPropagation(); deleteDeck('${deck.id}')" title="Delete deck">
+                <i class="fas fa-trash"></i>
+              </button>
+            </div>
+          </div>
+          <p style="font-size: 0.82rem; color: var(--fg3); margin: 6px 0 12px 0;">${deck.cards.length} ${deck.cards.length === 1 ? 'card' : 'cards'}</p>
+          <div style="display: flex; gap: 0.5rem; margin-top: auto;">
+            <button type="button" class="btn btn-primary btn-sm" onclick="startStudyDeck('${deck.id}')" style="flex: 1;">
+              <i class="fas fa-play"></i> Study
+            </button>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="startQuiz('${deck.id}')" style="flex: 1;">
+              <i class="fas fa-question-circle"></i> Quiz
+            </button>
+          </div>
+        </div>
+      `).join('');
+    }
 
     function openFlashcardModal(deckId = null) {
       const modal = document.getElementById('flashcardModal');
@@ -1778,7 +1815,7 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
       const modalTitle = document.getElementById('flashcardModalTitle');
       if (!modal) return;
       if (deckId) {
-        const deck = flashcardDecks.find(d => d.id === deckId);
+        const deck = flashcardDecks.find(d => String(d.id) === String(deckId));
         if (deck) {
           currentEditingDeck = deck;
           if (nameInput) nameInput.value = deck.name;
@@ -1835,7 +1872,7 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
         currentEditingDeck.name = name;
         currentEditingDeck.cards = cards;
       } else {
-        flashcardDecks.push({ id: Date.now().toString(), name, cards });
+        flashcardDecks.push({ id: 'deck_' + Date.now(), name, cards });
       }
       saveFlashcardDecks();
       renderFlashcardDecks();
@@ -1845,37 +1882,97 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
     }
 
     function deleteDeck(deckId) {
-      const deck = flashcardDecks.find(d => d.id === deckId);
-      showConfirmModal('Delete Flashcard Deck', `Delete "${deck ? deck.name : ''}"?`, () => {
-        flashcardDecks = flashcardDecks.filter(d => d.id !== deckId);
-        saveFlashcardDecks();
-        renderFlashcardDecks();
-        showNotification('Deck deleted', 'info');
+      loadFlashcardDecks();
+      const targetId = String(deckId);
+      const deck = flashcardDecks.find(d => String(d.id) === targetId);
+
+      if (!deck) {
+        showNotification('Deck not found', 'warning');
+        return;
+      }
+
+      showConfirm(`Are you sure you want to delete the deck "${deck.name}"?`, {
+        title: 'Delete Deck',
+        type: 'danger',
+        confirmText: 'Delete'
+      }).then(confirmed => {
+        if (confirmed) {
+          flashcardDecks = flashcardDecks.filter(d => String(d.id) !== targetId);
+          saveFlashcardDecks();
+          renderFlashcardDecks();
+          showNotification('Deck deleted', 'info');
+        }
       });
     }
 
     function startStudyDeck(deckId) {
-      const deck = flashcardDecks.find(d => d.id === deckId);
-      if (!deck || deck.cards.length === 0) return;
+      loadFlashcardDecks();
+      const targetId = String(deckId);
+      const deck = flashcardDecks.find(d => String(d.id) === targetId);
+
+      if (!deck || !deck.cards || deck.cards.length === 0) {
+        showNotification('This deck has no cards yet! Edit it to add some cards.', 'warning');
+        return;
+      }
+
       currentStudyDeck = deck;
       currentCardIndex = 0;
-      document.getElementById('studyModal')?.classList.add('active');
-      showCurrentCard();
+
+      const modal = document.getElementById('studyModal');
+      if (modal) {
+        modal.classList.add('active');
+        showCurrentCard();
+      }
     }
 
     function showCurrentCard() {
-      if (!currentStudyDeck) return;
+      if (!currentStudyDeck || !currentStudyDeck.cards || currentStudyDeck.cards.length === 0) return;
+      
       const card = currentStudyDeck.cards[currentCardIndex];
-      document.getElementById('activeFlashcard')?.classList.remove('flipped');
-      document.getElementById('cardFront').textContent = card.front;
-      document.getElementById('cardBack').textContent = card.back;
-      document.getElementById('cardProgress').textContent = `${currentCardIndex + 1} / ${currentStudyDeck.cards.length}`;
+      if (!card) return;
+
+      const activeCard = document.getElementById('activeFlashcard');
+      const cardFront = document.getElementById('cardFront');
+      const cardBack = document.getElementById('cardBack');
+      const cardProgress = document.getElementById('cardProgress');
+
+      if (activeCard) activeCard.classList.remove('flipped');
+      if (cardFront) cardFront.textContent = card.front || 'Empty Question';
+      if (cardBack) cardBack.textContent = card.back || 'Empty Answer';
+      if (cardProgress) cardProgress.textContent = `${currentCardIndex + 1} / ${currentStudyDeck.cards.length}`;
     }
 
-    function flipCard() { document.getElementById('activeFlashcard')?.classList.toggle('flipped'); }
-    function nextCard() { if (currentStudyDeck) { currentCardIndex = (currentCardIndex + 1) % currentStudyDeck.cards.length; showCurrentCard(); } }
-    function prevCard() { if (currentStudyDeck) { currentCardIndex = (currentCardIndex - 1 + currentStudyDeck.cards.length) % currentStudyDeck.cards.length; showCurrentCard(); } }
+    function flipCard() {
+      const card = document.getElementById('activeFlashcard');
+      if (card) card.classList.toggle('flipped');
+    }
 
+    function nextCard() {
+      if (currentStudyDeck && currentStudyDeck.cards.length > 0) {
+        currentCardIndex = (currentCardIndex + 1) % currentStudyDeck.cards.length;
+        showCurrentCard();
+      }
+    }
+
+    function prevCard() {
+      if (currentStudyDeck && currentStudyDeck.cards.length > 0) {
+        currentCardIndex = (currentCardIndex - 1 + currentStudyDeck.cards.length) % currentStudyDeck.cards.length;
+        showCurrentCard();
+      }
+    }
+
+    function closeStudyModal() {
+      const modal = document.getElementById('studyModal');
+      if (modal) modal.classList.remove('active');
+      const activeCard = document.getElementById('activeFlashcard');
+      if (activeCard) activeCard.classList.remove('flipped');
+      currentStudyDeck = null;
+      currentCardIndex = 0;
+    }
+
+    // ================================================================
+    // STUDY SESSIONS SYSTEM
+    // ================================================================
     function loadStudySessions() { studySessions = JSON.parse(localStorage.getItem('questionary-sessions') || '[]'); }
     function saveStudySessions() { localStorage.setItem('questionary-sessions', JSON.stringify(studySessions)); }
 
@@ -1937,6 +2034,7 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
     function loadStudyStats() { studyStats = JSON.parse(localStorage.getItem('questionary-study-stats') || '{"totalTime":0,"streak":0,"lastStudyDate":null,"hourlyActivity":{}}'); }
     function loadDocumentProgress() { documentProgress = JSON.parse(localStorage.getItem('questionary-doc-progress') || '{}'); }
 
+    // Export to global scope
     window.openNoteModal = openNoteModal;
     window.saveNote = saveNote;
     window.deleteNote = deleteNote;
@@ -1949,11 +2047,15 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
     window.flipCard = flipCard;
     window.nextCard = nextCard;
     window.prevCard = prevCard;
+    window.closeStudyModal = closeStudyModal;
     window.openSessionModal = openSessionModal;
     window.saveSession = saveSession;
     window.deleteSession = deleteSession;
     window.showDaySessions = showDaySessions;
 
+    // ================================================================
+    // MOBILE BOTTOM NAVIGATION & DRAWER
+    // ================================================================
     function initializeMobileBottomNav() {
       const bottomNav = document.getElementById('mobileBottomNav');
       if (!bottomNav) return;
@@ -1971,6 +2073,7 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
             sidebarOverlay?.classList.toggle('active', isOpen);
           }
         } else {
+          closeSidebar();
           showView(view);
           const navMap = {
             'home': 'homeNav',
@@ -1988,9 +2091,43 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
       document.querySelectorAll('.mobile-bottom-nav-item').forEach(item => {
         if (item.dataset.view === viewName) {
           item.classList.add('active');
-        } else {
+        } else if (viewName !== 'more') {
           item.classList.remove('active');
         }
+      });
+    }
+
+    function closeSidebar() {
+      document.getElementById('navLinks')?.classList.remove('sidebar-open');
+      document.getElementById('sidebarOverlay')?.classList.remove('active');
+    }
+
+    function initHamburgerMenu() {
+      const hamburgerBtn = document.getElementById('hamburgerMenu');
+      const mobileMenuToggle = document.getElementById('mobileMenuToggle');
+      const navLinks = document.getElementById('navLinks');
+      const sidebarOverlay = document.getElementById('sidebarOverlay');
+      const sidebarClose = document.getElementById('sidebarClose');
+
+      if (!navLinks) return;
+
+      closeSidebar();
+
+      const toggleSidebar = (e) => {
+        if (e) e.stopPropagation();
+        const isOpen = navLinks.classList.toggle('sidebar-open');
+        if (sidebarOverlay) sidebarOverlay.classList.toggle('active', isOpen);
+      };
+
+      if (hamburgerBtn) hamburgerBtn.onclick = toggleSidebar;
+      if (mobileMenuToggle) mobileMenuToggle.onclick = toggleSidebar;
+      if (sidebarClose) sidebarClose.onclick = closeSidebar;
+      if (sidebarOverlay) sidebarOverlay.onclick = closeSidebar;
+
+      navLinks.querySelectorAll('.nav-link').forEach(link => {
+        link.addEventListener('click', () => {
+          closeSidebar();
+        });
       });
     }
 
@@ -1998,7 +2135,6 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
       console.log('[App] Starting initialization...');
       preventAccidentalSelection();
 
-      // Fail-Safe Timer for Loading Screen
       const overlayTimeout = setTimeout(() => {
         const loadingOverlay = document.getElementById('loadingOverlay');
         if (loadingOverlay && loadingOverlay.classList.contains('active')) {
@@ -2225,8 +2361,6 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
       const progressNav = document.getElementById('progressNav');
       const remindersNav = document.getElementById('remindersNav');
       const settingsNav = document.getElementById('settingsNav');
-      const mobileMenuToggle = document.getElementById('mobileMenuToggle');
-      const navLinks = document.getElementById('navLinks');
       const backBtn = document.getElementById('backBtn');
 
       if (backBtn) backBtn.addEventListener('click', handleBackButton);
@@ -2827,6 +2961,9 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
       }
     }
 
+    // ================================================================
+    // TIMER SYSTEM
+    // ================================================================
     function initializeTimer() {
       const timerPanel = document.getElementById('timerPanel');
       const timerClose = document.getElementById('timerClose');
@@ -3429,443 +3566,6 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
       e.preventDefault();
     });
 
-    var updateState = window.updateState || {
-      available: false,
-      version: null,
-      update: null,
-      downloading: false,
-      downloadProgress: 0,
-      downloadedBytes: 0,
-      totalBytes: 0
-    };
-
-    async function checkForUpdatesManual() {
-      const btn = document.getElementById('checkUpdatesBtn');
-      if (updateState.downloading) {
-        showNotification('Download in progress...', 'info');
-        return;
-      }
-
-      if (btn) btn.classList.add('checking');
-
-      let nativeUpdateFound = false;
-
-      // Try Native Tauri Binary Updater
-      if (window.__TAURI__ && (window.__TAURI__.updater || window.__TAURI_PLUGIN_UPDATER__)) {
-        try {
-          showNotification('Checking for native app binary updates...', 'info');
-          const updater = window.__TAURI__.updater || window.__TAURI_PLUGIN_UPDATER__;
-          const update = await updater.check();
-
-          if (update && update.available) {
-            nativeUpdateFound = true;
-            updateState.available = true;
-            updateState.version = update.version;
-            updateState.update = update;
-            showNotification(`Native update ${update.version} available! Installing...`, 'success');
-            await downloadAndInstallUpdate();
-            return;
-          }
-        } catch (tauriErr) {
-          console.warn('[Tauri Native Updater]: Native check skipped/unconfigured. Falling back to Hot-Code Updater:', tauriErr.message || tauriErr);
-        }
-      }
-
-      // Fallback to Hot-Code Updater
-      if (window.hotCodeUpdater && typeof window.hotCodeUpdater.check === 'function') {
-        try {
-          showNotification('Checking for GitHub code updates...', 'info');
-          const updates = await window.hotCodeUpdater.check(false);
-          if (updates && updates.length > 0) {
-            showNotification(`Downloading ${updates.length} hot update file(s)...`, 'info');
-            await window.hotCodeUpdater.download();
-          } else {
-            showNotification('App code is completely up to date!', 'success');
-            resetUpdateButton();
-          }
-        } catch (hotErr) {
-          console.error('[Hot Code Updater Error]:', hotErr);
-          showNotification('Update check failed: ' + (hotErr.message || 'Network error'), 'error');
-          resetUpdateButton();
-        }
-      } else {
-        if (!nativeUpdateFound) {
-          showNotification('No updater available in this environment.', 'warning');
-          resetUpdateButton();
-        }
-      }
-
-      if (btn) btn.classList.remove('checking');
-    }
-
-    async function downloadAndInstallUpdate() {
-      if (!updateState.update) return;
-      updateState.downloading = true;
-      updateButtonToProgressMode();
-
-      try {
-        showNotification('Downloading & installing update...', 'info');
-
-        await updateState.update.downloadAndInstall((event) => {
-          if (event.event === 'Started') {
-            updateState.totalBytes = event.data.contentLength || 0;
-          } else if (event.event === 'Progress') {
-            updateState.downloadedBytes += event.data.chunkLength || 0;
-            if (updateState.totalBytes > 0) {
-              updateState.downloadProgress = Math.round((updateState.downloadedBytes / updateState.totalBytes) * 100);
-            }
-            updateProgressButton();
-          } else if (event.event === 'Finished') {
-            updateState.downloadProgress = 100;
-            updateProgressButton();
-          }
-        });
-
-        showNotification('Update installed! Restarting app...', 'success');
-        updateButtonToRestartMode();
-
-        setTimeout(async () => {
-          try {
-            if (window.__TAURI__?.process?.relaunch) {
-              await window.__TAURI__.process.relaunch();
-            } else if (window.__TAURI__?.core?.invoke) {
-              await window.__TAURI__.core.invoke('plugin:process|relaunch');
-            } else {
-              location.reload();
-            }
-          } catch (e) {
-            console.error('Relaunch failed:', e);
-            location.reload();
-          }
-        }, 1500);
-
-      } catch (error) {
-        console.error('[Install Error]:', error);
-        showNotification('Failed to install update: ' + error.message, 'error');
-        resetUpdateButton();
-      } finally {
-        updateState.downloading = false;
-      }
-    }
-
-    function updateButtonToDownloadMode(version) {
-      const btn = document.getElementById('checkUpdatesBtn');
-      if (btn) {
-        btn.innerHTML = `<i class="fas fa-download"></i>`;
-        btn.title = `Download update ${version}`;
-        btn.classList.add('update-available');
-      }
-    }
-
-    function updateButtonToProgressMode() {
-      const btn = document.getElementById('checkUpdatesBtn');
-      if (btn) {
-        btn.innerHTML = `<i class="fas fa-download"></i>`;
-        btn.title = 'Downloading...';
-        btn.classList.add('downloading');
-        btn.classList.remove('update-available');
-      }
-      showDownloadProgressBar();
-    }
-
-    function updateProgressButton() {
-      const progressFill = document.getElementById('downloadProgressFill');
-      const progressPercent = document.getElementById('downloadProgressPercent');
-      const progressText = document.getElementById('downloadProgressText');
-      if (progressFill) progressFill.style.width = `${updateState.downloadProgress}%`;
-      if (progressPercent) progressPercent.textContent = `${updateState.downloadProgress}%`;
-      if (progressText) progressText.textContent = `${formatBytes(updateState.downloadedBytes)} / ${formatBytes(updateState.totalBytes)}`;
-    }
-
-    function showDownloadProgressBar() {
-      const progressBar = document.getElementById('downloadProgressBar');
-      if (progressBar) progressBar.style.display = 'block';
-    }
-
-    function hideDownloadProgressBar() {
-      const progressBar = document.getElementById('downloadProgressBar');
-      if (progressBar) progressBar.style.display = 'none';
-      const progressFill = document.getElementById('downloadProgressFill');
-      if (progressFill) progressFill.style.width = '0%';
-    }
-
-    function updateButtonToRestartMode() {
-      const btn = document.getElementById('checkUpdatesBtn');
-      if (btn) {
-        btn.innerHTML = `<i class="fas fa-redo"></i>`;
-        btn.title = 'Restarting...';
-        btn.classList.remove('downloading');
-        btn.classList.add('restarting');
-      }
-      hideDownloadProgressBar();
-    }
-
-    function resetUpdateButton() {
-      const btn = document.getElementById('checkUpdatesBtn');
-      if (btn) {
-        btn.innerHTML = `<i class="fas fa-sync-alt"></i>`;
-        btn.title = 'Check for Updates';
-        btn.classList.remove('update-available', 'downloading', 'restarting');
-      }
-      hideDownloadProgressBar();
-      updateState.available = false;
-      updateState.update = null;
-      updateState.downloading = false;
-    }
-
-    function formatBytes(bytes) {
-      if (bytes === 0) return '0 B';
-      const k = 1024;
-      const sizes = ['B', 'KB', 'MB', 'GB'];
-      const i = Math.floor(Math.log(bytes) / Math.log(k));
-      return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
-    }
-
-    (function initUpdateButton() {
-      function setupButton() {
-        const btn = document.getElementById('checkUpdatesBtn');
-        if (btn && !btn.dataset.initialized) {
-          btn.dataset.initialized = 'true';
-          btn.addEventListener('click', checkForUpdatesManual);
-        }
-      }
-      if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', setupButton);
-      } else {
-        setupButton();
-      }
-      setTimeout(setupButton, 1000);
-      setTimeout(setupButton, 3000);
-    })();
-
-    async function checkForUpdatesOnStartup() {
-      await new Promise(resolve => setTimeout(resolve, 3000));
-      if (window.hotCodeUpdater && typeof window.hotCodeUpdater.check === 'function') {
-        try {
-          console.log('[HotUpdate] Running startup code check...');
-          const updates = await window.hotCodeUpdater.check(true);
-          if (updates && updates.length > 0) {
-            console.log('[HotUpdate] Startup updates found, downloading...');
-            await window.hotCodeUpdater.download();
-          }
-        } catch (e) {
-          console.log('[HotUpdate] Startup check notice:', e.message);
-        }
-      }
-    }
-
-    if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', checkForUpdatesOnStartup);
-    } else {
-      checkForUpdatesOnStartup();
-    }
-
-    function initializeNewFeatures() {
-      try { if (typeof loadNotes === 'function') loadNotes(); } catch(e){}
-      try { if (typeof loadFlashcardDecks === 'function') loadFlashcardDecks(); } catch(e){}
-      try { if (typeof loadStudySessions === 'function') loadStudySessions(); } catch(e){}
-      try { if (typeof loadDocumentProgress === 'function') loadDocumentProgress(); } catch(e){}
-      try { if (typeof loadQuickLinks === 'function') loadQuickLinks(); } catch(e){}
-      try { if (typeof loadStudyStats === 'function') loadStudyStats(); } catch(e){}
-
-      const createNoteBtn = document.getElementById('createNoteBtn');
-      const closeNoteModal = document.getElementById('closeNoteModal');
-      const cancelNoteBtn = document.getElementById('cancelNoteBtn');
-      const saveNoteBtn = document.getElementById('saveNoteBtn');
-      const noteModal = document.getElementById('noteModal');
-
-      if (createNoteBtn && typeof openNoteModal === 'function') createNoteBtn.onclick = () => openNoteModal();
-      if (closeNoteModal && noteModal) closeNoteModal.onclick = () => noteModal.classList.remove('active');
-      if (cancelNoteBtn && noteModal) cancelNoteBtn.onclick = () => noteModal.classList.remove('active');
-      if (saveNoteBtn && typeof saveNote === 'function') saveNoteBtn.onclick = saveNote;
-
-      const createDeckBtn = document.getElementById('createDeckBtn');
-      const closeFlashcardModal = document.getElementById('closeFlashcardModal');
-      const cancelFlashcardBtn = document.getElementById('cancelFlashcardBtn');
-      const saveDeckBtn = document.getElementById('saveDeckBtn');
-      const addCardBtn = document.getElementById('addCardBtn');
-      const flashcardModal = document.getElementById('flashcardModal');
-
-      if (createDeckBtn && typeof openFlashcardModal === 'function') createDeckBtn.onclick = () => openFlashcardModal();
-      if (closeFlashcardModal && flashcardModal) closeFlashcardModal.onclick = () => flashcardModal.classList.remove('active');
-      if (cancelFlashcardBtn && flashcardModal) cancelFlashcardBtn.onclick = () => flashcardModal.classList.remove('active');
-      if (saveDeckBtn && typeof saveDeck === 'function') saveDeckBtn.onclick = saveDeck;
-      if (addCardBtn && typeof addCardEditor === 'function') addCardBtn.onclick = () => addCardEditor();
-
-      const closeStudyModal = document.getElementById('closeStudyModal');
-      const flipCardBtn = document.getElementById('flipCardBtn');
-      const nextCardBtn = document.getElementById('nextCardBtn');
-      const prevCardBtn = document.getElementById('prevCardBtn');
-      const activeFlashcard = document.getElementById('activeFlashcard');
-      const studyModal = document.getElementById('studyModal');
-
-      if (closeStudyModal && studyModal) closeStudyModal.onclick = () => studyModal.classList.remove('active');
-      if (flipCardBtn && typeof flipCard === 'function') flipCardBtn.onclick = flipCard;
-      if (nextCardBtn && typeof nextCard === 'function') nextCardBtn.onclick = nextCard;
-      if (prevCardBtn && typeof prevCard === 'function') prevCardBtn.onclick = prevCard;
-      if (activeFlashcard && typeof flipCard === 'function') activeFlashcard.onclick = flipCard;
-
-      const addStudySessionBtn = document.getElementById('addStudySessionBtn');
-      const closeSessionModal = document.getElementById('closeSessionModal');
-      const cancelSessionBtn = document.getElementById('cancelSessionBtn');
-      const saveSessionBtn = document.getElementById('saveSessionBtn');
-      const prevMonth = document.getElementById('prevMonth');
-      const nextMonth = document.getElementById('nextMonth');
-      const sessionModal = document.getElementById('sessionModal');
-
-      if (addStudySessionBtn && typeof openSessionModal === 'function') addStudySessionBtn.onclick = () => openSessionModal();
-      if (closeSessionModal && sessionModal) closeSessionModal.onclick = () => sessionModal.classList.remove('active');
-      if (cancelSessionBtn && sessionModal) cancelSessionBtn.onclick = () => sessionModal.classList.remove('active');
-      if (saveSessionBtn && typeof saveSession === 'function') saveSessionBtn.onclick = saveSession;
-
-      if (prevMonth && typeof renderCalendar === 'function') {
-        prevMonth.onclick = () => {
-          currentCalendarDate.setMonth(currentCalendarDate.getMonth() - 1);
-          renderCalendar();
-        };
-      }
-
-      if (nextMonth && typeof renderCalendar === 'function') {
-        nextMonth.onclick = () => {
-          currentCalendarDate.setMonth(currentCalendarDate.getMonth() + 1);
-          renderCalendar();
-        };
-      }
-
-      document.querySelectorAll('.progress-filter').forEach(btn => {
-        btn.onclick = () => {
-          document.querySelectorAll('.progress-filter').forEach(b => b.classList.remove('active'));
-          btn.classList.add('active');
-          filterProgress(btn.dataset.filter);
-        };
-      });
-
-      const quickLinksToggle = document.getElementById('quickLinksToggle');
-      const quickLinksPanel = document.getElementById('quickLinksPanel');
-      const quickLinksClose = document.getElementById('quickLinksClose');
-      const addQuickLinkBtn = document.getElementById('addQuickLinkBtn');
-
-      if (quickLinksToggle && quickLinksPanel) {
-        quickLinksToggle.onclick = () => quickLinksPanel.classList.toggle('active');
-      }
-
-      if (quickLinksClose && quickLinksPanel) {
-        quickLinksClose.onclick = () => quickLinksPanel.classList.remove('active');
-      }
-
-      document.addEventListener('click', (e) => {
-        if (quickLinksPanel && quickLinksPanel.classList.contains('active')) {
-          if (!e.target.closest('.quick-links-panel') && !e.target.closest('.quick-links-toggle')) {
-            quickLinksPanel.classList.remove('active');
-          }
-        }
-      });
-
-      if (addQuickLinkBtn) {
-        addQuickLinkBtn.onclick = (e) => {
-          e.stopPropagation();
-          if (currentOpenPDF) {
-            showQuickLinkChoiceDialog();
-            return;
-          }
-          if (path.length === 0) {
-            if (typeof showNotification === 'function') showNotification('Navigate to a folder first to add it as a quick link', 'info');
-            return;
-          }
-          addCurrentFolderToQuickLinks();
-        };
-      }
-
-      if (typeof renderQuickLinks === 'function') renderQuickLinks();
-    }
-
-    function filterProgress(filter) {
-      const items = document.querySelectorAll('.progress-item');
-      items.forEach(item => {
-        const status = item.dataset.status;
-        if (filter === 'all' || status === filter) {
-          item.style.display = 'flex';
-        } else {
-          item.style.display = 'none';
-        }
-      });
-    }
-
-    var searchHistory = JSON.parse(localStorage.getItem('questionary-search-history') || '[]');
-
-    function saveSearchHistory() {
-      localStorage.setItem('questionary-search-history', JSON.stringify(searchHistory));
-    }
-
-    function addToSearchHistory(query) {
-      if (!query || query.length < 2) return;
-      searchHistory = searchHistory.filter(q => q.toLowerCase() !== query.toLowerCase());
-      searchHistory.unshift(query);
-      searchHistory = searchHistory.slice(0, 10);
-      saveSearchHistory();
-    }
-
-    function initSearchHistory() {
-      const searchInput = document.getElementById('globalSearch');
-      if (!searchInput) return;
-
-      const container = searchInput.parentElement;
-      let dropdown = document.getElementById('searchHistoryDropdown');
-      if (!dropdown) {
-        dropdown = document.createElement('div');
-        dropdown.id = 'searchHistoryDropdown';
-        dropdown.className = 'search-history-dropdown';
-        container.appendChild(dropdown);
-      }
-
-      searchInput.addEventListener('focus', showSearchHistory);
-      searchInput.addEventListener('input', (e) => {
-        if (e.target.value === '') showSearchHistory();
-      });
-
-      document.addEventListener('click', (e) => {
-        if (!e.target.closest('.search-container')) {
-          dropdown.classList.remove('active');
-        }
-      });
-    }
-
-    function showSearchHistory() {
-      const dropdown = document.getElementById('searchHistoryDropdown');
-      const searchInput = document.getElementById('globalSearch');
-      if (!dropdown || searchHistory.length === 0 || searchInput.value) return;
-
-      dropdown.innerHTML = `
-      <div class="search-history-header">
-      <span>Recent Searches</span>
-      <button onclick="clearSearchHistory()" class="clear-history-btn">Clear</button>
-      </div>
-      ${searchHistory.map(q => `
-        <div class="search-history-item" onclick="useSearchHistory('${escapeHtml(q)}')">
-        <i class="fas fa-history"></i>
-        <span>${escapeHtml(q)}</span>
-        </div>
-        `).join('')}
-        `;
-        dropdown.classList.add('active');
-    }
-
-    function useSearchHistory(query) {
-      const searchInput = document.getElementById('globalSearch');
-      searchInput.value = query;
-      document.getElementById('searchHistoryDropdown')?.classList.remove('active');
-      performSearch(query);
-    }
-
-    function clearSearchHistory() {
-      searchHistory = [];
-      saveSearchHistory();
-      document.getElementById('searchHistoryDropdown')?.classList.remove('active');
-    }
-
-    window.useSearchHistory = useSearchHistory;
-    window.clearSearchHistory = clearSearchHistory;
-
     var customTimerPresets = JSON.parse(localStorage.getItem('questionary-timer-presets') || '[]');
 
     function saveCustomPresets() {
@@ -4219,6 +3919,138 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
     window.trackPdfViewStart = trackPdfViewStart;
     window.trackPdfViewEnd = trackPdfViewEnd;
 
+    // ================================================================
+    // KEYBOARD SHORTCUTS ENGINE
+    // ================================================================
+    const DEFAULT_KEYBINDS = {
+      focusSearch:   { key: '/', ctrl: false, alt: false, shift: false, label: 'Focus Search' },
+      newNote:       { key: 'n', ctrl: false, alt: false, shift: false, label: 'New Note' },
+      newFlashcard:  { key: 'f', ctrl: false, alt: false, shift: false, label: 'New Flashcard' },
+      shareLocation: { key: 's', ctrl: false, alt: false, shift: false, label: 'Share Location' },
+      quickLinks:    { key: 'q', ctrl: false, alt: false, shift: false, label: 'Toggle Quick Links' },
+      goBack:        { key: 'Backspace', ctrl: false, alt: false, shift: false, label: 'Go Back' },
+      goHome:        { key: 'Home', ctrl: false, alt: true, shift: false, label: 'Go Home' },
+      navBack:       { key: 'ArrowLeft', ctrl: false, alt: true, shift: false, label: 'Navigate Back' },
+      wbUndo:        { key: 'z', ctrl: true, alt: false, shift: false, label: 'Whiteboard Undo' },
+      wbRedo:        { key: 'y', ctrl: true, alt: false, shift: false, label: 'Whiteboard Redo' },
+      wbPen:         { key: 'p', ctrl: false, alt: false, shift: false, label: 'Whiteboard Pen' },
+      wbEraser:      { key: 'e', ctrl: false, alt: false, shift: false, label: 'Whiteboard Eraser' },
+      wbHighlighter: { key: 'h', ctrl: false, alt: false, shift: false, label: 'Whiteboard Highlighter' },
+      toggleMic:     { key: 'm', ctrl: true, alt: false, shift: false, label: 'Toggle Microphone' },
+      toggleCam:     { key: 'v', ctrl: true, alt: false, shift: false, label: 'Toggle Camera' },
+      pushToTalk:    { key: 't', ctrl: false, alt: false, shift: false, label: 'Push to Talk (Hold)' },
+    };
+
+    function loadKeybinds() {
+      const saved = localStorage.getItem('questionary-keybinds');
+      const binds = saved ? JSON.parse(saved) : {};
+      const merged = {};
+      for (const id in DEFAULT_KEYBINDS) {
+        merged[id] = binds[id] ? { ...DEFAULT_KEYBINDS[id], ...binds[id] } : { ...DEFAULT_KEYBINDS[id] };
+      }
+      window._keybinds = merged;
+      return merged;
+    }
+
+    function saveKeybinds(binds) {
+      localStorage.setItem('questionary-keybinds', JSON.stringify(binds));
+      window._keybinds = binds;
+    }
+
+    function resetKeybinds() {
+      localStorage.removeItem('questionary-keybinds');
+      const binds = loadKeybinds();
+      renderKeybindsSettings();
+      if (typeof showNotification === 'function') showNotification('Keyboard shortcuts reset to defaults.', 'info');
+      return binds;
+    }
+
+    function formatKeybindDisplay(b) {
+      let parts = [];
+      if (b.ctrl) parts.push('Ctrl');
+      if (b.alt) parts.push('Alt');
+      if (b.shift) parts.push('Shift');
+      let keyName = b.key;
+      if (keyName === ' ') keyName = 'Space';
+      else if (keyName.length === 1) keyName = keyName.toUpperCase();
+      parts.push(keyName);
+      return parts.join(' + ');
+    }
+
+    function keybindMatches(e, bindId) {
+      const binds = window._keybinds || loadKeybinds();
+      const b = binds[bindId];
+      if (!b) return false;
+      const keyMatch = e.key.toLowerCase() === b.key.toLowerCase() || e.key === b.key;
+      return keyMatch && e.ctrlKey === !!b.ctrl && e.altKey === !!b.alt && e.shiftKey === !!b.shift;
+    }
+
+    function renderKeybindsSettings() {
+      const container = document.getElementById('keybindsList');
+      if (!container) return;
+      const binds = window._keybinds || loadKeybinds();
+      const categories = {
+        'General': ['focusSearch', 'newNote', 'newFlashcard', 'shareLocation', 'quickLinks', 'goBack', 'goHome', 'navBack'],
+        'Whiteboard': ['wbUndo', 'wbRedo', 'wbPen', 'wbEraser', 'wbHighlighter'],
+        'Study Room': ['toggleMic', 'toggleCam', 'pushToTalk']
+      };
+      let html = '';
+      for (const [cat, ids] of Object.entries(categories)) {
+        html += `<div class="kb-category"><span class="kb-cat-label">${cat}</span></div>`;
+        for (const id of ids) {
+          const b = binds[id];
+          if (!b) continue;
+          html += `<div class="kb-row">
+          <span class="kb-action">${b.label}</span>
+          <button class="kb-key-btn" data-bind-id="${id}" title="Click to change">${formatKeybindDisplay(b)}</button>
+          </div>`;
+        }
+      }
+      container.innerHTML = html;
+      container.querySelectorAll('.kb-key-btn').forEach(btn => {
+        btn.addEventListener('click', () => startKeybindCapture(btn));
+      });
+    }
+
+    var _capturingBind = null;
+    function startKeybindCapture(btn) {
+      if (_capturingBind) {
+        _capturingBind.classList.remove('kb-listening');
+        _capturingBind.textContent = _capturingBind._prevText;
+      }
+      _capturingBind = btn;
+      btn._prevText = btn.textContent;
+      btn.textContent = 'Press a key…';
+      btn.classList.add('kb-listening');
+
+      function onKey(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (['Control', 'Alt', 'Shift', 'Meta'].includes(e.key)) return;
+        document.removeEventListener('keydown', onKey, true);
+        btn.classList.remove('kb-listening');
+
+        const bindId = btn.dataset.bindId;
+        const binds = window._keybinds || loadKeybinds();
+        binds[bindId] = {
+          ...binds[bindId],
+          key: e.key.length === 1 ? e.key.toLowerCase() : e.key,
+          ctrl: e.ctrlKey,
+          alt: e.altKey,
+          shift: e.shiftKey
+        };
+        saveKeybinds(binds);
+        btn.textContent = formatKeybindDisplay(binds[bindId]);
+        _capturingBind = null;
+        if (typeof showNotification === 'function') showNotification(`Shortcut updated: ${binds[bindId].label}`, 'success');
+      }
+      document.addEventListener('keydown', onKey, true);
+    }
+
+    loadKeybinds();
+    window.renderKeybindsSettings = renderKeybindsSettings;
+    window.resetKeybinds = resetKeybinds;
+
     document.addEventListener('keydown', (e) => {
       const isInputFocused = e.target.closest('input, textarea, [contenteditable]');
 
@@ -4257,6 +4089,9 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
       }
     });
 
+    // ================================================================
+    // SETTINGS DROPDOWN & CONFIGURATION
+    // ================================================================
     function initSettingsDropdown() {
       let userBadge = document.getElementById('userBadge') || document.querySelector('.user-badge');
       if (!userBadge) return;
@@ -4505,172 +4340,445 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
       }
     }
 
-    const DEFAULT_KEYBINDS = {
-      focusSearch:   { key: '/', ctrl: false, alt: false, shift: false, label: 'Focus Search' },
-      newNote:       { key: 'n', ctrl: false, alt: false, shift: false, label: 'New Note' },
-      newFlashcard:  { key: 'f', ctrl: false, alt: false, shift: false, label: 'New Flashcard' },
-      shareLocation: { key: 's', ctrl: false, alt: false, shift: false, label: 'Share Location' },
-      quickLinks:    { key: 'q', ctrl: false, alt: false, shift: false, label: 'Toggle Quick Links' },
-      goBack:        { key: 'Backspace', ctrl: false, alt: false, shift: false, label: 'Go Back' },
-      goHome:        { key: 'Home', ctrl: false, alt: true, shift: false, label: 'Go Home' },
-      navBack:       { key: 'ArrowLeft', ctrl: false, alt: true, shift: false, label: 'Navigate Back' },
-      wbUndo:        { key: 'z', ctrl: true, alt: false, shift: false, label: 'Whiteboard Undo' },
-      wbRedo:        { key: 'y', ctrl: true, alt: false, shift: false, label: 'Whiteboard Redo' },
-      wbPen:         { key: 'p', ctrl: false, alt: false, shift: false, label: 'Whiteboard Pen' },
-      wbEraser:      { key: 'e', ctrl: false, alt: false, shift: false, label: 'Whiteboard Eraser' },
-      wbHighlighter: { key: 'h', ctrl: false, alt: false, shift: false, label: 'Whiteboard Highlighter' },
-      toggleMic:     { key: 'm', ctrl: true, alt: false, shift: false, label: 'Toggle Microphone' },
-      toggleCam:     { key: 'v', ctrl: true, alt: false, shift: false, label: 'Toggle Camera' },
-      pushToTalk:    { key: 't', ctrl: false, alt: false, shift: false, label: 'Push to Talk (Hold)' },
+    // ================================================================
+    // COMPREHENSIVE INITIALIZATION ROUTINE
+    // ================================================================
+    function initializeNewFeatures() {
+      try { if (typeof loadNotes === 'function') loadNotes(); } catch(e){}
+      try { if (typeof loadFlashcardDecks === 'function') loadFlashcardDecks(); } catch(e){}
+      try { if (typeof loadStudySessions === 'function') loadStudySessions(); } catch(e){}
+      try { if (typeof loadDocumentProgress === 'function') loadDocumentProgress(); } catch(e){}
+      try { if (typeof loadQuickLinks === 'function') loadQuickLinks(); } catch(e){}
+      try { if (typeof loadStudyStats === 'function') loadStudyStats(); } catch(e){}
+
+      const createNoteBtn = document.getElementById('createNoteBtn');
+      const closeNoteModal = document.getElementById('closeNoteModal');
+      const cancelNoteBtn = document.getElementById('cancelNoteBtn');
+      const saveNoteBtn = document.getElementById('saveNoteBtn');
+      const noteModal = document.getElementById('noteModal');
+
+      if (createNoteBtn && typeof openNoteModal === 'function') createNoteBtn.onclick = () => openNoteModal();
+      if (closeNoteModal && noteModal) closeNoteModal.onclick = () => noteModal.classList.remove('active');
+      if (cancelNoteBtn && noteModal) cancelNoteBtn.onclick = () => noteModal.classList.remove('active');
+      if (saveNoteBtn && typeof saveNote === 'function') saveNoteBtn.onclick = saveNote;
+
+      const createDeckBtn = document.getElementById('createDeckBtn');
+      const closeFlashcardModal = document.getElementById('closeFlashcardModal');
+      const cancelFlashcardBtn = document.getElementById('cancelFlashcardBtn');
+      const saveDeckBtn = document.getElementById('saveDeckBtn');
+      const addCardBtn = document.getElementById('addCardBtn');
+      const flashcardModal = document.getElementById('flashcardModal');
+
+      if (createDeckBtn && typeof openFlashcardModal === 'function') createDeckBtn.onclick = () => openFlashcardModal();
+      if (closeFlashcardModal && flashcardModal) closeFlashcardModal.onclick = () => flashcardModal.classList.remove('active');
+      if (cancelFlashcardBtn && flashcardModal) cancelFlashcardBtn.onclick = () => flashcardModal.classList.remove('active');
+      if (saveDeckBtn && typeof saveDeck === 'function') saveDeckBtn.onclick = saveDeck;
+      if (addCardBtn && typeof addCardEditor === 'function') addCardBtn.onclick = () => addCardEditor();
+
+      const closeStudyModalBtn = document.getElementById('closeStudyModal');
+      const flipCardBtn = document.getElementById('flipCardBtn');
+      const nextCardBtn = document.getElementById('nextCardBtn');
+      const prevCardBtn = document.getElementById('prevCardBtn');
+      const activeFlashcard = document.getElementById('activeFlashcard');
+      const studyModal = document.getElementById('studyModal');
+
+      if (closeStudyModalBtn && typeof closeStudyModal === 'function') closeStudyModalBtn.onclick = closeStudyModal;
+      if (flipCardBtn && typeof flipCard === 'function') flipCardBtn.onclick = flipCard;
+      if (nextCardBtn && typeof nextCard === 'function') nextCardBtn.onclick = nextCard;
+      if (prevCardBtn && typeof prevCard === 'function') prevCardBtn.onclick = prevCard;
+      if (activeFlashcard && typeof flipCard === 'function') activeFlashcard.onclick = flipCard;
+
+      const addStudySessionBtn = document.getElementById('addStudySessionBtn');
+      const closeSessionModal = document.getElementById('closeSessionModal');
+      const cancelSessionBtn = document.getElementById('cancelSessionBtn');
+      const saveSessionBtn = document.getElementById('saveSessionBtn');
+      const prevMonth = document.getElementById('prevMonth');
+      const nextMonth = document.getElementById('nextMonth');
+      const sessionModal = document.getElementById('sessionModal');
+
+      if (addStudySessionBtn && typeof openSessionModal === 'function') addStudySessionBtn.onclick = () => openSessionModal();
+      if (closeSessionModal && sessionModal) closeSessionModal.onclick = () => sessionModal.classList.remove('active');
+      if (cancelSessionBtn && sessionModal) cancelSessionBtn.onclick = () => sessionModal.classList.remove('active');
+      if (saveSessionBtn && typeof saveSession === 'function') saveSessionBtn.onclick = saveSession;
+
+      if (prevMonth && typeof renderCalendar === 'function') {
+        prevMonth.onclick = () => {
+          currentCalendarDate.setMonth(currentCalendarDate.getMonth() - 1);
+          renderCalendar();
+        };
+      }
+
+      if (nextMonth && typeof renderCalendar === 'function') {
+        nextMonth.onclick = () => {
+          currentCalendarDate.setMonth(currentCalendarDate.getMonth() + 1);
+          renderCalendar();
+        };
+      }
+
+      document.querySelectorAll('.progress-filter').forEach(btn => {
+        btn.onclick = () => {
+          document.querySelectorAll('.progress-filter').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          filterProgress(btn.dataset.filter);
+        };
+      });
+
+      const quickLinksToggle = document.getElementById('quickLinksToggle');
+      const quickLinksPanel = document.getElementById('quickLinksPanel');
+      const quickLinksClose = document.getElementById('quickLinksClose');
+      const addQuickLinkBtn = document.getElementById('addQuickLinkBtn');
+
+      if (quickLinksToggle && quickLinksPanel) {
+        quickLinksToggle.onclick = () => quickLinksPanel.classList.toggle('active');
+      }
+
+      if (quickLinksClose && quickLinksPanel) {
+        quickLinksClose.onclick = () => quickLinksPanel.classList.remove('active');
+      }
+
+      document.addEventListener('click', (e) => {
+        if (quickLinksPanel && quickLinksPanel.classList.contains('active')) {
+          if (!e.target.closest('.quick-links-panel') && !e.target.closest('.quick-links-toggle')) {
+            quickLinksPanel.classList.remove('active');
+          }
+        }
+      });
+
+      if (addQuickLinkBtn) {
+        addQuickLinkBtn.onclick = (e) => {
+          e.stopPropagation();
+          if (currentOpenPDF) {
+            showQuickLinkChoiceDialog();
+            return;
+          }
+          if (path.length === 0) {
+            if (typeof showNotification === 'function') showNotification('Navigate to a folder first to add it as a quick link', 'info');
+            return;
+          }
+          addCurrentFolderToQuickLinks();
+        };
+      }
+
+      if (typeof renderQuickLinks === 'function') renderQuickLinks();
+    }
+
+    function filterProgress(filter) {
+      const items = document.querySelectorAll('.progress-item');
+      items.forEach(item => {
+        const status = item.dataset.status;
+        if (filter === 'all' || status === filter) {
+          item.style.display = 'flex';
+        } else {
+          item.style.display = 'none';
+        }
+      });
+    }
+
+    var searchHistory = JSON.parse(localStorage.getItem('questionary-search-history') || '[]');
+
+    function saveSearchHistory() {
+      localStorage.setItem('questionary-search-history', JSON.stringify(searchHistory));
+    }
+
+    function addToSearchHistory(query) {
+      if (!query || query.length < 2) return;
+      searchHistory = searchHistory.filter(q => q.toLowerCase() !== query.toLowerCase());
+      searchHistory.unshift(query);
+      searchHistory = searchHistory.slice(0, 10);
+      saveSearchHistory();
+    }
+
+    function initSearchHistory() {
+      const searchInput = document.getElementById('globalSearch');
+      if (!searchInput) return;
+
+      const container = searchInput.parentElement;
+      let dropdown = document.getElementById('searchHistoryDropdown');
+      if (!dropdown) {
+        dropdown = document.createElement('div');
+        dropdown.id = 'searchHistoryDropdown';
+        dropdown.className = 'search-history-dropdown';
+        container.appendChild(dropdown);
+      }
+
+      searchInput.addEventListener('focus', showSearchHistory);
+      searchInput.addEventListener('input', (e) => {
+        if (e.target.value === '') showSearchHistory();
+      });
+
+      document.addEventListener('click', (e) => {
+        if (!e.target.closest('.search-container')) {
+          dropdown.classList.remove('active');
+        }
+      });
+    }
+
+    function showSearchHistory() {
+      const dropdown = document.getElementById('searchHistoryDropdown');
+      const searchInput = document.getElementById('globalSearch');
+      if (!dropdown || searchHistory.length === 0 || searchInput.value) return;
+
+      dropdown.innerHTML = `
+      <div class="search-history-header">
+      <span>Recent Searches</span>
+      <button onclick="clearSearchHistory()" class="clear-history-btn">Clear</button>
+      </div>
+      ${searchHistory.map(q => `
+        <div class="search-history-item" onclick="useSearchHistory('${escapeHtml(q)}')">
+        <i class="fas fa-history"></i>
+        <span>${escapeHtml(q)}</span>
+        </div>
+        `).join('')}
+        `;
+        dropdown.classList.add('active');
+    }
+
+    function useSearchHistory(query) {
+      const searchInput = document.getElementById('globalSearch');
+      searchInput.value = query;
+      document.getElementById('searchHistoryDropdown')?.classList.remove('active');
+      performSearch(query);
+    }
+
+    function clearSearchHistory() {
+      searchHistory = [];
+      saveSearchHistory();
+      document.getElementById('searchHistoryDropdown')?.classList.remove('active');
+    }
+
+    window.useSearchHistory = useSearchHistory;
+    window.clearSearchHistory = clearSearchHistory;
+
+    // ================================================================
+    // UPDATER INTEGRATION
+    // ================================================================
+    var updateState = window.updateState || {
+      available: false,
+      version: null,
+      update: null,
+      downloading: false,
+      downloadProgress: 0,
+      downloadedBytes: 0,
+      totalBytes: 0
     };
 
-    function loadKeybinds() {
-      const saved = localStorage.getItem('questionary-keybinds');
-      const binds = saved ? JSON.parse(saved) : {};
-      const merged = {};
-      for (const id in DEFAULT_KEYBINDS) {
-        merged[id] = binds[id] ? { ...DEFAULT_KEYBINDS[id], ...binds[id] } : { ...DEFAULT_KEYBINDS[id] };
+    async function checkForUpdatesManual() {
+      const btn = document.getElementById('checkUpdatesBtn');
+      if (updateState.downloading) {
+        showNotification('Download in progress...', 'info');
+        return;
       }
-      window._keybinds = merged;
-      return merged;
-    }
 
-    function saveKeybinds(binds) {
-      localStorage.setItem('questionary-keybinds', JSON.stringify(binds));
-      window._keybinds = binds;
-    }
+      if (btn) btn.classList.add('checking');
 
-    function resetKeybinds() {
-      localStorage.removeItem('questionary-keybinds');
-      const binds = loadKeybinds();
-      renderKeybindsSettings();
-      if (typeof showNotification === 'function') showNotification('Keyboard shortcuts reset to defaults.', 'info');
-      return binds;
-    }
+      let nativeUpdateFound = false;
 
-    function formatKeybindDisplay(b) {
-      let parts = [];
-      if (b.ctrl) parts.push('Ctrl');
-      if (b.alt) parts.push('Alt');
-      if (b.shift) parts.push('Shift');
-      let keyName = b.key;
-      if (keyName === ' ') keyName = 'Space';
-      else if (keyName.length === 1) keyName = keyName.toUpperCase();
-      parts.push(keyName);
-      return parts.join(' + ');
-    }
+      if (window.__TAURI__ && (window.__TAURI__.updater || window.__TAURI_PLUGIN_UPDATER__)) {
+        try {
+          showNotification('Checking for native app binary updates...', 'info');
+          const updater = window.__TAURI__.updater || window.__TAURI_PLUGIN_UPDATER__;
+          const update = await updater.check();
 
-    function keybindMatches(e, bindId) {
-      const binds = window._keybinds || loadKeybinds();
-      const b = binds[bindId];
-      if (!b) return false;
-      const keyMatch = e.key.toLowerCase() === b.key.toLowerCase() || e.key === b.key;
-      return keyMatch && e.ctrlKey === !!b.ctrl && e.altKey === !!b.alt && e.shiftKey === !!b.shift;
-    }
-
-    function renderKeybindsSettings() {
-      const container = document.getElementById('keybindsList');
-      if (!container) return;
-      const binds = window._keybinds || loadKeybinds();
-      const categories = {
-        'General': ['focusSearch', 'newNote', 'newFlashcard', 'shareLocation', 'quickLinks', 'goBack', 'goHome', 'navBack'],
-        'Whiteboard': ['wbUndo', 'wbRedo', 'wbPen', 'wbEraser', 'wbHighlighter'],
-        'Study Room': ['toggleMic', 'toggleCam', 'pushToTalk']
-      };
-      let html = '';
-      for (const [cat, ids] of Object.entries(categories)) {
-        html += `<div class="kb-category"><span class="kb-cat-label">${cat}</span></div>`;
-        for (const id of ids) {
-          const b = binds[id];
-          if (!b) continue;
-          html += `<div class="kb-row">
-          <span class="kb-action">${b.label}</span>
-          <button class="kb-key-btn" data-bind-id="${id}" title="Click to change">${formatKeybindDisplay(b)}</button>
-          </div>`;
+          if (update && update.available) {
+            nativeUpdateFound = true;
+            updateState.available = true;
+            updateState.version = update.version;
+            updateState.update = update;
+            showNotification(`Native update ${update.version} available! Installing...`, 'success');
+            await downloadAndInstallUpdate();
+            return;
+          }
+        } catch (tauriErr) {
+          console.warn('[Tauri Native Updater]: Native check skipped/unconfigured. Falling back to Hot-Code Updater:', tauriErr.message || tauriErr);
         }
       }
-      container.innerHTML = html;
-      container.querySelectorAll('.kb-key-btn').forEach(btn => {
-        btn.addEventListener('click', () => startKeybindCapture(btn));
-      });
+
+      if (window.hotCodeUpdater && typeof window.hotCodeUpdater.check === 'function') {
+        try {
+          showNotification('Checking for GitHub code updates...', 'info');
+          const updates = await window.hotCodeUpdater.check(false);
+          if (updates && updates.length > 0) {
+            showNotification(`Downloading ${updates.length} hot update file(s)...`, 'info');
+            await window.hotCodeUpdater.download();
+          } else {
+            showNotification('App code is completely up to date!', 'success');
+            resetUpdateButton();
+          }
+        } catch (hotErr) {
+          console.error('[Hot Code Updater Error]:', hotErr);
+          showNotification('Update check failed: ' + (hotErr.message || 'Network error'), 'error');
+          resetUpdateButton();
+        }
+      } else {
+        if (!nativeUpdateFound) {
+          showNotification('No updater available in this environment.', 'warning');
+          resetUpdateButton();
+        }
+      }
+
+      if (btn) btn.classList.remove('checking');
     }
 
-    var _capturingBind = null;
-    function startKeybindCapture(btn) {
-      if (_capturingBind) {
-        _capturingBind.classList.remove('kb-listening');
-        _capturingBind.textContent = _capturingBind._prevText;
-      }
-      _capturingBind = btn;
-      btn._prevText = btn.textContent;
-      btn.textContent = 'Press a key…';
-      btn.classList.add('kb-listening');
+    async function downloadAndInstallUpdate() {
+      if (!updateState.update) return;
+      updateState.downloading = true;
+      updateButtonToProgressMode();
 
-      function onKey(e) {
-        e.preventDefault();
-        e.stopPropagation();
-        if (['Control', 'Alt', 'Shift', 'Meta'].includes(e.key)) return;
-        document.removeEventListener('keydown', onKey, true);
-        btn.classList.remove('kb-listening');
+      try {
+        showNotification('Downloading & installing update...', 'info');
 
-        const bindId = btn.dataset.bindId;
-        const binds = window._keybinds || loadKeybinds();
-        binds[bindId] = {
-          ...binds[bindId],
-          key: e.key.length === 1 ? e.key.toLowerCase() : e.key,
-          ctrl: e.ctrlKey,
-          alt: e.altKey,
-          shift: e.shiftKey
-        };
-        saveKeybinds(binds);
-        btn.textContent = formatKeybindDisplay(binds[bindId]);
-        _capturingBind = null;
-        if (typeof showNotification === 'function') showNotification(`Shortcut updated: ${binds[bindId].label}`, 'success');
-      }
-      document.addEventListener('keydown', onKey, true);
-    }
-
-    loadKeybinds();
-    window.renderKeybindsSettings = renderKeybindsSettings;
-    window.resetKeybinds = resetKeybinds;
-
-    function initHamburgerMenu() {
-      const hamburgerBtn = document.getElementById('hamburgerMenu');
-      const mobileMenuToggle = document.getElementById('mobileMenuToggle');
-      const navLinks = document.getElementById('navLinks');
-      const sidebarOverlay = document.getElementById('sidebarOverlay');
-      const sidebarClose = document.getElementById('sidebarClose');
-
-      if (!navLinks) return;
-
-      closeSidebar();
-
-      const toggleSidebar = (e) => {
-        if (e) e.stopPropagation();
-        const isOpen = navLinks.classList.toggle('sidebar-open');
-        if (sidebarOverlay) sidebarOverlay.classList.toggle('active', isOpen);
-      };
-
-      function closeSidebar() {
-        navLinks.classList.remove('sidebar-open');
-        if (sidebarOverlay) sidebarOverlay.classList.remove('active');
-      };
-
-      if (hamburgerBtn) hamburgerBtn.onclick = toggleSidebar;
-      if (mobileMenuToggle) mobileMenuToggle.onclick = toggleSidebar;
-      if (sidebarClose) sidebarClose.onclick = closeSidebar;
-      if (sidebarOverlay) sidebarOverlay.onclick = closeSidebar;
-
-      navLinks.querySelectorAll('.nav-link').forEach(link => {
-        link.addEventListener('click', () => {
-          closeSidebar();
+        await updateState.update.downloadAndInstall((event) => {
+          if (event.event === 'Started') {
+            updateState.totalBytes = event.data.contentLength || 0;
+          } else if (event.event === 'Progress') {
+            updateState.downloadedBytes += event.data.chunkLength || 0;
+            if (updateState.totalBytes > 0) {
+              updateState.downloadProgress = Math.round((updateState.downloadedBytes / updateState.totalBytes) * 100);
+            }
+            updateProgressButton();
+          } else if (event.event === 'Finished') {
+            updateState.downloadProgress = 100;
+            updateProgressButton();
+          }
         });
-      });
+
+        showNotification('Update installed! Restarting app...', 'success');
+        updateButtonToRestartMode();
+
+        setTimeout(async () => {
+          try {
+            if (window.__TAURI__?.process?.relaunch) {
+              await window.__TAURI__.process.relaunch();
+            } else if (window.__TAURI__?.core?.invoke) {
+              await window.__TAURI__.core.invoke('plugin:process|relaunch');
+            } else {
+              location.reload();
+            }
+          } catch (e) {
+            console.error('Relaunch failed:', e);
+            location.reload();
+          }
+        }, 1500);
+
+      } catch (error) {
+        console.error('[Install Error]:', error);
+        showNotification('Failed to install update: ' + error.message, 'error');
+        resetUpdateButton();
+      } finally {
+        updateState.downloading = false;
+      }
     }
 
-    function closeSidebar() {
-      document.getElementById('navLinks')?.classList.remove('sidebar-open');
-      document.getElementById('sidebarOverlay')?.classList.remove('active');
+    function updateButtonToDownloadMode(version) {
+      const btn = document.getElementById('checkUpdatesBtn');
+      if (btn) {
+        btn.innerHTML = `<i class="fas fa-download"></i>`;
+        btn.title = `Download update ${version}`;
+        btn.classList.add('update-available');
+      }
+    }
+
+    function updateButtonToProgressMode() {
+      const btn = document.getElementById('checkUpdatesBtn');
+      if (btn) {
+        btn.innerHTML = `<i class="fas fa-download"></i>`;
+        btn.title = 'Downloading...';
+        btn.classList.add('downloading');
+        btn.classList.remove('update-available');
+      }
+      showDownloadProgressBar();
+    }
+
+    function updateProgressButton() {
+      const progressFill = document.getElementById('downloadProgressFill');
+      const progressPercent = document.getElementById('downloadProgressPercent');
+      const progressText = document.getElementById('downloadProgressText');
+      if (progressFill) progressFill.style.width = `${updateState.downloadProgress}%`;
+      if (progressPercent) progressPercent.textContent = `${updateState.downloadProgress}%`;
+      if (progressText) progressText.textContent = `${formatBytes(updateState.downloadedBytes)} / ${formatBytes(updateState.totalBytes)}`;
+    }
+
+    function showDownloadProgressBar() {
+      const progressBar = document.getElementById('downloadProgressBar');
+      if (progressBar) progressBar.style.display = 'block';
+    }
+
+    function hideDownloadProgressBar() {
+      const progressBar = document.getElementById('downloadProgressBar');
+      if (progressBar) progressBar.style.display = 'none';
+      const progressFill = document.getElementById('downloadProgressFill');
+      if (progressFill) progressFill.style.width = '0%';
+    }
+
+    function updateButtonToRestartMode() {
+      const btn = document.getElementById('checkUpdatesBtn');
+      if (btn) {
+        btn.innerHTML = `<i class="fas fa-redo"></i>`;
+        btn.title = 'Restarting...';
+        btn.classList.remove('downloading');
+        btn.classList.add('restarting');
+      }
+      hideDownloadProgressBar();
+    }
+
+    function resetUpdateButton() {
+      const btn = document.getElementById('checkUpdatesBtn');
+      if (btn) {
+        btn.innerHTML = `<i class="fas fa-sync-alt"></i>`;
+        btn.title = 'Check for Updates';
+        btn.classList.remove('update-available', 'downloading', 'restarting');
+      }
+      hideDownloadProgressBar();
+      updateState.available = false;
+      updateState.update = null;
+      updateState.downloading = false;
+    }
+
+    function formatBytes(bytes) {
+      if (bytes === 0) return '0 B';
+      const k = 1024;
+      const sizes = ['B', 'KB', 'MB', 'GB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+    }
+
+    (function initUpdateButton() {
+      function setupButton() {
+        const btn = document.getElementById('checkUpdatesBtn');
+        if (btn && !btn.dataset.initialized) {
+          btn.dataset.initialized = 'true';
+          btn.addEventListener('click', checkForUpdatesManual);
+        }
+      }
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', setupButton);
+      } else {
+        setupButton();
+      }
+      setTimeout(setupButton, 1000);
+      setTimeout(setupButton, 3000);
+    })();
+
+    async function checkForUpdatesOnStartup() {
+      await new Promise(resolve => setTimeout(resolve, 3000));
+      if (window.hotCodeUpdater && typeof window.hotCodeUpdater.check === 'function') {
+        try {
+          console.log('[HotUpdate] Running startup code check...');
+          const updates = await window.hotCodeUpdater.check(true);
+          if (updates && updates.length > 0) {
+            console.log('[HotUpdate] Startup updates found, downloading...');
+            await window.hotCodeUpdater.download();
+          }
+        } catch (e) {
+          console.log('[HotUpdate] Startup check notice:', e.message);
+        }
+      }
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', checkForUpdatesOnStartup);
+    } else {
+      checkForUpdatesOnStartup();
     }
 
     document.addEventListener('DOMContentLoaded', () => {
@@ -4778,3 +4886,5 @@ if (window._HOT_APP_JS_LOADED && (!document.currentScript || !document.currentSc
     document.addEventListener('DOMContentLoaded', initHomeSyncButton);
     setTimeout(initHomeSyncButton, 1000);
 }
+
+
