@@ -60,8 +60,10 @@
         localStorage.removeItem(CODE_FILES_KEY);
         localStorage.removeItem(INSTALLED_COMMIT_KEY);
         delete window._HOT_APP_JS_LOADED;
+        delete window._HOT_STUDY_ROOM_LOADED;
+        delete window._HOT_FEATURES_LOADED;
         console.log('[HotUpdate] Cache cleared. Force re-syncing from GitHub...');
-        notify('Cache cleared. Fetching latest files...', 'info');
+        notify('Cache cleared. Fetching latest files from GitHub...', 'info');
         
         await downloadCodeUpdates(true);
     }
@@ -85,7 +87,7 @@
                 console.log('[HotUpdate] Hot-patched header/nav from updated index.html');
             }
 
-            const targets = ['app', 'loginScreen', 'loadingOverlay', 'accessibilityPanel', 'quickLinksPanel', 'timerPanel'];
+            const targets = ['app', 'loginScreen', 'loadingOverlay', 'accessibilityPanel', 'quickLinksPanel', 'timerPanel', 'main-content'];
             targets.forEach(id => {
                 const newEl = newDoc.getElementById(id);
                 const curEl = document.getElementById(id);
@@ -139,7 +141,7 @@
     }
 
     // ================================================================
-    // 3. LIVE JS HOT-EXECUTOR (Isolated IIFEs)
+    // 3. LIVE JS HOT-EXECUTOR (Evaluated in Global Scope)
     // ================================================================
     function applyStoredJS() {
         const stored = getStoredCodeFiles();
@@ -147,26 +149,21 @@
 
         for (const filename of executionOrder) {
             const content = stored[filename];
-            if (filename === 'js/studyRoom.js' && window.STUDY_ROOM_ENGINE_VERSION === '4.0') {
-                if (!content || !content.includes('STUDY_ROOM_ENGINE_VERSION = "4.0"')) {
-                    console.log('[HotUpdate] Skipping stale js/studyRoom.js cache in favor of native v4.0');
-                    delete stored['js/studyRoom.js'];
-                    saveStoredCodeFiles(stored);
-                    continue;
-                }
-            }
             if (content && content.trim().length > 50) {
                 try {
-                    console.log(`[HotUpdate] Applying stored JS override: ${filename}`);
+                    console.log(`[HotUpdate] Applying stored JS override in global scope: ${filename}`);
                     const scriptId = `hot-js-${filename.replace(/[^a-zA-Z0-9]/g, '-')}`;
                     let scriptEl = document.getElementById(scriptId);
                     if (scriptEl) scriptEl.remove();
 
-                    window._HOT_APP_JS_LOADED = true;
+                    if (filename.includes('app.js')) window._HOT_APP_JS_LOADED = true;
+                    if (filename.includes('studyRoom.js')) window._HOT_STUDY_ROOM_LOADED = true;
+                    if (filename.includes('features.js')) window._HOT_FEATURES_LOADED = true;
 
+                    // Execute directly in global scope so functions bind to window
                     scriptEl = document.createElement('script');
                     scriptEl.id = scriptId;
-                    scriptEl.textContent = `(function(){\ntry {\n${content}\n} catch(e){ console.error('[HotUpdate Execution Error in ${filename}]:', e); }\n})();`;
+                    scriptEl.textContent = `${content}\n//# sourceURL=${filename}?hotUpdate=${Date.now()}`;
                     document.head.appendChild(scriptEl);
                 } catch (err) {
                     console.error(`[HotUpdate] Error executing updated ${filename}:`, err);
@@ -176,10 +173,11 @@
     }
 
     // ================================================================
-    // 4. CORS-PROOF FILE FETCHER (jsDelivr + GitHub API + Tauri HTTP)
+    // 4. CORS-PROOF FILE FETCHER (Exact SHA / Raw GitHub)
     // ================================================================
-    async function fetchFileFromRepo(relativePath) {
+    async function fetchFileFromRepo(relativePath, commitSha = null) {
         const branch = window.codeUpdateState.activeBranch || PRIMARY_BRANCH;
+        const ref = commitSha || window.codeUpdateState.latestCommitSha || branch;
         const cacheBuster = Date.now();
 
         const paths = [
@@ -192,22 +190,39 @@
         ];
         const uniquePaths = [...new Set(paths)];
 
-        // Tier 1: jsDelivr Open CDN (100% CORS-Allowed on file:// and WebViews)
+        // Tier 1: jsDelivr with Exact Commit SHA (Bypasses all edge caching)
+        if (commitSha || window.codeUpdateState.latestCommitSha) {
+            for (const p of uniquePaths) {
+                const cdnUrl = `https://cdn.jsdelivr.net/gh/${REPO_OWNER}/${REPO_NAME}@${ref}/${p}`;
+                try {
+                    const res = await fetch(cdnUrl, { cache: 'no-store' });
+                    if (res.ok) {
+                        console.log(`[HotUpdate] Downloaded ${relativePath} via jsDelivr (SHA: ${ref.substring(0, 7)})`);
+                        return res;
+                    }
+                } catch (e) {}
+            }
+        }
+
+        // Tier 2: Direct Raw GitHub Fetch with Cache-Buster
         for (const p of uniquePaths) {
-            const cdnUrl = `https://cdn.jsdelivr.net/gh/${REPO_OWNER}/${REPO_NAME}@${branch}/${p}?t=${cacheBuster}`;
+            const rawUrl = `https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${ref}/${p}?nocache=${cacheBuster}`;
             try {
-                const res = await fetch(cdnUrl, { cache: 'no-store' });
+                const res = await fetch(rawUrl, { 
+                    cache: 'no-store',
+                    headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache' }
+                });
                 if (res.ok) {
-                    console.log(`[HotUpdate] Downloaded ${relativePath} via jsDelivr CDN`);
+                    console.log(`[HotUpdate] Downloaded ${relativePath} via Raw GitHub`);
                     return res;
                 }
             } catch (e) {}
         }
 
-        // Tier 2: Tauri Native HTTP Plugin (if compiled in Tauri)
+        // Tier 3: Tauri Native HTTP Plugin (if available)
         if (window.__TAURI__ && window.__TAURI__.http) {
             for (const p of uniquePaths) {
-                const rawUrl = `https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${branch}/${p}?nocache=${cacheBuster}`;
+                const rawUrl = `https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${ref}/${p}?nocache=${cacheBuster}`;
                 try {
                     const isDb = relativePath.endsWith('.db');
                     const res = await window.__TAURI__.http.fetch(rawUrl, {
@@ -223,15 +238,6 @@
                     }
                 } catch (e) {}
             }
-        }
-
-        // Tier 3: Direct Raw GitHub Fetch
-        for (const p of uniquePaths) {
-            const rawUrl = `https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${branch}/${p}?nocache=${cacheBuster}`;
-            try {
-                const res = await fetch(rawUrl, { cache: 'no-store' });
-                if (res.ok) return res;
-            } catch (e) {}
         }
 
         return null;
@@ -293,7 +299,7 @@
         if (!latestSha) {
             window.codeUpdateState.checking = false;
             updateCodeUpdateUI('idle');
-            if (!silent) notify('Could not reach GitHub updates.', 'error');
+            if (!silent) notify('Could not reach GitHub updates server.', 'error');
             return null;
         }
 
@@ -336,10 +342,11 @@
 
         const storedFiles = getStoredCodeFiles();
         let downloadedCount = 0;
+        const targetSha = window.codeUpdateState.latestCommitSha;
 
         for (const fileRelPath of MANAGED_FILES) {
             try {
-                const res = await fetchFileFromRepo(fileRelPath);
+                const res = await fetchFileFromRepo(fileRelPath, targetSha);
                 if (!res) {
                     console.warn(`[HotUpdate] Could not fetch ${fileRelPath}`);
                     continue;
@@ -374,12 +381,12 @@
 
         if (downloadedCount >= 1) {
             saveStoredCodeFiles(storedFiles);
-            if (window.codeUpdateState.latestCommitSha) {
-                localStorage.setItem(INSTALLED_COMMIT_KEY, window.codeUpdateState.latestCommitSha);
+            if (targetSha) {
+                localStorage.setItem(INSTALLED_COMMIT_KEY, targetSha);
             }
             console.log(`[HotUpdate] Successfully downloaded ${downloadedCount} files!`);
             notify(`Update installed (${downloadedCount} files)! Reloading...`, 'success');
-            setTimeout(() => location.reload(), 800);
+            setTimeout(() => location.reload(), 600);
         } else {
             console.error('[HotUpdate] Critical files failed to download.');
             notify('Update download failed. Check network.', 'error');
