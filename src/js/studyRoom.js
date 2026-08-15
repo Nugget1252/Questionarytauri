@@ -1,6 +1,5 @@
 /* STUDY_ROOM_ENGINE_VERSION = "4.0" */
 window.STUDY_ROOM_ENGINE_VERSION = "4.0";
-
 /* ================================================================
    QUESTIONARY — STUDY ROOM ENGINE 4.0 (HIGH-SPEED P2P + MULTI-MESH)
    ================================================================ */
@@ -8,6 +7,7 @@ window.STUDY_ROOM_ENGINE_VERSION = "4.0";
 (function () {
   'use strict';
 
+  /* ---------- Constants ---------- */
   /* ---------- Constants ---------- */
   const MAX_PARTICIPANTS = 12;
   const ROOM_CODE_LENGTH = 10;
