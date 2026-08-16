@@ -1,7 +1,4 @@
-/* =========================================================================
- *   QUESTIONARY STUDY ROOM ENGINE v5.0 (Full Master Build)
- *   Multi-Mesh WebRTC + TURN Relay + Infinite Whiteboard + Media Suite
- *   ========================================================================= */
+
 
 (function () {
   'use strict';
@@ -10,35 +7,25 @@
   const MAX_PARTICIPANTS = 12;
   const ROOM_CODE_LENGTH = 8;
   const ROOM_CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  const CONNECT_TIMEOUT_MS = 15000;
+  const CONNECT_TIMEOUT_MS = 25000;
 
-  /* Multi-STUN + Free OpenRelay TURN Servers for 100% NAT & Mobile Data Punch-Through */
+  /* Streamlined Multi-STUN + Free OpenRelay TURN Servers */
   const ICE_CONFIG = {
     iceServers: [
       { urls: 'stun:stun.l.google.com:19302' },
-      { urls: 'stun:stun1.l.google.com:19302' },
-      { urls: 'stun:stun2.l.google.com:19302' },
-      { urls: 'stun:stun3.l.google.com:19302' },
-      { urls: 'stun:stun4.l.google.com:19302' },
       { urls: 'stun:stun.cloudflare.com:3478' },
-      { urls: 'stun:global.stun.twilio.com:3478' },
       {
-        urls: 'turn:openrelay.metered.ca:80',
-        username: 'openrelay',
-        credential: 'openrelay'
-      },
-      {
-        urls: 'turn:openrelay.metered.ca:443',
-        username: 'openrelay',
-        credential: 'openrelay'
-      },
-      {
-        urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+        urls: [
+          'turn:openrelay.metered.ca:80',
+          'turn:openrelay.metered.ca:443',
+          'turn:openrelay.metered.ca:443?transport=tcp'
+        ],
         username: 'openrelay',
         credential: 'openrelay'
       }
     ],
-    sdpSemantics: 'unified-plan'
+    sdpSemantics: 'unified-plan',
+    iceCandidatePoolSize: 2
   };
 
   /* ---------- Zero-Asset Web Audio Synthesizer ---------- */
@@ -203,20 +190,14 @@
     }
   }
 
-  /* Dynamic PeerJS Loader fallback if peerjs-patched.js was missing */
   async function ensurePeerJS() {
     if (typeof window.Peer !== 'undefined') return true;
     return new Promise((resolve, reject) => {
-      console.log('[StudyRoom] Loading PeerJS library from CDN...');
+      console.log('[StudyRoom] Loading PeerJS from CDN...');
       const script = document.createElement('script');
       script.src = 'https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js';
-      script.onload = () => {
-        console.log('[StudyRoom] PeerJS loaded successfully');
-        resolve(true);
-      };
-      script.onerror = () => {
-        reject(new Error('Could not load WebRTC signaling engine. Check internet connection.'));
-      };
+      script.onload = () => resolve(true);
+      script.onerror = () => reject(new Error('PeerJS failed to load. Check internet connection.'));
       document.head.appendChild(script);
     });
   }
@@ -241,7 +222,6 @@
       this.onerror = null;
       this.connectTimeoutTimer = null;
       this.outboxQueue = [];
-      this.hasJoined = false;
       this.processedMids = new Set();
     }
 
@@ -270,7 +250,7 @@
           if (!isResolved && this.readyState !== 1) {
             isResolved = true;
             this.close();
-            const err = new Error(isHost ? 'Failed to bind host room ID. Please try another code.' : 'Connection timed out. Host may be offline or room code is invalid.');
+            const err = new Error(isHost ? 'Failed to bind room code. Please try creating a new one.' : 'Connection timed out. Ensure the host is active and room code is correct.');
             if (this.onerror) this.onerror(err);
             reject(err);
           }
@@ -302,7 +282,7 @@
             if (this.onopen) this.onopen();
             resolve();
           } else {
-            console.log(`[StudyRoom] Guest establishing connection to Host: ${targetHostPeerId}`);
+            console.log(`[StudyRoom] Guest connecting to Host: ${targetHostPeerId}`);
             this.peerJsToUser.set(targetHostPeerId, 'usr_host');
             this.userToPeerJs.set('usr_host', targetHostPeerId);
 
@@ -319,7 +299,6 @@
                 if (this.onopen) this.onopen();
                 this.flushOutbox();
 
-                // Send Join handshake
                 this.hostConn.send({
                   _mid: 'join_' + Date.now(),
                   action: 'join',
@@ -356,7 +335,6 @@
               });
 
               this.hostConn.on('close', () => {
-                console.warn('[StudyRoom] Guest DataChannel to Host closed.');
                 handleDisconnect();
               });
             } catch (err) {
@@ -416,16 +394,16 @@
         });
 
         this.peer.on('error', (err) => {
-          console.error('[StudyRoom] PeerJS Error:', err.type, err.message);
           clearTimeout(this.connectTimeoutTimer);
+          console.error('[StudyRoom] PeerJS Error:', err.type, err.message);
 
-          let userMsg = err.message || 'Connection error';
+          let userMsg = 'Connection error.';
           if (err.type === 'peer-unavailable') {
-            userMsg = 'Room code not found or host is offline.';
+            userMsg = `Room code "${normalizeRoomCode(targetRoomId)}" not found. The host must create the room before you can join.`;
           } else if (err.type === 'unavailable-id') {
-            userMsg = 'Room code is already active. Please create a new room or use a different code.';
+            userMsg = 'Room code is already active by another host. Please click Create Room again to get a fresh code.';
           } else if (err.type === 'network' || err.type === 'socket-error' || err.type === 'socket-closed') {
-            userMsg = 'Network issue with signaling server. Please retry.';
+            userMsg = 'Signaling network issue. Please check your internet connection and retry.';
           }
 
           const wrappedError = new Error(userMsg);
@@ -991,7 +969,6 @@
 
     section.innerHTML = `
       <div class="sr-session">
-        <!-- Top Toolbar -->
         <div class="sr-session-bar">
           <div class="sr-session-bar-left">
             <span class="sr-mode-badge sr-mode-inet"><i class="fas fa-wifi"></i> Live</span>
@@ -1040,11 +1017,9 @@
         </div>
 
         <div class="sr-session-body">
-          <!-- Video Area -->
           <div class="sr-video-area" id="srParticipantArea">
             <div class="sr-video-grid" id="srParticipantsGrid"></div>
             
-            <!-- Quick Reactions Bar -->
             <div class="sr-reactions-bar">
               <button class="sr-react-btn" data-emoji="👏" title="Clap">👏</button>
               <button class="sr-react-btn" data-emoji="🔥" title="Fire">🔥</button>
