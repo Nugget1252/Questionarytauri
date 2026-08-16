@@ -1,7 +1,5 @@
-
 /* =========================================================================
- *   QUESTIONARY STUDY ROOM ENGINE v5.3 (Ultra-Reliable Signaling)
- *   Multi-Mesh WebRTC + Keep-Alive Heartbeat + Infinite Whiteboard & Timers
+ *   QUESTIONARY STUDY ROOM ENGINE v5.5 (Fixed Cloud Signaling)
  *   ========================================================================= */
 
 (function () {
@@ -13,7 +11,7 @@
   const ROOM_CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   const CONNECT_TIMEOUT_MS = 25000;
 
-  /* Streamlined Multi-STUN + Free OpenRelay TURN Servers */
+  /* STUN + Free OpenRelay TURN Servers */
   const ICE_CONFIG = {
     iceServers: [
       { urls: 'stun:stun.l.google.com:19302' },
@@ -32,18 +30,13 @@
     iceCandidatePoolSize: 2
   };
 
-  /* Explicit PeerJS Cloud Server Configuration with 5s Keep-Alive */
-  const PEERJS_SERVER_CONFIG = {
-    host: '0.peerjs.com',
-    port: 443,
-    path: '/',
-    secure: true,
-    pingInterval: 5000,
+  /* Native PeerJS Cloud Options (DO NOT override path with '/') */
+  const PEER_OPTIONS = {
     config: ICE_CONFIG,
     debug: 1
   };
 
-  /* ---------- Zero-Asset Web Audio Synthesizer ---------- */
+  /* ---------- Zero-Asset Audio Synthesizer ---------- */
   const SoundFX = {
     ctx: null,
     init() {
@@ -107,7 +100,6 @@
   let activeTab = 'chat';
   let sessionActive = false;
 
-  /* ---------- Timer & Pomodoro Engine ---------- */
   let mainInterval = null;
   let timerMode = 'stopwatch';
   let timerRunning = false;
@@ -117,10 +109,7 @@
   let studyGoal = '';
   let totalUptimeSeconds = 0;
 
-  /* ---------- Chat Messages ---------- */
   let chatMessages = [];
-
-  /* ---------- WebRTC Streams & Audio Detection ---------- */
   let localMediaStream = null;
   let localScreenStream = null;
   let micActive = false;
@@ -132,7 +121,6 @@
   let speechInterval = null;
   let isSpeaking = false;
 
-  /* ---------- Whiteboard State ---------- */
   let wbActive = false;
   let wbCanvas = null;
   let wbCtx = null;
@@ -161,9 +149,6 @@
   let _liveStrokePoints = [];
   let _lastLiveBroadcast = 0;
 
-  /* ================================================================
-     HELPERS & FORMATTERS
-     ================================================================ */
   function fmtTime(sec) {
     const s = Math.max(0, Math.floor(sec));
     const h = Math.floor(s / 3600);
@@ -208,7 +193,6 @@
   async function ensurePeerJS() {
     if (typeof window.Peer !== 'undefined') return true;
     return new Promise((resolve, reject) => {
-      console.log('[StudyRoom] Loading PeerJS from CDN...');
       const script = document.createElement('script');
       script.src = 'https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js';
       script.onload = () => resolve(true);
@@ -218,7 +202,7 @@
   }
 
   /* ================================================================
-     PEERJS ROOM HUB (Host-Coordinated Mesh Network + Heartbeat)
+     PEERJS ROOM HUB (Clean Cloud Signaling)
      ================================================================ */
   class PeerJSRoomHub {
     constructor() {
@@ -257,13 +241,7 @@
       this.heartbeatInterval = setInterval(() => {
         if (this.peer && !this.peer.destroyed) {
           if (this.peer.disconnected) {
-            console.log('[StudyRoom] Reconnecting to signaling server...');
             this.peer.reconnect();
-          }
-          if (this.peer.socket && typeof this.peer.socket.send === 'function') {
-            try {
-              this.peer.socket.send({ type: 'PING' });
-            } catch (e) {}
           }
         }
       }, 5000);
@@ -277,23 +255,24 @@
         const targetHostPeerId = 'qroom' + cleanTargetId;
         let isResolved = false;
 
-        console.log(`[StudyRoom] Initializing Hub (isHost: ${isHost}, targetHost: ${targetHostPeerId})`);
+        console.log(`[StudyRoom] Connecting to PeerJS Cloud (isHost: ${isHost}, ID: ${targetHostPeerId})`);
 
         this.connectTimeoutTimer = setTimeout(() => {
           if (!isResolved && this.readyState !== 1) {
             isResolved = true;
             this.close();
-            const err = new Error(isHost ? 'Failed to bind room code. Please try creating a new one.' : `Room code "${targetRoomId.toUpperCase()}" not found or host is offline.`);
+            const err = new Error(isHost ? 'Room code already in use. Please create a new one.' : `Room "${targetRoomId.toUpperCase()}" not found or host is offline.`);
             if (this.onerror) this.onerror(err);
             reject(err);
           }
         }, CONNECT_TIMEOUT_MS);
 
         try {
+          // Native PeerJS Cloud initialization without broken custom paths
           if (isHost) {
-            this.peer = new window.Peer(targetHostPeerId, PEERJS_SERVER_CONFIG);
+            this.peer = new window.Peer(targetHostPeerId, PEER_OPTIONS);
           } else {
-            this.peer = new window.Peer(PEERJS_SERVER_CONFIG);
+            this.peer = new window.Peer(PEER_OPTIONS);
           }
         } catch (err) {
           clearTimeout(this.connectTimeoutTimer);
@@ -304,7 +283,7 @@
         this.targetHostPeerId = targetHostPeerId;
 
         this.peer.on('open', (assignedId) => {
-          console.log(`[StudyRoom] Signaling open. Assigned ID: ${assignedId}`);
+          console.log(`[StudyRoom] Cloud Signaling Open. ID: ${assignedId}`);
           this.startHeartbeat();
 
           if (isHost) {
@@ -316,7 +295,7 @@
             if (this.onopen) this.onopen();
             resolve();
           } else {
-            console.log(`[StudyRoom] Guest connecting to Host: ${targetHostPeerId}`);
+            console.log(`[StudyRoom] Connecting to Host: ${targetHostPeerId}`);
             this.peerJsToUser.set(targetHostPeerId, 'usr_host');
             this.userToPeerJs.set('usr_host', targetHostPeerId);
 
@@ -327,7 +306,7 @@
               });
 
               this.hostConn.on('open', () => {
-                console.log('[StudyRoom] Guest DataChannel to Host is OPEN.');
+                console.log('[StudyRoom] Connected to Host DataChannel.');
                 clearTimeout(this.connectTimeoutTimer);
                 this.readyState = 1;
                 if (this.onopen) this.onopen();
@@ -364,10 +343,6 @@
                 }
               });
 
-              this.hostConn.on('error', (err) => {
-                console.warn('[StudyRoom] Guest DataChannel notice:', err);
-              });
-
               this.hostConn.on('close', () => {
                 handleDisconnect();
               });
@@ -393,9 +368,7 @@
               try {
                 const msg = typeof raw === 'string' ? JSON.parse(raw) : raw;
                 this.handleHostIncoming(conn, msg);
-              } catch (e) {
-                console.error('[StudyRoom] Host parse error:', e);
-              }
+              } catch (e) {}
             });
 
             conn.on('close', () => {
@@ -425,9 +398,9 @@
 
           let userMsg = 'Connection error.';
           if (err.type === 'peer-unavailable') {
-            userMsg = `Room "${normalizeRoomCode(targetRoomId)}" not found. Ensure the host has created the room first.`;
+            userMsg = `Room "${normalizeRoomCode(targetRoomId)}" not found. Ensure the host is active in the room.`;
           } else if (err.type === 'unavailable-id') {
-            userMsg = 'Room code is already active. Please create a new room.';
+            userMsg = 'Room code is already active. Please click Create Room again.';
           } else if (err.type === 'network' || err.type === 'socket-error' || err.type === 'socket-closed') {
             userMsg = 'Signaling network issue. Please check your internet connection.';
           }
@@ -589,9 +562,7 @@
           });
           return call;
         }
-      } catch (err) {
-        console.error('[StudyRoom] Call execution error:', err);
-      }
+      } catch (err) {}
       return null;
     }
 
@@ -635,7 +606,6 @@
     ws.onopen = () => {};
     ws.onclose = () => handleDisconnect();
     ws.onerror = (err) => {
-      console.warn('[StudyRoom] Hub reported error:', err);
       if (!sessionActive) {
         hideLoading();
         cleanup();
@@ -647,9 +617,7 @@
       try {
         const msg = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
         handleServerMessage(msg);
-      } catch (e) {
-        console.error('[StudyRoom] Parse error:', e);
-      }
+      } catch (e) {}
     };
     return ws.init(targetRoomId);
   }
@@ -664,9 +632,6 @@
     sendToServer({ action: 'relay', data });
   }
 
-  /* ================================================================
-     MESSAGE DISPATCHER & RELAY HANDLERS
-     ================================================================ */
   function handleServerMessage(msg) {
     switch (msg.action) {
       case 'welcome':
@@ -926,7 +891,7 @@
       <div class="sr-lobby">
         <div class="sr-lobby-header">
           <h2 class="section-title"><i class="fas fa-users"></i>Study Room</h2>
-          <span class="sr-exp-badge">Study Room beta</span>
+          <span class="sr-exp-badge">Study Room v5.5</span>
           <div class="sr-lobby-icon"><i class="fas fa-graduation-cap"></i></div>
           <p class="sr-lobby-subtitle">Collaborate live with screen sharing, interactive whiteboard, synced timers, voice & notes.</p>
         </div>
@@ -983,16 +948,12 @@
     });
   }
 
-  /* ================================================================
-     UI — ACTIVE SESSION
-     ================================================================ */
   function renderActiveSession() {
     const section = document.getElementById('studyRoomSection');
     if (!section) return;
 
     section.innerHTML = `
       <div class="sr-session">
-        <!-- Top Toolbar -->
         <div class="sr-session-bar">
           <div class="sr-session-bar-left">
             <span class="sr-mode-badge sr-mode-inet"><i class="fas fa-wifi"></i> Live</span>
@@ -1003,9 +964,8 @@
             ${isHost ? `<button class="sr-btn sr-btn-sm ${roomLocked ? 'sr-btn-primary' : 'sr-btn-secondary'}" id="srLockToggle" title="Lock/Unlock Room"><i class="fas fa-${roomLocked ? 'lock' : 'lock-open'}"></i></button>` : ''}
           </div>
 
-          <!-- UNIFIED TIMER & POMODORO BAR -->
           <div class="sr-pomo-bar" id="srPomoBar">
-            <button class="sr-pomo-mode-btn" id="srPomoToggleMode" title="Cycle Mode (Stopwatch / Focus / Break / Long Break)">
+            <button class="sr-pomo-mode-btn" id="srPomoToggleMode" title="Cycle Mode">
               <i class="fas fa-stopwatch"></i>
             </button>
             <span class="sr-pomo-timer" id="srPomoTimer">00:00</span>
@@ -1041,11 +1001,9 @@
         </div>
 
         <div class="sr-session-body">
-          <!-- Video Area -->
           <div class="sr-video-area" id="srParticipantArea">
             <div class="sr-video-grid" id="srParticipantsGrid"></div>
             
-            <!-- Quick Reactions Bar -->
             <div class="sr-reactions-bar">
               <button class="sr-react-btn" data-emoji="👏" title="Clap">👏</button>
               <button class="sr-react-btn" data-emoji="🔥" title="Fire">🔥</button>
@@ -1056,7 +1014,6 @@
             </div>
           </div>
 
-          <!-- Whiteboard Panel -->
           <div class="sr-wb-panel" id="srWhiteboardPanel" style="display:none;">
             <div class="sr-wb-toolbar">
               <div class="sr-wb-tools">
@@ -1114,7 +1071,6 @@
             </div>
           </div>
 
-          <!-- Sidebar -->
           <div class="sr-sidebar" id="srSidebar">
             <div class="sr-sidebar-tabs">
               <button class="sr-tab-btn active" data-tab="chat">
@@ -1132,7 +1088,7 @@
               <div class="sr-chat-messages" id="srChatMessages"></div>
               <div class="sr-chat-input-row">
                 <input type="file" id="srMaterialFile" style="display:none;" accept=".pdf,.png,.jpg,.jpeg,.doc,.docx,.txt" />
-                <button class="sr-btn sr-btn-secondary sr-btn-icon" id="srShareMaterial" title="Share Document / Image">
+                <button class="sr-btn sr-btn-secondary sr-btn-icon" id="srShareMaterial" title="Share Document">
                    <i class="fas fa-paperclip"></i>
                 </button>
                 <input type="text" id="srChatInput" class="sr-input" placeholder="Type a message…" maxlength="500">
@@ -1278,9 +1234,6 @@
     else grid.classList.add('sr-grid-4plus');
   }
 
-  /* ================================================================
-     TIMER & POMODORO CONTROLS
-     ================================================================ */
   function startStudyTimerEngine() {
     if (mainInterval) clearInterval(mainInterval);
 
@@ -1335,7 +1288,6 @@
     timerRunning = !timerRunning;
     broadcastTimerSync();
     updateTimerDisplay();
-    notify(timerRunning ? 'Timer started' : 'Timer paused', 'info');
   }
 
   function resetTimer() {
@@ -1347,7 +1299,6 @@
     }
     broadcastTimerSync();
     updateTimerDisplay();
-    notify('Timer reset', 'info');
   }
 
   function cycleTimerMode() {
@@ -1411,9 +1362,6 @@
     }
   }
 
-  /* ================================================================
-     SESSION LISTENERS & CONTROLS
-     ================================================================ */
   function attachSessionListeners() {
     document.getElementById('srCopyCode')?.addEventListener('click', () => {
       navigator.clipboard.writeText(roomAddress).then(() => notify('Room code copied.', 'success')).catch(() => {
@@ -1537,9 +1485,6 @@
     setTimeout(() => el.remove(), 2000);
   }
 
-  /* ================================================================
-     MEDIA ENGINE (AUDIO / CAMERA / SCREEN SHARE)
-     ================================================================ */
   async function getOrCreateMediaStream() {
     if (!localMediaStream) {
       localMediaStream = new MediaStream();
@@ -1584,7 +1529,7 @@
     } catch (err) {
       micActive = false;
       updateMediaButtons();
-      notify('Could not access microphone. Check device permissions.', 'error');
+      notify('Could not access microphone.', 'error');
     }
   }
 
@@ -1613,7 +1558,7 @@
     } catch (err) {
       camActive = false;
       updateMediaButtons();
-      notify('Could not access camera. Check device permissions.', 'error');
+      notify('Could not access camera.', 'error');
     }
   }
 
@@ -1668,9 +1613,7 @@
           }
         }, 200);
       }
-    } catch (e) {
-      console.warn('[StudyRoom] Audio analysis notice:', e);
-    }
+    } catch (e) {}
   }
 
   async function toggleScreenShare() {
@@ -2389,9 +2332,6 @@
     }
   }
 
-  /* ================================================================
-     QUESTIONS & NOTES
-     ================================================================ */
   function addQuestion() {
     const id = wbNextQId++;
     wbQuestions.push({ id, question: '', answer: '' });
@@ -2440,9 +2380,6 @@
     });
   }
 
-  /* ================================================================
-     UI UPDATES & CLEANUP
-     ================================================================ */
   function updateParticipantsUI() {
     const list = document.getElementById('srParticipantsList');
     if (list) list.innerHTML = buildParticipantsHTML();
@@ -2460,9 +2397,6 @@
     if (badge) badge.textContent = 1 + Object.keys(peers).length;
   }
 
-  /* ================================================================
-     SESSION FLOW (CREATE / JOIN / LEAVE)
-     ================================================================ */
   async function handleCreate() {
     SoundFX.init();
     nickname = document.getElementById('srNickname')?.value.trim() || 'Student';
@@ -2591,9 +2525,6 @@
     if (overlay) overlay.style.display = 'none';
   }
 
-  /* ================================================================
-     MEDIA SETTINGS TESTING UTILITIES (Called by Settings Modal)
-     ================================================================ */
   async function testMicrophone() {
     try {
       const select = document.getElementById('audioInputSelect');
@@ -2735,4 +2666,3 @@
   }
 
 })();
-
