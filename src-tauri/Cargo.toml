@@ -1,6 +1,6 @@
 [package]
 name = "Questionary"
-version = "0.9.3"
+version = "0.9.5"
 description = "Questionary"
 authors = ["Nugget"]
 edition = "2021"
@@ -18,12 +18,9 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tokio = { version = "1", features = ["full"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
-
-# Global Missing Feature Dependencies
+tauri-plugin-localhost = "2.0.0"
 futures-util = "0.3"
 tokio-tungstenite = "0.24"
-
-# Global Core Plugins (Available to BOTH Desktop and Android)
 tauri-plugin-opener = "2.0.0"
 tauri-plugin-updater = "2.0.0"
 tauri-plugin-process = "2.0.0"

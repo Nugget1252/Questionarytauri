@@ -136,7 +136,6 @@ async fn start_study_server(
     password: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
-    // Stop any existing server first
     {
         let mut guard = state.ws_server.lock().map_err(|e| e.to_string())?;
         if let Some(ref mut srv) = *guard {
@@ -150,10 +149,10 @@ async fn start_study_server(
     let ips = ws_relay::get_local_ips();
 
     state
-    .ws_server
-    .lock()
-    .map_err(|e| e.to_string())?
-    .replace(server);
+        .ws_server
+        .lock()
+        .map_err(|e| e.to_string())?
+        .replace(server);
 
     Ok(serde_json::json!({ "port": port, "ips": ips }))
 }
@@ -178,46 +177,48 @@ fn get_local_ips() -> Vec<String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default()
-    .manage(AppState {
-        ws_server: Mutex::new(None),
-    })
-    .plugin(tauri_plugin_opener::init())
-    .plugin(tauri_plugin_updater::Builder::new().build())
-    .plugin(tauri_plugin_process::init())
-    .plugin(tauri_plugin_fs::init())
-    .plugin(tauri_plugin_http::init());
+        .manage(AppState {
+            ws_server: Mutex::new(None),
+        })
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_http::init());
+
+    // ── Register Embedded Localhost Server on port 3000 for release builds ──
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_localhost::Builder::new(3000).build());
 
     #[cfg(desktop)]
     let builder = builder.plugin(
         PreventBuilder::new()
-        .shortcut(KeyboardShortcut::with_modifiers("W", &[CtrlKey]))
-        .build()
+            .shortcut(KeyboardShortcut::with_modifiers("W", &[CtrlKey]))
+            .build()
     );
 
     builder
-    .setup(|app| {
-        let window = app.get_webview_window("main").expect("no main window");
+        .setup(|app| {
+            let window = app.get_webview_window("main").expect("no main window");
 
-        // Only show the window explicitly if we are on a desktop platform
-        #[cfg(desktop)]
-        let _ = window.show();
+            #[cfg(desktop)]
+            let _ = window.show();
 
-        // Only execute media permissions logic if we are running natively on a Linux desktop
-        #[cfg(target_os = "linux")]
-        {
-            media_linux::setup_media_permissions(&window);
-        }
+            #[cfg(target_os = "linux")]
+            {
+                media_linux::setup_media_permissions(&window);
+            }
 
-        Ok(())
-    })
-    .invoke_handler(tauri::generate_handler![
-        greet,
-        start_study_server,
-        stop_study_server,
-        get_local_ips,
-        get_papers,
-        get_documents_tree
-    ])
-    .run(tauri::generate_context!())
-    .expect("error while running tauri application");
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            greet,
+            start_study_server,
+            stop_study_server,
+            get_local_ips,
+            get_papers,
+            get_documents_tree
+        ])
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application");
 }
