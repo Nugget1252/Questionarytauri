@@ -1,11 +1,15 @@
 
+/* =========================================================================
+ *   QUESTIONARY STUDY ROOM ENGINE v5.3 (Ultra-Reliable Signaling)
+ *   Multi-Mesh WebRTC + Keep-Alive Heartbeat + Infinite Whiteboard & Timers
+ *   ========================================================================= */
 
 (function () {
   'use strict';
 
   /* ---------- Constants & Ice Servers ---------- */
   const MAX_PARTICIPANTS = 12;
-  const ROOM_CODE_LENGTH = 8;
+  const ROOM_CODE_LENGTH = 10;
   const ROOM_CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   const CONNECT_TIMEOUT_MS = 25000;
 
@@ -26,6 +30,17 @@
     ],
     sdpSemantics: 'unified-plan',
     iceCandidatePoolSize: 2
+  };
+
+  /* Explicit PeerJS Cloud Server Configuration with 5s Keep-Alive */
+  const PEERJS_SERVER_CONFIG = {
+    host: '0.peerjs.com',
+    port: 443,
+    path: '/',
+    secure: true,
+    pingInterval: 5000,
+    config: ICE_CONFIG,
+    debug: 1
   };
 
   /* ---------- Zero-Asset Web Audio Synthesizer ---------- */
@@ -94,7 +109,7 @@
 
   /* ---------- Timer & Pomodoro Engine ---------- */
   let mainInterval = null;
-  let timerMode = 'stopwatch'; // 'stopwatch' | 'focus' | 'break' | 'long_break'
+  let timerMode = 'stopwatch';
   let timerRunning = false;
   let timerSeconds = 0;
   let timerDuration = 25 * 60;
@@ -203,7 +218,7 @@
   }
 
   /* ================================================================
-     PEERJS ROOM HUB (Host-Coordinated Mesh Network)
+     PEERJS ROOM HUB (Host-Coordinated Mesh Network + Heartbeat)
      ================================================================ */
   class PeerJSRoomHub {
     constructor() {
@@ -221,6 +236,7 @@
       this.onclose = null;
       this.onerror = null;
       this.connectTimeoutTimer = null;
+      this.heartbeatInterval = null;
       this.outboxQueue = [];
       this.processedMids = new Set();
     }
@@ -234,6 +250,23 @@
         this.processedMids.delete(first);
       }
       return false;
+    }
+
+    startHeartbeat() {
+      if (this.heartbeatInterval) clearInterval(this.heartbeatInterval);
+      this.heartbeatInterval = setInterval(() => {
+        if (this.peer && !this.peer.destroyed) {
+          if (this.peer.disconnected) {
+            console.log('[StudyRoom] Reconnecting to signaling server...');
+            this.peer.reconnect();
+          }
+          if (this.peer.socket && typeof this.peer.socket.send === 'function') {
+            try {
+              this.peer.socket.send({ type: 'PING' });
+            } catch (e) {}
+          }
+        }
+      }, 5000);
     }
 
     async init(targetRoomId) {
@@ -250,7 +283,7 @@
           if (!isResolved && this.readyState !== 1) {
             isResolved = true;
             this.close();
-            const err = new Error(isHost ? 'Failed to bind room code. Please try creating a new one.' : 'Connection timed out. Ensure the host is active and room code is correct.');
+            const err = new Error(isHost ? 'Failed to bind room code. Please try creating a new one.' : `Room code "${targetRoomId.toUpperCase()}" not found or host is offline.`);
             if (this.onerror) this.onerror(err);
             reject(err);
           }
@@ -258,9 +291,9 @@
 
         try {
           if (isHost) {
-            this.peer = new window.Peer(targetHostPeerId, { config: ICE_CONFIG, debug: 1 });
+            this.peer = new window.Peer(targetHostPeerId, PEERJS_SERVER_CONFIG);
           } else {
-            this.peer = new window.Peer({ config: ICE_CONFIG, debug: 1 });
+            this.peer = new window.Peer(PEERJS_SERVER_CONFIG);
           }
         } catch (err) {
           clearTimeout(this.connectTimeoutTimer);
@@ -272,6 +305,7 @@
 
         this.peer.on('open', (assignedId) => {
           console.log(`[StudyRoom] Signaling open. Assigned ID: ${assignedId}`);
+          this.startHeartbeat();
 
           if (isHost) {
             clearTimeout(this.connectTimeoutTimer);
@@ -367,10 +401,6 @@
             conn.on('close', () => {
               this.handleHostDisconnect(conn.peer);
             });
-
-            conn.on('error', (err) => {
-              console.warn('[StudyRoom] Connection error with peer:', conn.peer, err);
-            });
           });
         }
 
@@ -387,10 +417,6 @@
             const callerUserId = this.peerJsToUser.get(call.peer) || call.peer;
             clearRemoteMedia(callerUserId, call.metadata?.type || 'media');
           });
-
-          call.on('error', (err) => {
-            console.warn('[StudyRoom] Call error from:', call.peer, err);
-          });
         });
 
         this.peer.on('error', (err) => {
@@ -399,11 +425,11 @@
 
           let userMsg = 'Connection error.';
           if (err.type === 'peer-unavailable') {
-            userMsg = `Room code "${normalizeRoomCode(targetRoomId)}" not found. The host must create the room before you can join.`;
+            userMsg = `Room "${normalizeRoomCode(targetRoomId)}" not found. Ensure the host has created the room first.`;
           } else if (err.type === 'unavailable-id') {
-            userMsg = 'Room code is already active by another host. Please click Create Room again to get a fresh code.';
+            userMsg = 'Room code is already active. Please create a new room.';
           } else if (err.type === 'network' || err.type === 'socket-error' || err.type === 'socket-closed') {
-            userMsg = 'Signaling network issue. Please check your internet connection and retry.';
+            userMsg = 'Signaling network issue. Please check your internet connection.';
           }
 
           const wrappedError = new Error(userMsg);
@@ -561,10 +587,6 @@
             clearRemoteMedia(targetUserId, type);
             this.activeCalls.delete(key);
           });
-
-          call.on('error', (err) => {
-            console.warn('[StudyRoom] Outgoing call error:', targetPeerJsId, err);
-          });
           return call;
         }
       } catch (err) {
@@ -576,6 +598,7 @@
     close() {
       this.readyState = 3;
       clearTimeout(this.connectTimeoutTimer);
+      if (this.heartbeatInterval) clearInterval(this.heartbeatInterval);
 
       for (const call of this.activeCalls.values()) {
         try { call.close(); } catch (e) {}
@@ -612,7 +635,7 @@
     ws.onopen = () => {};
     ws.onclose = () => handleDisconnect();
     ws.onerror = (err) => {
-      console.warn('[StudyRoom] Hub error:', err);
+      console.warn('[StudyRoom] Hub reported error:', err);
       if (!sessionActive) {
         hideLoading();
         cleanup();
@@ -625,7 +648,7 @@
         const msg = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
         handleServerMessage(msg);
       } catch (e) {
-        console.error('[StudyRoom] Message parse error:', e);
+        console.error('[StudyRoom] Parse error:', e);
       }
     };
     return ws.init(targetRoomId);
@@ -969,6 +992,7 @@
 
     section.innerHTML = `
       <div class="sr-session">
+        <!-- Top Toolbar -->
         <div class="sr-session-bar">
           <div class="sr-session-bar-left">
             <span class="sr-mode-badge sr-mode-inet"><i class="fas fa-wifi"></i> Live</span>
@@ -1017,9 +1041,11 @@
         </div>
 
         <div class="sr-session-body">
+          <!-- Video Area -->
           <div class="sr-video-area" id="srParticipantArea">
             <div class="sr-video-grid" id="srParticipantsGrid"></div>
             
+            <!-- Quick Reactions Bar -->
             <div class="sr-reactions-bar">
               <button class="sr-react-btn" data-emoji="👏" title="Clap">👏</button>
               <button class="sr-react-btn" data-emoji="🔥" title="Fire">🔥</button>
@@ -1075,8 +1101,8 @@
 
             <div class="sr-wb-body">
               <div class="sr-wb-canvas-wrap" id="srWbCanvasWrap" style="touch-action: none !important;">
-                <canvas id="srWbCanvas" style="touch-action: none !important;"></canvas>
-                <canvas id="srWbOverlay" style="touch-action: none !important;"></canvas>
+                <canvas id="srWbCanvas"></canvas>
+                <canvas id="srWbOverlay"></canvas>
               </div>
               <div class="sr-wb-questions">
                 <div class="sr-wb-q-header">
@@ -2709,3 +2735,4 @@
   }
 
 })();
+
