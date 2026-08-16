@@ -284,7 +284,6 @@
                 opacity: 0.75 !important;
             }
 
-            /* Bottom Sheet Transitions for All Modals */
             .modal-overlay {
                 align-items: flex-end !important;
                 padding: 0 !important;
@@ -347,77 +346,16 @@
             }
         }
     </style>
+    
     <script>
-      (function() {
-          // WebRTC Aliases and Polyfills for WebKit / Safari / Tauri / Android
-          window.RTCPeerConnection = window.RTCPeerConnection || window.webkitRTCPeerConnection || window.mozRTCPeerConnection || window.msRTCPeerConnection;
-          window.RTCSessionDescription = window.RTCSessionDescription || window.webkitRTCSessionDescription || window.mozRTCSessionDescription || window.msRTCSessionDescription;
-          window.RTCIceCandidate = window.RTCIceCandidate || window.webkitRTCIceCandidate || window.mozRTCIceCandidate || window.msRTCIceCandidate;
-          window.MediaStream = window.MediaStream || window.webkitMediaStream;
-          window.AudioContext = window.AudioContext || window.webkitAudioContext;
-
-          if (!window.navigator.mediaDevices) { window.navigator.mediaDevices = {}; }
-          if (!window.navigator.mediaDevices.getUserMedia) {
-              window.navigator.mediaDevices.getUserMedia = function() { return Promise.resolve(null); };
-          }
-          if (typeof window.RTCPeerConnection === 'undefined' || !window.RTCPeerConnection) {
-              window.RTCPeerConnection = class DummyRTCPeerConnection extends (typeof EventTarget !== 'undefined' ? EventTarget : Object) {
-                  constructor(config) {
-                      super();
-                      this.config = config;
-                      this.signalingState = 'stable';
-                      this.iceConnectionState = 'new';
-                      this.connectionState = 'new';
-                      this.iceGatheringState = 'complete';
-                      this.localDescription = null;
-                      this.remoteDescription = null;
-                  }
-                  createOffer() { return Promise.resolve({ type: 'offer', sdp: '' }); }
-                  createAnswer() { return Promise.resolve({ type: 'answer', sdp: '' }); }
-                  setLocalDescription(desc) { this.localDescription = desc; return Promise.resolve(); }
-                  setRemoteDescription(desc) { this.remoteDescription = desc; return Promise.resolve(); }
-                  addIceCandidate() { return Promise.resolve(); }
-                  createDataChannel(label) {
-                      return {
-                          label,
-                          readyState: 'connecting',
-                          send: () => {},
-                          close: () => {},
-                          addEventListener: () => {},
-                          removeEventListener: () => {}
-                      };
-                  }
-                  addTrack() {}
-                  removeTrack() {}
-                  getSenders() { return []; }
-                  getReceivers() { return []; }
-                  getTransceivers() { return []; }
-                  close() { this.signalingState = 'closed'; this.connectionState = 'closed'; }
-                  getStats() { return Promise.resolve(new Map()); }
-              };
-          }
-          if (typeof window.RTCSessionDescription === 'undefined' || !window.RTCSessionDescription) {
-              window.RTCSessionDescription = function(d) { return d || { type: 'offer', sdp: '' }; };
-          }
-          if (typeof window.RTCIceCandidate === 'undefined' || !window.RTCIceCandidate) {
-              window.RTCIceCandidate = function(c) { return c || {}; };
-          }
-
-          // Clear stale cached studyRoom.js from localStorage if from older engine
-          try {
-              const codeFilesStr = localStorage.getItem('questionary-code-files');
-              if (codeFilesStr) {
-                  const codeFiles = JSON.parse(codeFilesStr);
-                  if (codeFiles && codeFiles['js/studyRoom.js'] && !codeFiles['js/studyRoom.js'].includes('STUDY_ROOM_ENGINE_VERSION = "4.0"')) {
-                      delete codeFiles['js/studyRoom.js'];
-                      localStorage.setItem('questionary-code-files', JSON.stringify(codeFiles));
-                      console.log('[Init] Cleared outdated studyRoom.js from hotUpdater cache');
-                  }
-              }
-          } catch(e) {}
-      })();
+      // Clean Real WebRTC Aliases (No fake dummy classes)
+      window.RTCPeerConnection = window.RTCPeerConnection || window.webkitRTCPeerConnection || window.mozRTCPeerConnection;
+      window.RTCSessionDescription = window.RTCSessionDescription || window.webkitRTCSessionDescription;
+      window.RTCIceCandidate = window.RTCIceCandidate || window.webkitRTCIceCandidate;
+      window.MediaStream = window.MediaStream || window.webkitMediaStream;
+      window.AudioContext = window.AudioContext || window.webkitAudioContext;
     </script>
-    <script src="js/peerjs-patched.js"></script>
+    <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/11.1.1/marked.min.js"></script>
 </head>
