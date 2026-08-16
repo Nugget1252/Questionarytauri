@@ -926,7 +926,7 @@
       <div class="sr-lobby">
         <div class="sr-lobby-header">
           <h2 class="section-title"><i class="fas fa-users"></i>Study Room</h2>
-          <span class="sr-exp-badge">Study Room v5.0</span>
+          <span class="sr-exp-badge">Study Room beta</span>
           <div class="sr-lobby-icon"><i class="fas fa-graduation-cap"></i></div>
           <p class="sr-lobby-subtitle">Collaborate live with screen sharing, interactive whiteboard, synced timers, voice & notes.</p>
         </div>
