@@ -1,10 +1,96 @@
 /* =========================================================================
- *   QUESTIONARY STUDY ROOM ENGINE v7.0 (Native Rust WebSocket Backend)
- *   100% WebKitGTK & Tauri Native Compatible | Zero WebRTC / PeerJS Errors
+ *   QUESTIONARY STUDY ROOM ENGINE v7.5 (Full Master Suite)
+ *   10-Digit Base32 Codec + Native Relay + Infinite Whiteboard & Media Suite
  *   ========================================================================= */
 
 (function () {
   'use strict';
+
+  /* ---------- Constants & Codecs ---------- */
+  const MAX_PARTICIPANTS = 12;
+  const ROOM_CODE_LENGTH = 10;
+  const BASE32_ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+  const CONNECT_TIMEOUT_MS = 20000;
+
+  /* STUN + Free OpenRelay TURN Pool */
+  const ICE_CONFIG = {
+    iceServers: [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun.cloudflare.com:3478' },
+      {
+        urls: [
+          'turn:openrelay.metered.ca:80',
+          'turn:openrelay.metered.ca:443',
+          'turn:openrelay.metered.ca:443?transport=tcp'
+        ],
+        username: 'openrelay',
+        credential: 'openrelay'
+      }
+    ],
+    sdpSemantics: 'unified-plan',
+    iceCandidatePoolSize: 2
+  };
+
+  /* ----------------------------------------------------------------
+   * 10-DIGIT BASE32 IP:PORT CODEC (Hides raw IPs into clean codes)
+   * ---------------------------------------------------------------- */
+  function ipPortToCode(ipStr, portNum) {
+    try {
+      const parts = ipStr.split('.').map(Number);
+      if (parts.length !== 4) return generateRandomCode();
+      const bytes = [
+        parts[0], parts[1], parts[2], parts[3],
+        (portNum >> 8) & 0xFF,
+        portNum & 0xFF
+      ];
+      let bits = 0n;
+      for (let b of bytes) {
+        bits = (bits << 8n) | BigInt(b);
+      }
+      bits = bits << 2n; // 50 bits
+      let code = '';
+      for (let i = 9; i >= 0; i--) {
+        const index = Number((bits >> BigInt(i * 5)) & 0x1Fn);
+        code += BASE32_ALPHABET[index];
+      }
+      return code;
+    } catch (e) {
+      return generateRandomCode();
+    }
+  }
+
+  function codeToIpPort(codeStr) {
+    try {
+      const clean = codeStr.toUpperCase().trim().replace(/[^2-9A-Z]/g, '');
+      if (clean.length !== 10) return null;
+      let bits = 0n;
+      for (let char of clean) {
+        const idx = BASE32_ALPHABET.indexOf(char);
+        if (idx === -1) return null;
+        bits = (bits << 5n) | BigInt(idx);
+      }
+      bits = bits >> 2n;
+      const p2 = Number(bits & 0xFFn);
+      const p1 = Number((bits >> 8n) & 0xFFn);
+      const d = Number((bits >> 16n) & 0xFFn);
+      const c = Number((bits >> 24n) & 0xFFn);
+      const b = Number((bits >> 32n) & 0xFFn);
+      const a = Number((bits >> 40n) & 0xFFn);
+      const port = (p1 << 8) | p2;
+      const ip = `${a}.${b}.${c}.${d}`;
+      return { ip, port };
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function generateRandomCode() {
+    let id = '';
+    for (let i = 0; i < ROOM_CODE_LENGTH; i++) {
+      id += BASE32_ALPHABET[Math.floor(Math.random() * BASE32_ALPHABET.length)];
+    }
+    return id;
+  }
 
   /* ---------- Zero-Asset Web Audio Synthesizer ---------- */
   const SoundFX = {
@@ -58,12 +144,14 @@
 
   /* ---------- Core State ---------- */
   let socket = null;
+  let peerInstance = null;
   let myId = '';
   let peers = {};
   let roomAddress = '';
   let isHost = false;
   let nickname = '';
   let roomPassword = '';
+  let roomLocked = false;
   let handRaised = false;
   let unreadChatCount = 0;
   let activeTab = 'chat';
@@ -81,6 +169,18 @@
 
   /* ---------- Chat Messages ---------- */
   let chatMessages = [];
+
+  /* ---------- Media Streams & Audio Detection ---------- */
+  let localMediaStream = null;
+  let localScreenStream = null;
+  let micActive = false;
+  let camActive = false;
+  let pttActive = false;
+  let audioContext = null;
+  let localAudioAnalyser = null;
+  let localAudioSource = null;
+  let speechInterval = null;
+  let isSpeaking = false;
 
   /* ---------- Whiteboard State ---------- */
   let wbActive = false;
@@ -133,6 +233,11 @@
 
   function capitalize(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : ''; }
 
+  function normalizeRoomCode(raw) {
+    if (!raw) return '';
+    return raw.toUpperCase().trim().replace(/[^2-9A-Z0-9]/g, '');
+  }
+
   function notify(msg, type = 'info') {
     if (typeof window.showNotification === 'function') {
       window.showNotification(msg, type);
@@ -141,7 +246,6 @@
     }
   }
 
-  /* Tauri Invoker Bridge */
   async function tauriInvoke(cmd, args = {}) {
     if (window.__TAURI__ && window.__TAURI__.core && typeof window.__TAURI__.core.invoke === 'function') {
       return await window.__TAURI__.core.invoke(cmd, args);
@@ -153,7 +257,7 @@
   }
 
   /* ================================================================
-     WEBSOCKET RELAY ENGINE (Uses Native Rust Server in Tauri)
+     NETWORKING ENGINE (Tauri Native Rust Relay + WebSockets)
      ================================================================ */
   function connectWebSocket(wsUrl, onOpenCallback) {
     return new Promise((resolve, reject) => {
@@ -162,9 +266,9 @@
         if (!isResolved) {
           isResolved = true;
           if (socket) socket.close();
-          reject(new Error('Connection timed out. Check IP/Port and network connectivity.'));
+          reject(new Error('Connection timed out. Check room code.'));
         }
-      }, 10000);
+      }, CONNECT_TIMEOUT_MS);
 
       try {
         socket = new WebSocket(wsUrl);
@@ -228,7 +332,7 @@
         hideLoading();
         renderActiveSession();
         SoundFX.playJoin();
-        notify(`Study Room live at ${roomAddress}`, 'success');
+        notify(`Study Room live. Code: ${roomAddress}`, 'success');
         break;
 
       case 'joined':
@@ -238,6 +342,7 @@
             peers[p.id] = { nickname: p.nickname, goal: '', seconds: 0, handRaised: false, isSpeaking: false };
           });
         }
+        roomLocked = !!msg.locked;
         sessionActive = true;
         startStudyTimerEngine();
         hideLoading();
@@ -276,7 +381,7 @@
       }
 
       case 'room-closed':
-        notify('Host ended the study room session.', 'info');
+        notify('Host ended the study session.', 'info');
         forceLeaveRoom();
         break;
 
@@ -315,6 +420,14 @@
         }
         break;
 
+      case 'speaking':
+        if (peers[fromId]) {
+          peers[fromId].isSpeaking = !!data.speaking;
+          const tile = document.getElementById(`srTile_${fromId}`);
+          if (tile) tile.classList.toggle('sr-speaking', !!data.speaking);
+        }
+        break;
+
       case 'progress':
         if (peers[fromId]) {
           peers[fromId].goal = data.goal || '';
@@ -348,6 +461,26 @@
         timerDuration = data.duration;
         timerRemaining = data.remaining;
         updateTimerDisplay();
+        break;
+
+      case 'mod-mute-all':
+        if (!isHost && micActive) {
+          toggleMicrophone();
+          notify('Host muted all microphones.', 'warning');
+        }
+        break;
+
+      case 'mod-kick':
+        if (data.targetId === myId) {
+          notify('You were removed from the room by the host.', 'error');
+          forceLeaveRoom();
+        }
+        break;
+
+      case 'mod-lock':
+        roomLocked = data.locked;
+        updateRoomLockUI();
+        notify(`Room ${roomLocked ? 'Locked' : 'Unlocked'} by host.`, 'info');
         break;
 
       case 'wb-live-draw':
@@ -427,9 +560,9 @@
       <div class="sr-lobby">
         <div class="sr-lobby-header">
           <h2 class="section-title"><i class="fas fa-users"></i>Study Room</h2>
-          <span class="sr-exp-badge">Native High-Speed Relay</span>
+          <span class="sr-exp-badge">Study Room v7.5</span>
           <div class="sr-lobby-icon"><i class="fas fa-graduation-cap"></i></div>
-          <p class="sr-lobby-subtitle">Collaborate live with real-time interactive whiteboard, synchronized timers, chat & notes.</p>
+          <p class="sr-lobby-subtitle">Collaborate live with real-time interactive whiteboard, synchronized timers, voice & notes.</p>
         </div>
 
         <div class="sr-lobby-cards">
@@ -440,7 +573,7 @@
 
           <div class="sr-lobby-card sr-card-create">
             <h3><i class="fas fa-plus-circle"></i> Create Room</h3>
-            <p>Host a study room using your native Rust relay server.</p>
+            <p>Host a study room and share your 10-digit code with your group.</p>
 
             <div class="sr-pw-row">
               <input type="password" id="srCreatePassword" class="sr-input" placeholder="Room password (optional)" maxlength="32" autocomplete="off">
@@ -451,9 +584,9 @@
 
           <div class="sr-lobby-card sr-card-join">
             <h3><i class="fas fa-sign-in-alt"></i> Join Room</h3>
-            <p>Enter the Room Address shared by the host (e.g. 192.168.1.5:54321 or 127.0.0.1:54321).</p>
+            <p>Enter the 10-digit room code shared by your study partner.</p>
             <div class="sr-join-row">
-              <input type="text" id="srJoinAddress" class="sr-input" placeholder="127.0.0.1:54321" spellcheck="false" autocomplete="off">
+              <input type="text" id="srJoinAddress" class="sr-input sr-code-input" placeholder="4SNELCGW9X" spellcheck="false" autocomplete="off" maxlength="10">
               <button class="sr-btn sr-btn-accent" id="srJoinBtn"><i class="fas fa-arrow-right"></i> Join</button>
             </div>
             <div class="sr-pw-row" style="margin-top:0.5rem;">
@@ -493,13 +626,15 @@
 
     section.innerHTML = `
       <div class="sr-session">
+        <!-- Top Toolbar -->
         <div class="sr-session-bar">
           <div class="sr-session-bar-left">
             <span class="sr-mode-badge sr-mode-inet"><i class="fas fa-bolt"></i> Live</span>
-            <span class="sr-room-code-badge" title="Click to copy room address" id="srCopyCode">
+            <span class="sr-room-code-badge" title="Click to copy room code" id="srCopyCode">
               <i class="fas fa-key"></i> ${escapeHTML(roomAddress)}
             </span>
             ${roomPassword ? `<span class="sr-pw-badge"><i class="fas fa-lock"></i> <span class="sr-pw-hidden" id="srPwReveal">••••••</span></span>` : `<span class="sr-pw-badge sr-pw-open"><i class="fas fa-lock-open"></i> Public</span>`}
+            ${isHost ? `<button class="sr-btn sr-btn-sm ${roomLocked ? 'sr-btn-primary' : 'sr-btn-secondary'}" id="srLockToggle" title="Lock/Unlock Room"><i class="fas fa-${roomLocked ? 'lock' : 'lock-open'}"></i></button>` : ''}
           </div>
 
           <!-- UNIFIED TIMER & POMODORO BAR -->
@@ -520,9 +655,19 @@
             <button class="sr-ctrl-btn ${handRaised ? 'sr-ctrl-active' : ''}" id="srRaiseHandBtn" title="Raise Hand">
               <i class="fas fa-hand-paper"></i>
             </button>
+            <button class="sr-ctrl-btn" id="srToggleMic" title="Toggle Microphone">
+              <i class="fas fa-microphone-slash" style="color: #ef4444;"></i>
+            </button>
+            <button class="sr-ctrl-btn" id="srToggleCamera" title="Toggle Camera">
+              <i class="fas fa-video-slash" style="color: #ef4444;"></i>
+            </button>
+            <button class="sr-ctrl-btn" id="srToggleScreenShare" title="Share Screen">
+              <i class="fas fa-desktop"></i>
+            </button>
             <button class="sr-ctrl-btn ${wbActive ? 'sr-ctrl-active' : ''}" id="srToggleWB" title="Toggle Whiteboard">
               <i class="fas fa-chalkboard"></i>
             </button>
+            ${isHost ? `<button class="sr-ctrl-btn" id="srMuteAllBtn" title="Mute All"><i class="fas fa-volume-mute"></i></button>` : ''}
             <button class="sr-ctrl-btn sr-ctrl-danger" id="srLeaveBtn" title="Leave room">
               <i class="fas fa-phone-slash"></i>
             </button>
@@ -530,9 +675,11 @@
         </div>
 
         <div class="sr-session-body">
+          <!-- Video Area -->
           <div class="sr-video-area" id="srParticipantArea">
             <div class="sr-video-grid" id="srParticipantsGrid"></div>
             
+            <!-- Quick Reactions Bar -->
             <div class="sr-reactions-bar">
               <button class="sr-react-btn" data-emoji="👏" title="Clap">👏</button>
               <button class="sr-react-btn" data-emoji="🔥" title="Fire">🔥</button>
@@ -669,6 +816,11 @@
             <span class="sr-participant-name">${escapeHTML(p.nickname || 'Student')}${p.handRaised ? ' <i class="fas fa-hand-paper" style="color:var(--accent,#cf6215);margin-left:4px;"></i>' : ''}</span>
             <span class="sr-participant-status"><i class="fas fa-circle sr-status-on"></i> Connected</span>
           </div>
+          ${isHost ? `
+            <div class="sr-participant-actions">
+              <button class="sr-btn sr-btn-sm sr-btn-danger sr-btn-icon" onclick="window.srKickUser('${id}')" title="Kick participant"><i class="fas fa-user-slash"></i></button>
+            </div>
+          ` : ''}
         </div>`;
     });
     return html;
@@ -711,6 +863,11 @@
         <div class="sr-tile-hand" style="display:${handRaised ? 'block' : 'none'};"><i class="fas fa-hand-paper"></i></div>
       `;
       grid.appendChild(selfTile);
+    } else {
+      const label = selfTile.querySelector('.sr-video-label');
+      if (label) label.innerHTML = `${escapeHTML(nickname)} (You)${isHost ? ' <i class="fas fa-crown" style="color:#f59e0b;"></i>' : ''}`;
+      const hand = selfTile.querySelector('.sr-tile-hand');
+      if (hand) hand.style.display = handRaised ? 'block' : 'none';
     }
 
     Object.entries(peers).forEach(([uId, p]) => {
@@ -726,6 +883,12 @@
           <div class="sr-tile-hand" style="display:${p.handRaised ? 'block' : 'none'};"><i class="fas fa-hand-paper"></i></div>
         `;
         grid.appendChild(tile);
+      } else {
+        const label = tile.querySelector('.sr-video-label');
+        if (label) label.textContent = p.nickname || 'Student';
+        const hand = tile.querySelector('.sr-tile-hand');
+        if (hand) hand.style.display = p.handRaised ? 'block' : 'none';
+        tile.classList.toggle('sr-speaking', !!p.isSpeaking);
       }
     });
 
@@ -744,6 +907,7 @@
 
     mainInterval = setInterval(() => {
       if (!sessionActive) return;
+
       totalUptimeSeconds++;
 
       if (timerRunning) {
@@ -864,8 +1028,8 @@
      ================================================================ */
   function attachSessionListeners() {
     document.getElementById('srCopyCode')?.addEventListener('click', () => {
-      navigator.clipboard.writeText(roomAddress).then(() => notify('Room address copied to clipboard!', 'success')).catch(() => {
-        prompt('Room Address:', roomAddress);
+      navigator.clipboard.writeText(roomAddress).then(() => notify('Room code copied to clipboard!', 'success')).catch(() => {
+        prompt('Room Code:', roomAddress);
       });
     });
 
@@ -877,11 +1041,27 @@
       });
     }
 
+    document.getElementById('srLockToggle')?.addEventListener('click', () => {
+      roomLocked = !roomLocked;
+      broadcastData({ type: 'mod-lock', locked: roomLocked });
+      updateRoomLockUI();
+      notify(`Room ${roomLocked ? 'Locked' : 'Unlocked'}`, 'info');
+    });
+
     document.getElementById('srRaiseHandBtn')?.addEventListener('click', toggleRaiseHand);
+    document.getElementById('srMuteAllBtn')?.addEventListener('click', () => {
+      broadcastData({ type: 'mod-mute-all' });
+      notify('Mute request sent to all.', 'info');
+    });
+
     document.getElementById('srLeaveBtn')?.addEventListener('click', leaveRoom);
     document.getElementById('srChatSend')?.addEventListener('click', sendChatMessage);
     document.getElementById('srChatInput')?.addEventListener('keydown', e => { if (e.key === 'Enter') sendChatMessage(); });
     document.getElementById('srShareMaterial')?.addEventListener('click', handleShareMaterial);
+
+    document.getElementById('srToggleScreenShare')?.addEventListener('click', toggleScreenShare);
+    document.getElementById('srToggleMic')?.addEventListener('click', toggleMicrophone);
+    document.getElementById('srToggleCamera')?.addEventListener('click', toggleCamera);
     document.getElementById('srToggleWB')?.addEventListener('click', toggleWhiteboard);
 
     document.getElementById('srPomoToggleMode')?.addEventListener('click', cycleTimerMode);
@@ -922,7 +1102,16 @@
     document.getElementById('srSetGoal')?.addEventListener('click', applyGoal);
     document.getElementById('srGoalInput')?.addEventListener('keydown', e => { if (e.key === 'Enter') applyGoal(); });
 
+    setupPushToTalk();
     initWhiteboardListeners();
+  }
+
+  function updateRoomLockUI() {
+    const btn = document.getElementById('srLockToggle');
+    if (btn) {
+      btn.innerHTML = `<i class="fas fa-${roomLocked ? 'lock' : 'lock-open'}"></i>`;
+      btn.className = `sr-btn sr-btn-sm ${roomLocked ? 'sr-btn-primary' : 'sr-btn-secondary'}`;
+    }
   }
 
   function updateUnreadBadge() {
@@ -958,6 +1147,230 @@
     container.appendChild(el);
 
     setTimeout(() => el.remove(), 2000);
+  }
+
+  /* ================================================================
+     MEDIA ENGINE (AUDIO / CAMERA / SCREEN SHARE)
+     ================================================================ */
+  async function getOrCreateMediaStream() {
+    if (!localMediaStream) {
+      localMediaStream = new MediaStream();
+    }
+    return localMediaStream;
+  }
+
+  async function toggleMicrophone() {
+    try {
+      const stream = await getOrCreateMediaStream();
+      let audioTrack = stream.getAudioTracks()[0];
+
+      if (!audioTrack) {
+        const audioStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+        audioTrack = audioStream.getAudioTracks()[0];
+        stream.addTrack(audioTrack);
+        micActive = true;
+        audioTrack.enabled = true;
+      } else {
+        micActive = !micActive;
+        audioTrack.enabled = micActive;
+      }
+
+      updateMediaButtons();
+      setupAudioAnalysis();
+      notify(micActive ? 'Microphone unmuted' : 'Microphone muted', 'info');
+    } catch (err) {
+      micActive = false;
+      updateMediaButtons();
+      notify('Could not access microphone.', 'error');
+    }
+  }
+
+  async function toggleCamera() {
+    try {
+      const stream = await getOrCreateMediaStream();
+      let videoTrack = stream.getVideoTracks()[0];
+
+      if (!videoTrack) {
+        const videoStream = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 24 } }
+        });
+        videoTrack = videoStream.getVideoTracks()[0];
+        stream.addTrack(videoTrack);
+        camActive = true;
+        videoTrack.enabled = true;
+      } else {
+        camActive = !camActive;
+        videoTrack.enabled = camActive;
+      }
+
+      updateMediaButtons();
+      renderLocalCam(camActive ? stream : null);
+      notify(camActive ? 'Camera turned on' : 'Camera turned off', 'info');
+    } catch (err) {
+      camActive = false;
+      updateMediaButtons();
+      notify('Could not access camera.', 'error');
+    }
+  }
+
+  function updateMediaButtons() {
+    const mbtn = document.getElementById('srToggleMic');
+    if (mbtn) {
+      mbtn.innerHTML = `<i class="fas fa-${micActive ? 'microphone' : 'microphone-slash'}" style="${micActive ? '' : 'color: #ef4444;'}"></i>`;
+      mbtn.classList.toggle('sr-ctrl-active', micActive);
+    }
+    const cbtn = document.getElementById('srToggleCamera');
+    if (cbtn) {
+      cbtn.innerHTML = `<i class="fas fa-${camActive ? 'video' : 'video-slash'}" style="${camActive ? '' : 'color: #ef4444;'}"></i>`;
+      cbtn.classList.toggle('sr-ctrl-active', camActive);
+    }
+  }
+
+  function setupAudioAnalysis() {
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!audioContext && AudioCtx) audioContext = new AudioCtx();
+      if (!audioContext) return;
+
+      if (!localAudioAnalyser && localMediaStream && localMediaStream.getAudioTracks().length > 0) {
+        localAudioSource = audioContext.createMediaStreamSource(localMediaStream);
+        localAudioAnalyser = audioContext.createAnalyser();
+        localAudioAnalyser.fftSize = 256;
+        localAudioSource.connect(localAudioAnalyser);
+
+        const dataArray = new Uint8Array(localAudioAnalyser.frequencyBinCount);
+        if (speechInterval) clearInterval(speechInterval);
+
+        speechInterval = setInterval(() => {
+          if (!micActive || !localAudioAnalyser) {
+            if (isSpeaking) {
+              isSpeaking = false;
+              document.getElementById('srTile_usr_self')?.classList.remove('sr-speaking');
+              broadcastData({ type: 'speaking', speaking: false });
+            }
+            return;
+          }
+
+          localAudioAnalyser.getByteFrequencyData(dataArray);
+          let sum = 0;
+          for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
+          const avg = sum / dataArray.length;
+          const nowSpeaking = avg > 20;
+
+          if (nowSpeaking !== isSpeaking) {
+            isSpeaking = nowSpeaking;
+            document.getElementById('srTile_usr_self')?.classList.toggle('sr-speaking', isSpeaking);
+            broadcastData({ type: 'speaking', speaking: isSpeaking });
+          }
+        }, 200);
+      }
+    } catch (e) {}
+  }
+
+  async function toggleScreenShare() {
+    const btn = document.getElementById('srToggleScreenShare');
+    if (localScreenStream) {
+      stopScreenShare();
+      return;
+    }
+    try {
+      localScreenStream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 30 } });
+      const vTrack = localScreenStream.getVideoTracks()[0];
+      if (vTrack) {
+        vTrack.onended = () => stopScreenShare();
+      }
+
+      if (btn) btn.classList.add('sr-ctrl-active');
+      renderLocalScreenVideo(localScreenStream);
+      notify('Screen sharing started.', 'success');
+    } catch (err) {
+      notify('Screen share canceled.', 'info');
+    }
+  }
+
+  function stopScreenShare() {
+    if (localScreenStream) {
+      localScreenStream.getTracks().forEach(t => t.stop());
+      localScreenStream = null;
+    }
+    const btn = document.getElementById('srToggleScreenShare');
+    if (btn) btn.classList.remove('sr-ctrl-active');
+    renderLocalScreenVideo(null);
+  }
+
+  function renderLocalScreenVideo(stream) {
+    const localTile = document.getElementById('srTile_usr_self');
+    if (!localTile) return;
+    let video = localTile.querySelector('.sr-screen-video');
+    if (!stream) {
+      if (video) { video.pause(); video.srcObject = null; video.remove(); }
+      const off = localTile.querySelector('.sr-video-off');
+      if (off && !localTile.querySelector('.sr-cam-video')) off.style.display = 'flex';
+      return;
+    }
+    const off = localTile.querySelector('.sr-video-off');
+    if (off) off.style.display = 'none';
+
+    if (!video) {
+      video = document.createElement('video');
+      video.className = 'sr-screen-video';
+      video.autoplay = true;
+      video.playsInline = true;
+      video.muted = true;
+      video.style.cssText = 'width:100%;height:100%;object-fit:contain;position:absolute;top:0;left:0;border-radius:12px;background:#000;z-index:2;';
+      localTile.appendChild(video);
+    }
+    video.srcObject = stream;
+  }
+
+  function renderLocalCam(stream) {
+    const localTile = document.getElementById('srTile_usr_self');
+    if (!localTile) return;
+    const off = localTile.querySelector('.sr-video-off');
+    let camVideo = localTile.querySelector('.sr-cam-video');
+
+    if (!stream) {
+      if (camVideo) { camVideo.pause(); camVideo.srcObject = null; camVideo.remove(); }
+      if (!localTile.querySelector('.sr-screen-video') && off) off.style.display = 'flex';
+      return;
+    }
+    if (off) off.style.display = 'none';
+    if (!camVideo) {
+      camVideo = document.createElement('video');
+      camVideo.className = 'sr-cam-video';
+      camVideo.autoplay = true;
+      camVideo.playsInline = true;
+      camVideo.muted = true;
+      camVideo.style.cssText = 'width:100%;height:100%;object-fit:cover;position:absolute;top:0;left:0;border-radius:12px;z-index:1;';
+      localTile.appendChild(camVideo);
+    }
+    camVideo.srcObject = stream;
+  }
+
+  function setupPushToTalk() {
+    window.addEventListener('keydown', (e) => {
+      if (e.code === 'Space' && !pttActive && !wbActive) {
+        const tag = document.activeElement?.tagName.toLowerCase();
+        if (tag === 'input' || tag === 'textarea') return;
+        if (localMediaStream && localMediaStream.getAudioTracks().length > 0 && !micActive) {
+          pttActive = true;
+          localMediaStream.getAudioTracks()[0].enabled = true;
+          const mbtn = document.getElementById('srToggleMic');
+          if (mbtn) mbtn.classList.add('sr-ctrl-active');
+        }
+      }
+    });
+
+    window.addEventListener('keyup', (e) => {
+      if (e.code === 'Space' && pttActive) {
+        pttActive = false;
+        if (localMediaStream && localMediaStream.getAudioTracks().length > 0 && !micActive) {
+          localMediaStream.getAudioTracks()[0].enabled = false;
+          const mbtn = document.getElementById('srToggleMic');
+          if (mbtn) mbtn.classList.remove('sr-ctrl-active');
+        }
+      }
+    });
   }
 
   /* ================================================================
@@ -1559,7 +1972,7 @@
   }
 
   /* ================================================================
-     SESSION FLOW (CREATE / JOIN / LEAVE) - TAURI NATIVE RUST SERVER
+     SESSION FLOW (CREATE / JOIN / LEAVE) - 10-DIGIT CODEC ROUTER
      ================================================================ */
   async function handleCreate() {
     SoundFX.init();
@@ -1569,18 +1982,20 @@
     isHost = true;
 
     try {
-      showLoading('Starting native study server…');
+      showLoading('Creating room…');
 
-      // Start the embedded Rust WebSocket relay server
+      // Start embedded Rust WebSocket Relay Server in Tauri
       const serverInfo = await tauriInvoke('start_study_server', { password: roomPassword });
 
       let targetWsUrl = '';
       if (serverInfo && serverInfo.port) {
         const localIp = (serverInfo.ips && serverInfo.ips.length > 0) ? serverInfo.ips[0] : '127.0.0.1';
-        roomAddress = `${localIp}:${serverInfo.port}`;
+        // Encode IP:Port into a clean 10-character room code
+        roomAddress = ipPortToCode(localIp, serverInfo.port);
         targetWsUrl = `ws://127.0.0.1:${serverInfo.port}`;
       } else {
-        roomAddress = '127.0.0.1:8080';
+        // Fallback room code if web
+        roomAddress = generateRandomCode();
         targetWsUrl = 'ws://127.0.0.1:8080';
       }
 
@@ -1592,7 +2007,7 @@
       hideLoading();
       cleanup();
       renderStudyRoom();
-      notify('Could not start study server: ' + (err.message || err), 'error');
+      notify('Could not start study room: ' + (err.message || err), 'error');
     }
   }
 
@@ -1602,19 +2017,28 @@
     localStorage.setItem('questionary-study-nickname', nickname);
     const rawInput = document.getElementById('srJoinAddress')?.value.trim();
     if (!rawInput) {
-      notify('Please enter a room address (e.g. 192.168.1.5:54321).', 'error');
+      notify('Please enter a 10-digit room code.', 'error');
       return;
     }
     roomPassword = document.getElementById('srJoinPassword')?.value || '';
     isHost = false;
 
-    let cleanAddress = rawInput.replace(/^ws:\/\//, '').trim();
-    if (!cleanAddress.includes(':')) {
-      cleanAddress = `127.0.0.1:${cleanAddress}`;
-    }
+    let targetWsUrl = '';
+    const cleanCode = normalizeRoomCode(rawInput);
 
-    roomAddress = cleanAddress;
-    const targetWsUrl = `ws://${cleanAddress}`;
+    // Decode 10-digit code back into host's IP and port
+    const decoded = codeToIpPort(cleanCode);
+    if (decoded) {
+      targetWsUrl = `ws://${decoded.ip}:${decoded.port}`;
+      roomAddress = cleanCode;
+    } else if (rawInput.includes(':')) {
+      // Direct IP:Port input fallback
+      targetWsUrl = `ws://${rawInput.replace(/^ws:\/\//, '')}`;
+      roomAddress = rawInput;
+    } else {
+      notify('Invalid room code format. Please check the 10-character code.', 'error');
+      return;
+    }
 
     try {
       showLoading('Connecting to study room…');
@@ -1625,7 +2049,7 @@
       hideLoading();
       cleanup();
       renderStudyRoom();
-      notify(err.message || 'Failed to connect to room server.', 'error');
+      notify(err.message || 'Room not found or host is offline.', 'error');
     }
   }
 
@@ -1646,13 +2070,20 @@
 
   function doLeave() {
     if (mainInterval) { clearInterval(mainInterval); mainInterval = null; }
+    if (speechInterval) { clearInterval(speechInterval); speechInterval = null; }
+    stopScreenShare();
+
+    if (localMediaStream) {
+      localMediaStream.getTracks().forEach(t => t.stop());
+      localMediaStream = null;
+    }
 
     if (socket) {
       try { socket.close(); } catch (_) {}
       socket = null;
     }
 
-    // Stop the native Rust relay server if host
+    // Stop native Rust server if host in Tauri
     if (isHost) {
       tauriInvoke('stop_study_server').catch(() => {});
     }
@@ -1672,6 +2103,9 @@
     wbActive = false;
     unreadChatCount = 0;
     handRaised = false;
+    micActive = false;
+    camActive = false;
+    isSpeaking = false;
   }
 
   function cleanup() {
@@ -1813,8 +2247,14 @@
      ================================================================ */
   window.renderStudyRoom = renderStudyRoom;
   window.leaveStudyRoom = leaveRoom;
+  window.srToggleMicrophone = toggleMicrophone;
+  window.srToggleCamera = toggleCamera;
+  window.srToggleScreenShare = toggleScreenShare;
   window.srToggleWB = toggleWhiteboard;
   window.srToggleHand = toggleRaiseHand;
+  window.srKickUser = (targetId) => {
+    if (isHost) broadcastData({ type: 'mod-kick', targetId });
+  };
   window.wbSelectTool = selectWbTool;
   window.wbUndo = () => {
     undoCanvasLocal();
