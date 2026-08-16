@@ -1,27 +1,18 @@
-/* STUDY_ROOM_ENGINE_VERSION = "4.0" */
-window.STUDY_ROOM_ENGINE_VERSION = "4.0";
-
-// HOT-UPDATE EXECUTION GUARD (Prevents static script tag from overwriting hot updates)
-if (window._HOT_STUDY_ROOM_LOADED && (!document.currentScript || !document.currentScript.id || !document.currentScript.id.includes('hot-js'))) {
-    console.log('[HotUpdate] Hot-updated studyRoom.js is active. Aborting bundled execution.');
-} else {
-    window._HOT_STUDY_ROOM_LOADED = true;
-
-    // ... (All your existing studyRoom.js code stays here) ...
-
-// <-- Don't forget to close the bracket at the very bottom of the file!
+/* =========================================================================
+ *   QUESTIONARY STUDY ROOM ENGINE v5.0 (Full Master Build)
+ *   Multi-Mesh WebRTC + TURN Relay + Infinite Whiteboard + Media Suite
+ *   ========================================================================= */
 
 (function () {
   'use strict';
 
-  /* ---------- Constants ---------- */
-  /* ---------- Constants ---------- */
+  /* ---------- Constants & Ice Servers ---------- */
   const MAX_PARTICIPANTS = 12;
-  const ROOM_CODE_LENGTH = 10;
-  const ROOM_CODE_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  const ROOM_CODE_LENGTH = 8;
+  const ROOM_CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   const CONNECT_TIMEOUT_MS = 15000;
 
-  /* Fast Multi-STUN Configuration */
+  /* Multi-STUN + Free OpenRelay TURN Servers for 100% NAT & Mobile Data Punch-Through */
   const ICE_CONFIG = {
     iceServers: [
       { urls: 'stun:stun.l.google.com:19302' },
@@ -29,7 +20,23 @@ if (window._HOT_STUDY_ROOM_LOADED && (!document.currentScript || !document.curre
       { urls: 'stun:stun2.l.google.com:19302' },
       { urls: 'stun:stun3.l.google.com:19302' },
       { urls: 'stun:stun4.l.google.com:19302' },
-      { urls: 'stun:stun.cloudflare.com:3478' }
+      { urls: 'stun:stun.cloudflare.com:3478' },
+      { urls: 'stun:global.stun.twilio.com:3478' },
+      {
+        urls: 'turn:openrelay.metered.ca:80',
+        username: 'openrelay',
+        credential: 'openrelay'
+      },
+      {
+        urls: 'turn:openrelay.metered.ca:443',
+        username: 'openrelay',
+        credential: 'openrelay'
+      },
+      {
+        urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+        username: 'openrelay',
+        credential: 'openrelay'
+      }
     ],
     sdpSemantics: 'unified-plan'
   };
@@ -196,6 +203,24 @@ if (window._HOT_STUDY_ROOM_LOADED && (!document.currentScript || !document.curre
     }
   }
 
+  /* Dynamic PeerJS Loader fallback if peerjs-patched.js was missing */
+  async function ensurePeerJS() {
+    if (typeof window.Peer !== 'undefined') return true;
+    return new Promise((resolve, reject) => {
+      console.log('[StudyRoom] Loading PeerJS library from CDN...');
+      const script = document.createElement('script');
+      script.src = 'https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js';
+      script.onload = () => {
+        console.log('[StudyRoom] PeerJS loaded successfully');
+        resolve(true);
+      };
+      script.onerror = () => {
+        reject(new Error('Could not load WebRTC signaling engine. Check internet connection.'));
+      };
+      document.head.appendChild(script);
+    });
+  }
+
   /* ================================================================
      PEERJS ROOM HUB (Host-Coordinated Mesh Network)
      ================================================================ */
@@ -231,13 +256,15 @@ if (window._HOT_STUDY_ROOM_LOADED && (!document.currentScript || !document.curre
       return false;
     }
 
-    init(targetRoomId) {
+    async init(targetRoomId) {
+      await ensurePeerJS();
+
       return new Promise((resolve, reject) => {
-        const cleanTargetId = targetRoomId.toLowerCase();
-        const targetHostPeerId = 'qroom-' + cleanTargetId;
+        const cleanTargetId = targetRoomId.toLowerCase().replace(/[^a-z0-9]/g, '');
+        const targetHostPeerId = 'qroom' + cleanTargetId;
         let isResolved = false;
 
-        console.log(`[StudyRoom-Debug] Init Hub (isHost: ${isHost}, targetHost: ${targetHostPeerId})`);
+        console.log(`[StudyRoom] Initializing Hub (isHost: ${isHost}, targetHost: ${targetHostPeerId})`);
 
         this.connectTimeoutTimer = setTimeout(() => {
           if (!isResolved && this.readyState !== 1) {
@@ -251,9 +278,9 @@ if (window._HOT_STUDY_ROOM_LOADED && (!document.currentScript || !document.curre
 
         try {
           if (isHost) {
-            this.peer = new Peer(targetHostPeerId, { config: ICE_CONFIG, debug: 1 });
+            this.peer = new window.Peer(targetHostPeerId, { config: ICE_CONFIG, debug: 1 });
           } else {
-            this.peer = new Peer({ config: ICE_CONFIG, debug: 1 });
+            this.peer = new window.Peer({ config: ICE_CONFIG, debug: 1 });
           }
         } catch (err) {
           clearTimeout(this.connectTimeoutTimer);
@@ -263,31 +290,8 @@ if (window._HOT_STUDY_ROOM_LOADED && (!document.currentScript || !document.curre
 
         this.targetHostPeerId = targetHostPeerId;
 
-        this.peer.on('relay-data', (msg, senderPeerJsId) => {
-          if (!msg || typeof msg !== 'object') return;
-          if (msg._mid && this.isDuplicate(msg._mid)) return;
-
-          if (isHost) {
-            this.handleHostIncoming(null, msg, senderPeerJsId);
-          } else {
-            if (this.readyState !== 1) {
-              this.readyState = 1;
-              clearTimeout(this.connectTimeoutTimer);
-              if (this.onopen) this.onopen();
-              if (!isResolved) {
-                isResolved = true;
-                resolve();
-              }
-            }
-            if (this.onmessage) {
-              const dataStr = typeof msg === 'string' ? msg : JSON.stringify(msg);
-              this.onmessage({ data: dataStr });
-            }
-          }
-        });
-
         this.peer.on('open', (assignedId) => {
-          console.log(`[StudyRoom-Debug] PeerJS Signaling open. Assigned ID: ${assignedId}`);
+          console.log(`[StudyRoom] Signaling open. Assigned ID: ${assignedId}`);
 
           if (isHost) {
             clearTimeout(this.connectTimeoutTimer);
@@ -298,19 +302,9 @@ if (window._HOT_STUDY_ROOM_LOADED && (!document.currentScript || !document.curre
             if (this.onopen) this.onopen();
             resolve();
           } else {
-            console.log(`[StudyRoom-Debug] Guest establishing connection to Host: ${targetHostPeerId}`);
+            console.log(`[StudyRoom] Guest establishing connection to Host: ${targetHostPeerId}`);
             this.peerJsToUser.set(targetHostPeerId, 'usr_host');
             this.userToPeerJs.set('usr_host', targetHostPeerId);
-
-            const joinHandshake = {
-              _mid: 'join_' + Date.now(),
-              action: 'join',
-              nickname: nickname || 'Student',
-              password: roomPassword || ''
-            };
-            if (typeof this.peer.sendRelay === 'function') {
-              this.peer.sendRelay(targetHostPeerId, joinHandshake);
-            }
 
             try {
               this.hostConn = this.peer.connect(targetHostPeerId, {
@@ -319,11 +313,20 @@ if (window._HOT_STUDY_ROOM_LOADED && (!document.currentScript || !document.curre
               });
 
               this.hostConn.on('open', () => {
-                console.log('[StudyRoom-Debug] Guest DataChannel to Host is OPEN & READY.');
+                console.log('[StudyRoom] Guest DataChannel to Host is OPEN.');
                 clearTimeout(this.connectTimeoutTimer);
                 this.readyState = 1;
                 if (this.onopen) this.onopen();
                 this.flushOutbox();
+
+                // Send Join handshake
+                this.hostConn.send({
+                  _mid: 'join_' + Date.now(),
+                  action: 'join',
+                  nickname: nickname || 'Student',
+                  password: roomPassword || ''
+                });
+
                 if (!isResolved) {
                   isResolved = true;
                   resolve();
@@ -349,14 +352,14 @@ if (window._HOT_STUDY_ROOM_LOADED && (!document.currentScript || !document.curre
               });
 
               this.hostConn.on('error', (err) => {
-                console.warn('[StudyRoom-Debug] Guest DataChannel notice:', err);
+                console.warn('[StudyRoom] Guest DataChannel notice:', err);
               });
 
               this.hostConn.on('close', () => {
-                console.warn('[StudyRoom-Debug] Guest DataChannel to Host closed.');
+                console.warn('[StudyRoom] Guest DataChannel to Host closed.');
+                handleDisconnect();
               });
             } catch (err) {
-              console.warn('[StudyRoom-Debug] Operating via WebSocket Relay:', err);
               if (!isResolved) {
                 this.readyState = 1;
                 clearTimeout(this.connectTimeoutTimer);
@@ -370,9 +373,6 @@ if (window._HOT_STUDY_ROOM_LOADED && (!document.currentScript || !document.curre
 
         if (isHost) {
           this.peer.on('connection', (conn) => {
-            console.log('[StudyRoom-Debug] Host received incoming DataChannel from:', conn.peer);
-            this.connections.set(conn.peer, conn);
-
             conn.on('open', () => {
               this.connections.set(conn.peer, conn);
             });
@@ -382,7 +382,7 @@ if (window._HOT_STUDY_ROOM_LOADED && (!document.currentScript || !document.curre
                 const msg = typeof raw === 'string' ? JSON.parse(raw) : raw;
                 this.handleHostIncoming(conn, msg);
               } catch (e) {
-                console.error('[StudyRoom-Debug] Host parse error:', e);
+                console.error('[StudyRoom] Host parse error:', e);
               }
             });
 
@@ -391,7 +391,7 @@ if (window._HOT_STUDY_ROOM_LOADED && (!document.currentScript || !document.curre
             });
 
             conn.on('error', (err) => {
-              console.warn('[StudyRoom-Debug] Connection error with peer:', conn.peer, err);
+              console.warn('[StudyRoom] Connection error with peer:', conn.peer, err);
             });
           });
         }
@@ -411,12 +411,12 @@ if (window._HOT_STUDY_ROOM_LOADED && (!document.currentScript || !document.curre
           });
 
           call.on('error', (err) => {
-            console.warn('[StudyRoom-Debug] Call error from:', call.peer, err);
+            console.warn('[StudyRoom] Call error from:', call.peer, err);
           });
         });
 
         this.peer.on('error', (err) => {
-          console.error('[StudyRoom-Debug] PeerJS Error:', err.type, err.message);
+          console.error('[StudyRoom] PeerJS Error:', err.type, err.message);
           clearTimeout(this.connectTimeoutTimer);
 
           let userMsg = err.message || 'Connection error';
@@ -425,7 +425,7 @@ if (window._HOT_STUDY_ROOM_LOADED && (!document.currentScript || !document.curre
           } else if (err.type === 'unavailable-id') {
             userMsg = 'Room code is already active. Please create a new room or use a different code.';
           } else if (err.type === 'network' || err.type === 'socket-error' || err.type === 'socket-closed') {
-            userMsg = 'Network connection issue with signaling server. Please retry.';
+            userMsg = 'Network issue with signaling server. Please retry.';
           }
 
           const wrappedError = new Error(userMsg);
@@ -461,24 +461,15 @@ if (window._HOT_STUDY_ROOM_LOADED && (!document.currentScript || !document.curre
         return true;
       }
 
-      let sentDC = false;
       if (this.hostConn && this.hostConn.open) {
         try {
           this.hostConn.send(payload);
-          sentDC = true;
+          return true;
         } catch (e) {}
       }
 
-      let sentRelay = false;
-      if (this.peer && typeof this.peer.sendRelay === 'function' && this.targetHostPeerId) {
-        sentRelay = this.peer.sendRelay(this.targetHostPeerId, payload);
-      }
-
-      if (!sentDC && !sentRelay) {
-        this.outboxQueue.push(payload);
-        return false;
-      }
-      return true;
+      this.outboxQueue.push(payload);
+      return false;
     }
 
     handleHostIncoming(senderConn, msg, optSenderPeerJsId = null) {
@@ -498,13 +489,11 @@ if (window._HOT_STUDY_ROOM_LOADED && (!document.currentScript || !document.curre
         if (roomLocked) {
           const authFailMsg = { _mid: 'af_' + Date.now(), action: 'auth-fail', reason: 'Room is locked by host.' };
           if (senderConn && senderConn.open) senderConn.send(authFailMsg);
-          if (this.peer && typeof this.peer.sendRelay === 'function') this.peer.sendRelay(senderPeerJsId, authFailMsg);
           return;
         }
         if (roomPassword && msg.password !== roomPassword) {
           const authFailMsg = { _mid: 'af_' + Date.now(), action: 'auth-fail', reason: 'Incorrect room password.' };
           if (senderConn && senderConn.open) senderConn.send(authFailMsg);
-          if (this.peer && typeof this.peer.sendRelay === 'function') this.peer.sendRelay(senderPeerJsId, authFailMsg);
           return;
         }
 
@@ -530,10 +519,6 @@ if (window._HOT_STUDY_ROOM_LOADED && (!document.currentScript || !document.curre
         if (senderConn && senderConn.open) {
           senderConn.send(welcomeMsg);
           senderConn.send(joinedMsg);
-        }
-        if (this.peer && typeof this.peer.sendRelay === 'function') {
-          this.peer.sendRelay(senderPeerJsId, welcomeMsg);
-          this.peer.sendRelay(senderPeerJsId, joinedMsg);
         }
 
         if (isNewUser) {
@@ -563,14 +548,6 @@ if (window._HOT_STUDY_ROOM_LOADED && (!document.currentScript || !document.curre
         const uId = this.peerJsToUser.get(pId);
         if (uId !== excludeUserId && conn.open) {
           try { conn.send(msgObj); } catch (e) {}
-        }
-      }
-
-      if (this.peer && typeof this.peer.sendRelay === 'function') {
-        for (const [uId, pId] of this.userToPeerJs.entries()) {
-          if (uId !== excludeUserId && uId !== 'usr_host') {
-            try { this.peer.sendRelay(pId, msgObj); } catch (e) {}
-          }
         }
       }
     }
@@ -608,12 +585,12 @@ if (window._HOT_STUDY_ROOM_LOADED && (!document.currentScript || !document.curre
           });
 
           call.on('error', (err) => {
-            console.warn('[StudyRoom-Debug] Outgoing call error to:', targetPeerJsId, err);
+            console.warn('[StudyRoom] Outgoing call error:', targetPeerJsId, err);
           });
           return call;
         }
       } catch (err) {
-        console.error('[StudyRoom-Debug] Call execution error:', err);
+        console.error('[StudyRoom] Call execution error:', err);
       }
       return null;
     }
@@ -657,7 +634,7 @@ if (window._HOT_STUDY_ROOM_LOADED && (!document.currentScript || !document.curre
     ws.onopen = () => {};
     ws.onclose = () => handleDisconnect();
     ws.onerror = (err) => {
-      console.warn('[StudyRoom-Debug] Hub reported error:', err);
+      console.warn('[StudyRoom] Hub error:', err);
       if (!sessionActive) {
         hideLoading();
         cleanup();
@@ -670,7 +647,7 @@ if (window._HOT_STUDY_ROOM_LOADED && (!document.currentScript || !document.curre
         const msg = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
         handleServerMessage(msg);
       } catch (e) {
-        console.error('[StudyRoom-Debug] onmessage parse error:', e);
+        console.error('[StudyRoom] Message parse error:', e);
       }
     };
     return ws.init(targetRoomId);
@@ -948,7 +925,7 @@ if (window._HOT_STUDY_ROOM_LOADED && (!document.currentScript || !document.curre
       <div class="sr-lobby">
         <div class="sr-lobby-header">
           <h2 class="section-title"><i class="fas fa-users"></i>Study Room</h2>
-          <span class="sr-exp-badge">Study Room Beta</span>
+          <span class="sr-exp-badge">Study Room v5.0</span>
           <div class="sr-lobby-icon"><i class="fas fa-graduation-cap"></i></div>
           <p class="sr-lobby-subtitle">Collaborate live with screen sharing, interactive whiteboard, synced timers, voice & notes.</p>
         </div>
@@ -1604,7 +1581,6 @@ if (window._HOT_STUDY_ROOM_LOADED && (!document.currentScript || !document.curre
       setupAudioAnalysis();
       notify(micActive ? 'Microphone unmuted' : 'Microphone muted', 'info');
     } catch (err) {
-      console.error('[StudyRoom-Debug] Mic Error:', err);
       micActive = false;
       updateMediaButtons();
       notify('Could not access microphone. Check device permissions.', 'error');
@@ -1634,7 +1610,6 @@ if (window._HOT_STUDY_ROOM_LOADED && (!document.currentScript || !document.curre
       renderLocalCam(camActive ? stream : null);
       notify(camActive ? 'Camera turned on' : 'Camera turned off', 'info');
     } catch (err) {
-      console.error('[StudyRoom-Debug] Camera Error:', err);
       camActive = false;
       updateMediaButtons();
       notify('Could not access camera. Check device permissions.', 'error');
@@ -1693,7 +1668,7 @@ if (window._HOT_STUDY_ROOM_LOADED && (!document.currentScript || !document.curre
         }, 200);
       }
     } catch (e) {
-      console.warn('[StudyRoom-Debug] Audio analysis setup skipped:', e);
+      console.warn('[StudyRoom] Audio analysis notice:', e);
     }
   }
 
@@ -2720,7 +2695,7 @@ if (window._HOT_STUDY_ROOM_LOADED && (!document.currentScript || !document.curre
         });
       }
     } catch (e) {
-      console.warn('[StudyRoom-Debug] Enumerate devices notice:', e);
+      console.warn('[StudyRoom] Enumerate devices notice:', e);
     }
   }
 
@@ -2752,6 +2727,10 @@ if (window._HOT_STUDY_ROOM_LOADED && (!document.currentScript || !document.curre
   window.testCamera = testCamera;
   window.initStudyRoomMediaSettings = initStudyRoomMediaSettings;
 
-})();
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', renderStudyRoom);
+  } else {
+    renderStudyRoom();
+  }
 
-} 
+})();
