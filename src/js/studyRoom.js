@@ -394,18 +394,25 @@
 
         this.peer.on('error', (err) => {
           clearTimeout(this.connectTimeoutTimer);
-          console.error('[StudyRoom] PeerJS Error:', err.type, err.message);
+          console.error('[StudyRoom] Real PeerJS Error:', err.type, err.message, err);
 
-          let userMsg = 'Connection error.';
-          if (err.type === 'peer-unavailable') {
+          let userMsg = err.message || `WebRTC Error (${err.type || 'unknown'})`;
+
+          if (err.type === 'browser-incompatible') {
+            userMsg = 'WebKit WebRTC is disabled or missing GStreamer plugins on this system. Install: libnice10 gstreamer1.0-plugins-bad';
+          } else if (err.type === 'peer-unavailable') {
             userMsg = `Room "${normalizeRoomCode(targetRoomId)}" not found. Ensure the host is active in the room.`;
           } else if (err.type === 'unavailable-id') {
             userMsg = 'Room code is already active. Please click Create Room again.';
           } else if (err.type === 'network' || err.type === 'socket-error' || err.type === 'socket-closed') {
-            userMsg = 'Signaling network issue. Please check your internet connection.';
+            userMsg = 'Signaling server connection dropped. Check your internet connection.';
+          } else if (err.type === 'server-error') {
+            userMsg = `PeerJS Cloud Server Error: ${err.message || 'Server rejected handshake'}`;
+          } else if (err.type === 'webrtc') {
+            userMsg = `Native WebRTC Error: ${err.message || 'Failed to establish peer connection'}`;
           }
 
-          const wrappedError = new Error(userMsg);
+          const wrappedError = new Error(`[${err.type || 'error'}] ${userMsg}`);
           if (this.onerror) this.onerror(wrappedError);
           if (!isResolved) {
             isResolved = true;
