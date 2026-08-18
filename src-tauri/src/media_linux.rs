@@ -6,7 +6,7 @@ target_os = "netbsd",
 target_os = "openbsd"
 ))]
 pub fn setup_media_permissions(window: &tauri::WebviewWindow) {
-    use webkit2gtk::{SettingsExt, WebViewExt, PermissionRequestExt};
+    use webkit2gtk::{PermissionRequestExt, SettingsExt, WebViewExt};
     let _ = window.with_webview(|webview| {
         let view: webkit2gtk::WebView = webview.inner();
 
@@ -14,8 +14,11 @@ pub fn setup_media_permissions(window: &tauri::WebviewWindow) {
             settings.set_enable_media_stream(true);
             settings.set_enable_webrtc(true);
             settings.set_enable_mediasource(true);
+            settings.set_media_playback_allows_inline(true);
             settings.set_javascript_can_access_clipboard(true);
             settings.set_enable_developer_extras(true);
+            settings.set_enable_mock_capture_devices(false);
+            settings.set_enable_media_capabilities(true);
         }
 
         view.connect_permission_request(|_, req| {
@@ -33,5 +36,5 @@ target_os = "netbsd",
 target_os = "openbsd"
 )))]
 pub fn setup_media_permissions(_window: &tauri::WebviewWindow) {
-    // No-op on Windows/macOS/Android
+    // No-op on Windows/macOS/Android/iOS
 }

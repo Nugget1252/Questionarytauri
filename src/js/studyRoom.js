@@ -1,10 +1,10 @@
 /* =========================================================================
- *   QUESTIONARY STUDY ROOM ENGINE v8.0 (Master WebRTC + Rust Relay Suite)
+ *   QUESTIONARY STUDY ROOM ENGINE v8.5 (Master WebRTC + Rust Relay Suite)
  *   - 10-Digit Base32 Codec (Zero raw IPs displayed)
  *   - Native WebRTC Audio / Video / Screenshare Mesh over Rust WebSocket Relay
- *   - Unique Client ID Chat Attribution (No tab identity collisions)
- *   - Adaptive Participant Video Grid + Speaking Halos + PTT
- *   - Infinite Whiteboard (Zoom/Pan Matrix, Remote Cursors, Save to Library)
+ *   - Automatic Screen Share Spotlight View & Renegotiation Engine
+ *   - Linux WebKitGTK / PipeWire / xdg-desktop-portal Stream Handling
+ *   - Whiteboard & Synchronized Pomodoro Engine
  *   ========================================================================= */
 
 (function () {
@@ -152,6 +152,7 @@
   let peers = {}; // id -> { nickname, goal, seconds, handRaised, isSpeaking, hasCam, hasScreen }
   let peerConnections = new Map(); // id -> RTCPeerConnection
   let remoteStreams = new Map(); // id -> MediaStream
+  let screenShareOwnerId = null; // null | 'self' | peerId
   let roomAddress = '';
   let isHost = false;
   let nickname = '';
@@ -273,12 +274,14 @@
     const pc = new RTCPeerConnection(ICE_CONFIG);
     peerConnections.set(remotePeerId, pc);
 
-    // Attach local tracks if active
+    // Attach local camera/microphone tracks
     if (localMediaStream) {
       localMediaStream.getTracks().forEach(track => {
         pc.addTrack(track, localMediaStream);
       });
     }
+
+    // Attach local screenshare tracks
     if (localScreenStream) {
       localScreenStream.getTracks().forEach(track => {
         pc.addTrack(track, localScreenStream);
@@ -298,38 +301,44 @@
 
     // Inbound Remote Track Handler
     pc.ontrack = (event) => {
-      console.log(`[WebRTC] Received remote track from ${remotePeerId}:`, event.track.kind);
-      let stream = remoteStreams.get(remotePeerId);
+      console.log(`[WebRTC] Inbound track from ${remotePeerId}:`, event.track.kind);
+      let stream = event.streams && event.streams[0] ? event.streams[0] : remoteStreams.get(remotePeerId);
       if (!stream) {
         stream = new MediaStream();
-        remoteStreams.set(remotePeerId, stream);
       }
-      stream.addTrack(event.track);
+      if (!stream.getTracks().includes(event.track)) {
+        stream.addTrack(event.track);
+      }
+      remoteStreams.set(remotePeerId, stream);
       renderRemoteMedia(remotePeerId, stream);
     };
 
     pc.onconnectionstatechange = () => {
-      console.log(`[WebRTC] State with ${remotePeerId}: ${pc.connectionState}`);
+      console.log(`[WebRTC] Connection state with ${remotePeerId}: ${pc.connectionState}`);
       if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed' || pc.connectionState === 'closed') {
         clearRemoteMedia(remotePeerId);
       }
     };
 
-    // If initiator, generate offer
+    // Unified negotiation handler for both initiator and receiver renegotiations
+    pc.onnegotiationneeded = async () => {
+      try {
+        if (pc.signalingState !== 'stable') return;
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        sendToServer({
+          action: 'relay-to',
+          to: remotePeerId,
+          data: { type: 'webrtc-offer', sdp: pc.localDescription }
+        });
+      } catch (e) {
+        console.warn(`[WebRTC] Negotiation error with ${remotePeerId}:`, e);
+      }
+    };
+
     if (isInitiator) {
-      pc.onnegotiationneeded = async () => {
-        try {
-          const offer = await pc.createOffer();
-          await pc.setLocalDescription(offer);
-          sendToServer({
-            action: 'relay-to',
-            to: remotePeerId,
-            data: { type: 'webrtc-offer', sdp: pc.localDescription }
-          });
-        } catch (e) {
-          console.warn('[WebRTC] Negotiation error:', e);
-        }
-      };
+      // Trigger initial negotiation
+      pc.onnegotiationneeded();
     }
 
     return pc;
@@ -337,60 +346,89 @@
 
   async function handleWebRTCOffer(fromId, sdp) {
     const pc = createPeerConnection(fromId, false);
-    await pc.setRemoteDescription(new RTCSessionDescription(sdp));
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-    sendToServer({
-      action: 'relay-to',
-      to: fromId,
-      data: { type: 'webrtc-answer', sdp: pc.localDescription }
-    });
+    try {
+      await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      sendToServer({
+        action: 'relay-to',
+        to: fromId,
+        data: { type: 'webrtc-answer', sdp: pc.localDescription }
+      });
+    } catch (err) {
+      console.error('[WebRTC] Error handling offer:', err);
+    }
   }
 
   async function handleWebRTCAnswer(fromId, sdp) {
     const pc = peerConnections.get(fromId);
-    if (pc) {
-      await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+    if (pc && pc.signalingState !== 'closed') {
+      try {
+        await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+      } catch (err) {
+        console.error('[WebRTC] Error handling answer:', err);
+      }
     }
   }
 
   async function handleWebRTCIce(fromId, candidate) {
     const pc = peerConnections.get(fromId);
-    if (pc && candidate) {
+    if (pc && candidate && pc.signalingState !== 'closed') {
       try {
         await pc.addIceCandidate(new RTCIceCandidate(candidate));
       } catch (e) {}
     }
   }
 
-  function syncTracksToAllPeers() {
+  async function syncTracksToAllPeers() {
     for (const [peerId, pc] of peerConnections.entries()) {
       if (pc.signalingState === 'closed') continue;
 
       const senders = pc.getSenders();
-      
-      // Sync local mic/cam
+
+      // Sync local media (mic / cam)
       if (localMediaStream) {
-        localMediaStream.getTracks().forEach(track => {
-          const existing = senders.find(s => s.track && s.track.kind === track.kind);
-          if (existing) {
-            existing.replaceTrack(track);
-          } else {
+        for (const track of localMediaStream.getTracks()) {
+          const sender = senders.find(s => s.track && s.track.kind === track.kind && s.track.id === track.id);
+          if (!sender) {
             pc.addTrack(track, localMediaStream);
           }
-        });
+        }
       }
 
-      // Sync local screen
+      // Sync screenshare
       if (localScreenStream) {
-        localScreenStream.getTracks().forEach(track => {
-          const existing = senders.find(s => s.track && s.track.kind === track.kind);
-          if (existing) {
-            existing.replaceTrack(track);
-          } else {
+        for (const track of localScreenStream.getTracks()) {
+          const sender = senders.find(s => s.track && s.track.id === track.id);
+          if (!sender) {
             pc.addTrack(track, localScreenStream);
           }
-        });
+        }
+      }
+
+      // Remove obsolete senders (stopped screen share tracks)
+      for (const sender of senders) {
+        if (!sender.track) continue;
+        const inMedia = localMediaStream && localMediaStream.getTracks().includes(sender.track);
+        const inScreen = localScreenStream && localScreenStream.getTracks().includes(sender.track);
+        if (!inMedia && !inScreen) {
+          pc.removeTrack(sender);
+        }
+      }
+
+      // Trigger renegotiation explicitly
+      try {
+        if (pc.signalingState === 'stable') {
+          const offer = await pc.createOffer();
+          await pc.setLocalDescription(offer);
+          sendToServer({
+            action: 'relay-to',
+            to: peerId,
+            data: { type: 'webrtc-offer', sdp: pc.localDescription }
+          });
+        }
+      } catch (err) {
+        console.warn(`[WebRTC] Resync offer error with ${peerId}:`, err);
       }
     }
   }
@@ -432,7 +470,7 @@
         }
       };
 
-      socket.onerror = (err) => {
+      socket.onerror = () => {
         if (!isResolved) {
           clearTimeout(timer);
           isResolved = true;
@@ -480,7 +518,6 @@
         if (Array.isArray(msg.peers)) {
           msg.peers.forEach(p => {
             peers[p.id] = { nickname: p.nickname, goal: '', seconds: 0, handRaised: false, isSpeaking: false };
-            // Initiate WebRTC connection to each existing peer
             createPeerConnection(p.id, true);
           });
         }
@@ -508,7 +545,6 @@
         updateParticipantsUI();
         updateProgressUI();
 
-        // Host establishes WebRTC peer connection with the new participant
         if (isHost) {
           createPeerConnection(msg.id, true);
         }
@@ -521,6 +557,9 @@
         delete peers[msg.id];
         delete wbRemoteCursors[msg.id];
         clearRemoteMedia(msg.id);
+        if (screenShareOwnerId === msg.id) {
+          setSpotlight(null);
+        }
         updateParticipantsUI();
         updateProgressUI();
         renderRemoteCursors();
@@ -553,6 +592,14 @@
 
       case 'webrtc-ice':
         handleWebRTCIce(fromId, data.candidate);
+        break;
+
+      case 'screen-share-status':
+        if (data.active) {
+          setSpotlight(fromId, data.nickname || 'Participant');
+        } else if (screenShareOwnerId === fromId) {
+          setSpotlight(null);
+        }
         break;
 
       /* Collaboration Data */
@@ -615,6 +662,9 @@
 
       case 'info-request':
         broadcastData({ type: 'info', nickname, goal: studyGoal, seconds: timerSeconds });
+        if (localScreenStream) {
+          broadcastData({ type: 'screen-share-status', active: true, nickname });
+        }
         if (isHost) broadcastTimerSync();
         if (wbStrokes.length > 0 || wbQuestions.length > 0) {
           broadcastData({ type: 'wb-full-sync', strokes: wbStrokes, questions: wbQuestions, nextId: wbNextQId });
@@ -838,6 +888,16 @@
         <div class="sr-session-body">
           <!-- Video Area -->
           <div class="sr-video-area" id="srParticipantArea">
+            <!-- Spotlight / Screen Share Stage -->
+            <div class="sr-spotlight-stage" id="srSpotlightStage" style="display: none;">
+              <video class="sr-spotlight-video" id="srSpotlightVideo" autoplay playsinline></video>
+              <div class="sr-spotlight-overlay" id="srSpotlightOverlay">
+                <span id="srSpotlightLabel">Screen Share</span>
+                <button class="sr-btn sr-btn-sm sr-btn-secondary" id="srSpotlightFullscreen" title="Fullscreen"><i class="fas fa-expand"></i></button>
+              </div>
+            </div>
+
+            <!-- Participant Grid -->
             <div class="sr-video-grid sr-grid-1" id="srParticipantsGrid"></div>
             
             <!-- Quick Reactions Bar -->
@@ -1006,6 +1066,42 @@
     return html;
   }
 
+  function setSpotlight(ownerId, ownerName = '') {
+    screenShareOwnerId = ownerId;
+    const stage = document.getElementById('srSpotlightStage');
+    const video = document.getElementById('srSpotlightVideo');
+    const label = document.getElementById('srSpotlightLabel');
+    const area = document.getElementById('srParticipantArea');
+
+    if (!stage || !video || !area) return;
+
+    if (!ownerId) {
+      stage.style.display = 'none';
+      video.pause();
+      video.srcObject = null;
+      area.classList.remove('sr-has-spotlight');
+      return;
+    }
+
+    area.classList.add('sr-has-spotlight');
+    stage.style.display = 'flex';
+
+    if (ownerId === 'self') {
+      video.srcObject = localScreenStream;
+      video.muted = true;
+      if (label) label.textContent = `${escapeHTML(nickname)} (Your Screen)`;
+    } else {
+      const stream = remoteStreams.get(ownerId);
+      if (stream) {
+        video.srcObject = stream;
+        video.muted = true;
+      }
+      if (label) label.textContent = `${escapeHTML(ownerName || peers[ownerId]?.nickname || 'Participant')}'s Screen`;
+    }
+
+    video.play().catch(e => console.warn('[Spotlight] Autoplay notice:', e));
+  }
+
   function syncVideoTiles() {
     const grid = document.getElementById('srParticipantsGrid');
     if (!grid) return;
@@ -1013,7 +1109,7 @@
     const currentTileIds = new Set(['srTile_self']);
     Object.keys(peers).forEach(uId => currentTileIds.add(`srTile_${uId}`));
 
-    // 1. Self Tile
+    // 1. Local Tile
     let selfTile = document.getElementById('srTile_self');
     if (!selfTile) {
       selfTile = document.createElement('div');
@@ -1047,7 +1143,6 @@
         `;
         grid.appendChild(tile);
 
-        // Check if stream already exists
         const stream = remoteStreams.get(uId);
         if (stream) {
           renderRemoteMedia(uId, stream);
@@ -1218,6 +1313,12 @@
       });
     }
 
+    document.getElementById('srSpotlightFullscreen')?.addEventListener('click', () => {
+      const stage = document.getElementById('srSpotlightStage');
+      if (!document.fullscreenElement) stage?.requestFullscreen().catch(() => {});
+      else document.exitFullscreen().catch(() => {});
+    });
+
     document.getElementById('srRaiseHandBtn')?.addEventListener('click', toggleRaiseHand);
     document.getElementById('srLeaveBtn')?.addEventListener('click', leaveRoom);
     document.getElementById('srChatSend')?.addEventListener('click', sendChatMessage);
@@ -1332,7 +1433,7 @@
         audioTrack.enabled = micActive;
       }
 
-      syncTracksToAllPeers();
+      await syncTracksToAllPeers();
       updateMediaButtons();
       setupAudioAnalysis();
       notify(micActive ? 'Microphone unmuted' : 'Microphone muted', 'info');
@@ -1361,7 +1462,7 @@
         videoTrack.enabled = camActive;
       }
 
-      syncTracksToAllPeers();
+      await syncTracksToAllPeers();
       updateMediaButtons();
       renderLocalCam(camActive ? stream : null);
       notify(camActive ? 'Camera turned on' : 'Camera turned off', 'info');
@@ -1433,18 +1534,31 @@
       return;
     }
     try {
-      localScreenStream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 30 } });
+      // Standard display media request compatible with Linux portal / Wayland / X11
+      localScreenStream = await navigator.mediaDevices.getDisplayMedia({
+        video: {
+          cursor: 'always',
+          frameRate: { ideal: 30, max: 60 }
+        },
+        audio: false
+      });
+
       const vTrack = localScreenStream.getVideoTracks()[0];
       if (vTrack) {
         vTrack.onended = () => stopScreenShare();
       }
 
-      syncTracksToAllPeers();
       if (btn) btn.classList.add('sr-ctrl-active');
-      renderLocalScreenVideo(localScreenStream);
+
+      // Set local spotlight & broadcast to all peers
+      setSpotlight('self');
+      broadcastData({ type: 'screen-share-status', active: true, nickname });
+
+      await syncTracksToAllPeers();
       notify('Screen sharing started.', 'success');
     } catch (err) {
-      notify('Screen share canceled.', 'info');
+      console.warn('[ScreenShare] Capture error or cancelled:', err);
+      notify('Screen share canceled or not permitted.', 'info');
     }
   }
 
@@ -1453,35 +1567,16 @@
       localScreenStream.getTracks().forEach(t => t.stop());
       localScreenStream = null;
     }
-    syncTracksToAllPeers();
+
     const btn = document.getElementById('srToggleScreenShare');
     if (btn) btn.classList.remove('sr-ctrl-active');
-    renderLocalScreenVideo(null);
-  }
 
-  function renderLocalScreenVideo(stream) {
-    const localTile = document.getElementById('srTile_self');
-    if (!localTile) return;
-    let video = localTile.querySelector('.sr-screen-video');
-    if (!stream) {
-      if (video) { video.pause(); video.srcObject = null; video.remove(); }
-      const off = localTile.querySelector('.sr-video-off');
-      if (off && !localTile.querySelector('.sr-cam-video')) off.style.display = 'flex';
-      return;
+    if (screenShareOwnerId === 'self') {
+      setSpotlight(null);
     }
-    const off = localTile.querySelector('.sr-video-off');
-    if (off) off.style.display = 'none';
 
-    if (!video) {
-      video = document.createElement('video');
-      video.className = 'sr-screen-video';
-      video.autoplay = true;
-      video.playsInline = true;
-      video.muted = true;
-      video.style.cssText = 'width:100%;height:100%;object-fit:contain;position:absolute;top:0;left:0;border-radius:12px;background:#000;z-index:2;';
-      localTile.appendChild(video);
-    }
-    video.srcObject = stream;
+    broadcastData({ type: 'screen-share-status', active: false });
+    syncTracksToAllPeers().catch(() => {});
   }
 
   function renderLocalCam(stream) {
@@ -1492,7 +1587,7 @@
 
     if (!stream) {
       if (camVideo) { camVideo.pause(); camVideo.srcObject = null; camVideo.remove(); }
-      if (!localTile.querySelector('.sr-screen-video') && off) off.style.display = 'flex';
+      if (off) off.style.display = 'flex';
       return;
     }
     if (off) off.style.display = 'none';
@@ -1506,6 +1601,7 @@
       localTile.appendChild(camVideo);
     }
     camVideo.srcObject = stream;
+    camVideo.play().catch(() => {});
   }
 
   function renderRemoteMedia(userId, stream) {
@@ -1525,6 +1621,7 @@
       tile.appendChild(audio);
     }
     audio.srcObject = stream;
+    audio.play().catch(() => {});
 
     // Video Receiver
     let camVideo = tile.querySelector('.sr-cam-video');
@@ -1539,6 +1636,16 @@
         tile.appendChild(camVideo);
       }
       camVideo.srcObject = stream;
+      camVideo.play().catch(() => {});
+
+      // If this user is currently spotlighted as the presenter, update spotlight video
+      if (screenShareOwnerId === userId) {
+        const spotVideo = document.getElementById('srSpotlightVideo');
+        if (spotVideo) {
+          spotVideo.srcObject = stream;
+          spotVideo.play().catch(() => {});
+        }
+      }
     } else {
       if (camVideo) { camVideo.pause(); camVideo.srcObject = null; camVideo.remove(); }
       if (off) off.style.display = 'flex';
@@ -1652,7 +1759,6 @@
       return;
     }
     container.innerHTML = chatMessages.map(m => {
-      // Precise unique client ID match
       const isMe = m.senderId === myId;
       const timeStr = new Date(m.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       if (m.type === 'system') {
@@ -2211,13 +2317,11 @@
     try {
       showLoading('Creating room…');
 
-      // Start embedded Rust WebSocket Relay Server in Tauri
       const serverInfo = await tauriInvoke('start_study_server', { password: roomPassword });
 
       let targetWsUrl = '';
       if (serverInfo && serverInfo.port) {
         const localIp = (serverInfo.ips && serverInfo.ips.length > 0) ? serverInfo.ips[0] : '127.0.0.1';
-        // Encode IP:Port into a clean 10-character room code
         roomAddress = ipPortToCode(localIp, serverInfo.port);
         targetWsUrl = `ws://127.0.0.1:${serverInfo.port}`;
       } else {
@@ -2252,7 +2356,6 @@
     let targetWsUrl = '';
     const cleanCode = normalizeRoomCode(rawInput);
 
-    // Decode 10-digit code back into host's IP and port
     const decoded = codeToIpPort(cleanCode);
     if (decoded) {
       targetWsUrl = `ws://${decoded.ip}:${decoded.port}`;
@@ -2303,7 +2406,7 @@
       localMediaStream = null;
     }
 
-    for (const [peerId, pc] of peerConnections.entries()) {
+    for (const [, pc] of peerConnections.entries()) {
       try { pc.close(); } catch (e) {}
     }
     peerConnections.clear();
@@ -2314,7 +2417,6 @@
       socket = null;
     }
 
-    // Stop native Rust server if host in Tauri
     if (isHost) {
       tauriInvoke('stop_study_server').catch(() => {});
     }
@@ -2323,6 +2425,7 @@
     isHost = false;
     myId = '';
     peers = {};
+    screenShareOwnerId = null;
     roomAddress = '';
     roomPassword = '';
     chatMessages = [];
@@ -2341,7 +2444,7 @@
 
   function cleanup() {
     if (socket) { try { socket.close(); } catch (_) {} socket = null; }
-    for (const [peerId, pc] of peerConnections.entries()) {
+    for (const [, pc] of peerConnections.entries()) {
       try { pc.close(); } catch (e) {}
     }
     peerConnections.clear();
@@ -2350,6 +2453,7 @@
     isHost = false;
     myId = '';
     peers = {};
+    screenShareOwnerId = null;
   }
 
   function showLoading(msg) {

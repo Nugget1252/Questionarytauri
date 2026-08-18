@@ -1,31 +1,100 @@
-/* STUDY_ROOM_ENGINE_VERSION = "4.0" */
-window.STUDY_ROOM_ENGINE_VERSION = '4.0';
-
-/* ================================================================
-   QUESTIONARY — STUDY ROOM ENGINE 4.0 (HIGH-SPEED P2P + MULTI-MESH)
-   ================================================================ */
+/* =========================================================================
+ *   QUESTIONARY STUDY ROOM ENGINE v8.0 (Master WebRTC + Rust Relay Suite)
+ *   - 10-Digit Base32 Codec (Zero raw IPs displayed)
+ *   - Native WebRTC Audio / Video / Screenshare Mesh over Rust WebSocket Relay
+ *   - Unique Client ID Chat Attribution (No tab identity collisions)
+ *   - Adaptive Participant Video Grid + Speaking Halos + PTT
+ *   - Infinite Whiteboard (Zoom/Pan Matrix, Remote Cursors, Save to Library)
+ *   ========================================================================= */
 
 (function () {
   'use strict';
 
-  /* ---------- Constants ---------- */
+  /* ---------- Constants & Codecs ---------- */
   const MAX_PARTICIPANTS = 12;
   const ROOM_CODE_LENGTH = 10;
-  const ROOM_CODE_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-  const CONNECT_TIMEOUT_MS = 15000;
+  const BASE32_ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+  const CONNECT_TIMEOUT_MS = 20000;
 
-  /* Fast Multi-STUN Configuration */
+  /* STUN + Free OpenRelay TURN Pool */
   const ICE_CONFIG = {
     iceServers: [
       { urls: 'stun:stun.l.google.com:19302' },
-      { urls: 'stun:stun1.l.google.com:19302' },
-      { urls: 'stun:stun2.l.google.com:19302' },
-      { urls: 'stun:stun3.l.google.com:19302' },
-      { urls: 'stun:stun4.l.google.com:19302' },
-      { urls: 'stun:stun.cloudflare.com:3478' }
+      { urls: 'stun:stun.cloudflare.com:3478' },
+      {
+        urls: [
+          'turn:openrelay.metered.ca:80',
+          'turn:openrelay.metered.ca:443',
+          'turn:openrelay.metered.ca:443?transport=tcp'
+        ],
+        username: 'openrelay',
+        credential: 'openrelay'
+      }
     ],
-    sdpSemantics: 'unified-plan'
+    sdpSemantics: 'unified-plan',
+    iceCandidatePoolSize: 2
   };
+
+  /* ----------------------------------------------------------------
+   * 10-DIGIT BASE32 IP:PORT CODEC
+   * ---------------------------------------------------------------- */
+  function ipPortToCode(ipStr, portNum) {
+    try {
+      const parts = ipStr.split('.').map(Number);
+      if (parts.length !== 4) return generateRandomCode();
+      const bytes = [
+        parts[0], parts[1], parts[2], parts[3],
+        (portNum >> 8) & 0xFF,
+        portNum & 0xFF
+      ];
+      let bits = 0n;
+      for (let b of bytes) {
+        bits = (bits << 8n) | BigInt(b);
+      }
+      bits = bits << 2n; // 50 bits
+      let code = '';
+      for (let i = 9; i >= 0; i--) {
+        const index = Number((bits >> BigInt(i * 5)) & 0x1Fn);
+        code += BASE32_ALPHABET[index];
+      }
+      return code;
+    } catch (e) {
+      return generateRandomCode();
+    }
+  }
+
+  function codeToIpPort(codeStr) {
+    try {
+      const clean = codeStr.toUpperCase().trim().replace(/[^2-9A-Z]/g, '');
+      if (clean.length !== 10) return null;
+      let bits = 0n;
+      for (let char of clean) {
+        const idx = BASE32_ALPHABET.indexOf(char);
+        if (idx === -1) return null;
+        bits = (bits << 5n) | BigInt(idx);
+      }
+      bits = bits >> 2n;
+      const p2 = Number(bits & 0xFFn);
+      const p1 = Number((bits >> 8n) & 0xFFn);
+      const d = Number((bits >> 16n) & 0xFFn);
+      const c = Number((bits >> 24n) & 0xFFn);
+      const b = Number((bits >> 32n) & 0xFFn);
+      const a = Number((bits >> 40n) & 0xFFn);
+      const port = (p1 << 8) | p2;
+      const ip = `${a}.${b}.${c}.${d}`;
+      return { ip, port };
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function generateRandomCode() {
+    let id = '';
+    for (let i = 0; i < ROOM_CODE_LENGTH; i++) {
+      id += BASE32_ALPHABET[Math.floor(Math.random() * BASE32_ALPHABET.length)];
+    }
+    return id;
+  }
 
   /* ---------- Zero-Asset Web Audio Synthesizer ---------- */
   const SoundFX = {
@@ -78,9 +147,11 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
   };
 
   /* ---------- Core State ---------- */
-  let ws = null;
+  let socket = null;
   let myId = '';
-  let peers = {};
+  let peers = {}; // id -> { nickname, goal, seconds, handRaised, isSpeaking, hasCam, hasScreen }
+  let peerConnections = new Map(); // id -> RTCPeerConnection
+  let remoteStreams = new Map(); // id -> MediaStream
   let roomAddress = '';
   let isHost = false;
   let nickname = '';
@@ -93,7 +164,7 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
 
   /* ---------- Timer & Pomodoro Engine ---------- */
   let mainInterval = null;
-  let timerMode = 'stopwatch'; // 'stopwatch' | 'focus' | 'break' | 'long_break'
+  let timerMode = 'stopwatch';
   let timerRunning = false;
   let timerSeconds = 0;
   let timerDuration = 25 * 60;
@@ -104,7 +175,7 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
   /* ---------- Chat Messages ---------- */
   let chatMessages = [];
 
-  /* ---------- WebRTC Streams & Audio Detection ---------- */
+  /* ---------- Media Streams & Audio Detection ---------- */
   let localMediaStream = null;
   let localScreenStream = null;
   let micActive = false;
@@ -167,18 +238,9 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
 
   function capitalize(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : ''; }
 
-  function generateRoomId() {
-    let id = '';
-    for (let i = 0; i < ROOM_CODE_LENGTH; i++) {
-      id += ROOM_CODE_CHARS[Math.floor(Math.random() * ROOM_CODE_CHARS.length)];
-    }
-    return id;
-  }
-
   function normalizeRoomCode(raw) {
     if (!raw) return '';
-    const code = raw.toUpperCase().trim().replace(/[^A-Z0-9]/g, '');
-    return (code.length >= 4 && code.length <= 32) ? code : '';
+    return raw.toUpperCase().trim().replace(/[^2-9A-Z0-9]/g, '');
   }
 
   function notify(msg, type = 'info') {
@@ -189,489 +251,204 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
     }
   }
 
+  async function tauriInvoke(cmd, args = {}) {
+    if (window.__TAURI__ && window.__TAURI__.core && typeof window.__TAURI__.core.invoke === 'function') {
+      return await window.__TAURI__.core.invoke(cmd, args);
+    }
+    if (window.__TAURI__ && typeof window.__TAURI__.invoke === 'function') {
+      return await window.__TAURI__.invoke(cmd, args);
+    }
+    return null;
+  }
+
   /* ================================================================
-     PEERJS ROOM HUB (Host-Coordinated Mesh Network)
+     WEBRTC P2P MEDIA MESH OVER WEBSOCKET RELAY
      ================================================================ */
-  class PeerJSRoomHub {
-    constructor() {
-      this.readyState = 0;
-      this.peer = null;
-      this.hostConn = null;
-      this.targetHostPeerId = '';
-      this.connections = new Map();
-      this.activeCalls = new Map();
-      this.peerJsToUser = new Map();
-      this.userToPeerJs = new Map();
-      this.nextUserNum = 1;
-      this.onmessage = null;
-      this.onopen = null;
-      this.onclose = null;
-      this.onerror = null;
-      this.connectTimeoutTimer = null;
-      this.outboxQueue = [];
-      this.hasJoined = false;
-      this.processedMids = new Set();
+  function createPeerConnection(remotePeerId, isInitiator = false) {
+    if (peerConnections.has(remotePeerId)) {
+      return peerConnections.get(remotePeerId);
     }
 
-    isDuplicate(mid) {
-      if (!mid) return false;
-      if (this.processedMids.has(mid)) return true;
-      this.processedMids.add(mid);
-      if (this.processedMids.size > 2000) {
-        const first = this.processedMids.values().next().value;
-        this.processedMids.delete(first);
-      }
-      return false;
+    console.log(`[WebRTC] Creating RTCPeerConnection with ${remotePeerId} (Initiator: ${isInitiator})`);
+    const pc = new RTCPeerConnection(ICE_CONFIG);
+    peerConnections.set(remotePeerId, pc);
+
+    // Attach local tracks if active
+    if (localMediaStream) {
+      localMediaStream.getTracks().forEach(track => {
+        pc.addTrack(track, localMediaStream);
+      });
     }
-
-    init(targetRoomId) {
-      return new Promise((resolve, reject) => {
-        const cleanTargetId = targetRoomId.toLowerCase();
-        const targetHostPeerId = 'qroom-' + cleanTargetId;
-        let isResolved = false;
-
-        console.log(`[StudyRoom-Debug] Init Hub (isHost: ${isHost}, targetHost: ${targetHostPeerId})`);
-
-        this.connectTimeoutTimer = setTimeout(() => {
-          if (!isResolved && this.readyState !== 1) {
-            isResolved = true;
-            this.close();
-            const err = new Error(isHost ? 'Failed to bind host room ID. Please try another code.' : 'Connection timed out. Host may be offline or room code is invalid.');
-            if (this.onerror) this.onerror(err);
-            reject(err);
-          }
-        }, CONNECT_TIMEOUT_MS);
-
-        try {
-          if (isHost) {
-            this.peer = new Peer(targetHostPeerId, { config: ICE_CONFIG, debug: 1 });
-          } else {
-            this.peer = new Peer({ config: ICE_CONFIG, debug: 1 });
-          }
-        } catch (err) {
-          clearTimeout(this.connectTimeoutTimer);
-          isResolved = true;
-          return reject(err);
-        }
-
-        this.targetHostPeerId = targetHostPeerId;
-
-        this.peer.on('relay-data', (msg, senderPeerJsId) => {
-          if (!msg || typeof msg !== 'object') return;
-          if (msg._mid && this.isDuplicate(msg._mid)) return;
-
-          if (isHost) {
-            this.handleHostIncoming(null, msg, senderPeerJsId);
-          } else {
-            if (this.readyState !== 1) {
-              this.readyState = 1;
-              clearTimeout(this.connectTimeoutTimer);
-              if (this.onopen) this.onopen();
-              if (!isResolved) {
-                isResolved = true;
-                resolve();
-              }
-            }
-            if (this.onmessage) {
-              const dataStr = typeof msg === 'string' ? msg : JSON.stringify(msg);
-              this.onmessage({ data: dataStr });
-            }
-          }
-        });
-
-        this.peer.on('open', (assignedId) => {
-          console.log(`[StudyRoom-Debug] PeerJS Signaling open. Assigned ID: ${assignedId}`);
-
-          if (isHost) {
-            clearTimeout(this.connectTimeoutTimer);
-            this.readyState = 1;
-            this.peerJsToUser.set(assignedId, 'usr_host');
-            this.userToPeerJs.set('usr_host', assignedId);
-            isResolved = true;
-            if (this.onopen) this.onopen();
-            resolve();
-          } else {
-            console.log(`[StudyRoom-Debug] Guest establishing connection to Host: ${targetHostPeerId}`);
-            this.peerJsToUser.set(targetHostPeerId, 'usr_host');
-            this.userToPeerJs.set('usr_host', targetHostPeerId);
-
-            const joinHandshake = {
-              _mid: 'join_' + Date.now(),
-              action: 'join',
-              nickname: nickname || 'Student',
-              password: roomPassword || ''
-            };
-            if (typeof this.peer.sendRelay === 'function') {
-              this.peer.sendRelay(targetHostPeerId, joinHandshake);
-            }
-
-            try {
-              this.hostConn = this.peer.connect(targetHostPeerId, {
-                serialization: 'json',
-                reliable: true
-              });
-
-              this.hostConn.on('open', () => {
-                console.log('[StudyRoom-Debug] Guest DataChannel to Host is OPEN & READY.');
-                clearTimeout(this.connectTimeoutTimer);
-                this.readyState = 1;
-                if (this.onopen) this.onopen();
-                this.flushOutbox();
-                if (!isResolved) {
-                  isResolved = true;
-                  resolve();
-                }
-              });
-
-              this.hostConn.on('data', (raw) => {
-                const msg = typeof raw === 'string' ? JSON.parse(raw) : raw;
-                if (msg && msg._mid && this.isDuplicate(msg._mid)) return;
-                if (this.readyState !== 1) {
-                  this.readyState = 1;
-                  clearTimeout(this.connectTimeoutTimer);
-                  if (this.onopen) this.onopen();
-                  if (!isResolved) {
-                    isResolved = true;
-                    resolve();
-                  }
-                }
-                if (this.onmessage) {
-                  const dataStr = typeof raw === 'string' ? raw : JSON.stringify(raw);
-                  this.onmessage({ data: dataStr });
-                }
-              });
-
-              this.hostConn.on('error', (err) => {
-                console.warn('[StudyRoom-Debug] Guest DataChannel notice:', err);
-              });
-
-              this.hostConn.on('close', () => {
-                console.warn('[StudyRoom-Debug] Guest DataChannel to Host closed.');
-              });
-            } catch (err) {
-              console.warn('[StudyRoom-Debug] Operating via WebSocket Relay:', err);
-              if (!isResolved) {
-                this.readyState = 1;
-                clearTimeout(this.connectTimeoutTimer);
-                if (this.onopen) this.onopen();
-                isResolved = true;
-                resolve();
-              }
-            }
-          }
-        });
-
-        if (isHost) {
-          this.peer.on('connection', (conn) => {
-            console.log('[StudyRoom-Debug] Host received incoming DataChannel from:', conn.peer);
-            this.connections.set(conn.peer, conn);
-
-            conn.on('open', () => {
-              this.connections.set(conn.peer, conn);
-            });
-
-            conn.on('data', (raw) => {
-              try {
-                const msg = typeof raw === 'string' ? JSON.parse(raw) : raw;
-                this.handleHostIncoming(conn, msg);
-              } catch (e) {
-                console.error('[StudyRoom-Debug] Host parse error:', e);
-              }
-            });
-
-            conn.on('close', () => {
-              this.handleHostDisconnect(conn.peer);
-            });
-
-            conn.on('error', (err) => {
-              console.warn('[StudyRoom-Debug] Connection error with peer:', conn.peer, err);
-            });
-          });
-        }
-
-        this.peer.on('call', (call) => {
-          this.activeCalls.set(call.peer + '_' + (call.metadata?.type || 'media'), call);
-          call.answer(localMediaStream || undefined);
-
-          call.on('stream', (remoteStream) => {
-            const callerUserId = this.peerJsToUser.get(call.peer) || (call.peer === this.userToPeerJs.get('usr_host') ? 'usr_host' : call.peer);
-            handleRemoteStream(callerUserId, remoteStream, call.metadata?.type || 'media');
-          });
-
-          call.on('close', () => {
-            const callerUserId = this.peerJsToUser.get(call.peer) || call.peer;
-            clearRemoteMedia(callerUserId, call.metadata?.type || 'media');
-          });
-
-          call.on('error', (err) => {
-            console.warn('[StudyRoom-Debug] Call error from:', call.peer, err);
-          });
-        });
-
-        this.peer.on('error', (err) => {
-          console.error('[StudyRoom-Debug] PeerJS Error:', err.type, err.message);
-          clearTimeout(this.connectTimeoutTimer);
-
-          let userMsg = err.message || 'Connection error';
-          if (err.type === 'peer-unavailable') {
-            userMsg = 'Room code not found or host is offline.';
-          } else if (err.type === 'unavailable-id') {
-            userMsg = 'Room code is already active. Please create a new room or use a different code.';
-          } else if (err.type === 'network' || err.type === 'socket-error' || err.type === 'socket-closed') {
-            userMsg = 'Network connection issue with signaling server. Please retry.';
-          }
-
-          const wrappedError = new Error(userMsg);
-          if (this.onerror) this.onerror(wrappedError);
-          if (!isResolved) {
-            isResolved = true;
-            reject(wrappedError);
-          }
-        });
+    if (localScreenStream) {
+      localScreenStream.getTracks().forEach(track => {
+        pc.addTrack(track, localScreenStream);
       });
     }
 
-    flushOutbox() {
-      if (!this.hostConn || !this.hostConn.open) return;
-      while (this.outboxQueue.length > 0) {
-        const msg = this.outboxQueue.shift();
+    // ICE Candidate Handler
+    pc.onicecandidate = (event) => {
+      if (event.candidate) {
+        sendToServer({
+          action: 'relay-to',
+          to: remotePeerId,
+          data: { type: 'webrtc-ice', candidate: event.candidate }
+        });
+      }
+    };
+
+    // Inbound Remote Track Handler
+    pc.ontrack = (event) => {
+      console.log(`[WebRTC] Received remote track from ${remotePeerId}:`, event.track.kind);
+      let stream = remoteStreams.get(remotePeerId);
+      if (!stream) {
+        stream = new MediaStream();
+        remoteStreams.set(remotePeerId, stream);
+      }
+      stream.addTrack(event.track);
+      renderRemoteMedia(remotePeerId, stream);
+    };
+
+    pc.onconnectionstatechange = () => {
+      console.log(`[WebRTC] State with ${remotePeerId}: ${pc.connectionState}`);
+      if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed' || pc.connectionState === 'closed') {
+        clearRemoteMedia(remotePeerId);
+      }
+    };
+
+    // If initiator, generate offer
+    if (isInitiator) {
+      pc.onnegotiationneeded = async () => {
         try {
-          const payload = typeof msg === 'string' ? JSON.parse(msg) : msg;
-          this.hostConn.send(payload);
+          const offer = await pc.createOffer();
+          await pc.setLocalDescription(offer);
+          sendToServer({
+            action: 'relay-to',
+            to: remotePeerId,
+            data: { type: 'webrtc-offer', sdp: pc.localDescription }
+          });
         } catch (e) {
-          this.outboxQueue.unshift(msg);
-          break;
+          console.warn('[WebRTC] Negotiation error:', e);
         }
-      }
+      };
     }
 
-    send(str) {
-      const payload = typeof str === 'string' ? JSON.parse(str) : str;
-      if (!payload._mid) payload._mid = 'm_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+    return pc;
+  }
 
-      if (isHost) {
-        this.handleHostIncoming(null, payload, this.peer ? this.peer.id : 'usr_host');
-        return true;
-      }
+  async function handleWebRTCOffer(fromId, sdp) {
+    const pc = createPeerConnection(fromId, false);
+    await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    sendToServer({
+      action: 'relay-to',
+      to: fromId,
+      data: { type: 'webrtc-answer', sdp: pc.localDescription }
+    });
+  }
 
-      let sentDC = false;
-      if (this.hostConn && this.hostConn.open) {
-        try {
-          this.hostConn.send(payload);
-          sentDC = true;
-        } catch (e) {}
-      }
-
-      let sentRelay = false;
-      if (this.peer && typeof this.peer.sendRelay === 'function' && this.targetHostPeerId) {
-        sentRelay = this.peer.sendRelay(this.targetHostPeerId, payload);
-      }
-
-      if (!sentDC && !sentRelay) {
-        this.outboxQueue.push(payload);
-        return false;
-      }
-      return true;
-    }
-
-    handleHostIncoming(senderConn, msg, optSenderPeerJsId = null) {
-      const senderPeerJsId = senderConn ? senderConn.peer : (optSenderPeerJsId || (this.peer ? this.peer.id : 'usr_host'));
-      if (msg && msg._mid && this.isDuplicate(msg._mid)) return;
-
-      if (msg.action === 'host') {
-        myId = 'usr_host';
-        if (this.onmessage) {
-          this.onmessage({ data: JSON.stringify({ action: 'welcome', id: 'usr_host' }) });
-          this.onmessage({ data: JSON.stringify({ action: 'hosted' }) });
-        }
-        return;
-      }
-
-      if (msg.action === 'join') {
-        if (roomLocked) {
-          const authFailMsg = { _mid: 'af_' + Date.now(), action: 'auth-fail', reason: 'Room is locked by host.' };
-          if (senderConn && senderConn.open) senderConn.send(authFailMsg);
-          if (this.peer && typeof this.peer.sendRelay === 'function') this.peer.sendRelay(senderPeerJsId, authFailMsg);
-          return;
-        }
-        if (roomPassword && msg.password !== roomPassword) {
-          const authFailMsg = { _mid: 'af_' + Date.now(), action: 'auth-fail', reason: 'Incorrect room password.' };
-          if (senderConn && senderConn.open) senderConn.send(authFailMsg);
-          if (this.peer && typeof this.peer.sendRelay === 'function') this.peer.sendRelay(senderPeerJsId, authFailMsg);
-          return;
-        }
-
-        let newUserId = this.peerJsToUser.get(senderPeerJsId);
-        const isNewUser = !newUserId;
-        if (isNewUser) {
-          newUserId = 'usr_' + (this.nextUserNum++);
-          this.peerJsToUser.set(senderPeerJsId, newUserId);
-          this.userToPeerJs.set(newUserId, senderPeerJsId);
-        }
-
-        const currentPeersList = [];
-        for (const [uId, pId] of this.userToPeerJs.entries()) {
-          if (uId !== newUserId) {
-            const nick = uId === 'usr_host' ? nickname : (peers[uId]?.nickname || 'Student');
-            currentPeersList.push({ id: uId, nickname: nick, peerJsId: pId });
-          }
-        }
-
-        const welcomeMsg = { _mid: 'w_' + Date.now(), action: 'welcome', id: newUserId };
-        const joinedMsg = { _mid: 'j_' + Date.now(), action: 'joined', peers: currentPeersList, locked: roomLocked };
-
-        if (senderConn && senderConn.open) {
-          senderConn.send(welcomeMsg);
-          senderConn.send(joinedMsg);
-        }
-        if (this.peer && typeof this.peer.sendRelay === 'function') {
-          this.peer.sendRelay(senderPeerJsId, welcomeMsg);
-          this.peer.sendRelay(senderPeerJsId, joinedMsg);
-        }
-
-        if (isNewUser) {
-          const joinNotice = { _mid: 'pj_' + Date.now(), action: 'peer-joined', id: newUserId, nickname: msg.nickname, peerJsId: senderPeerJsId };
-          this.broadcastToAll(joinNotice, newUserId);
-          if (this.onmessage) this.onmessage({ data: JSON.stringify(joinNotice) });
-        }
-        return;
-      }
-
-      const senderUserId = this.peerJsToUser.get(senderPeerJsId) || 'usr_host';
-
-      if (msg.action === 'relay') {
-        const relayNotice = { _mid: msg._mid || ('r_' + Date.now()), action: 'relay', from: senderUserId, data: msg.data };
-        this.broadcastToAll(relayNotice, senderUserId);
-        if (senderUserId !== 'usr_host' && this.onmessage) {
-          this.onmessage({ data: JSON.stringify(relayNotice) });
-        }
-        return;
-      }
-    }
-
-    broadcastToAll(msgObj, excludeUserId = null) {
-      if (!msgObj._mid) msgObj._mid = 'b_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
-
-      for (const [pId, conn] of this.connections.entries()) {
-        const uId = this.peerJsToUser.get(pId);
-        if (uId !== excludeUserId && conn.open) {
-          try { conn.send(msgObj); } catch (e) {}
-        }
-      }
-
-      if (this.peer && typeof this.peer.sendRelay === 'function') {
-        for (const [uId, pId] of this.userToPeerJs.entries()) {
-          if (uId !== excludeUserId && uId !== 'usr_host') {
-            try { this.peer.sendRelay(pId, msgObj); } catch (e) {}
-          }
-        }
-      }
-    }
-
-    handleHostDisconnect(senderPeerJsId) {
-      const uId = this.peerJsToUser.get(senderPeerJsId);
-      if (uId) {
-        this.connections.delete(senderPeerJsId);
-        this.peerJsToUser.delete(senderPeerJsId);
-        this.userToPeerJs.delete(uId);
-
-        const leaveNotice = { action: 'peer-left', id: uId };
-        this.broadcastToAll(leaveNotice);
-        if (this.onmessage) this.onmessage({ data: JSON.stringify(leaveNotice) });
-      }
-    }
-
-    callPeer(targetPeerJsId, stream, type) {
-      if (!this.peer || !targetPeerJsId || !stream) return null;
-      try {
-        const call = this.peer.call(targetPeerJsId, stream, { metadata: { type } });
-        if (call) {
-          const key = targetPeerJsId + '_' + type;
-          this.activeCalls.set(key, call);
-
-          call.on('stream', (remoteStream) => {
-            const targetUserId = this.peerJsToUser.get(targetPeerJsId) || targetPeerJsId;
-            handleRemoteStream(targetUserId, remoteStream, type);
-          });
-
-          call.on('close', () => {
-            const targetUserId = this.peerJsToUser.get(targetPeerJsId) || targetPeerJsId;
-            clearRemoteMedia(targetUserId, type);
-            this.activeCalls.delete(key);
-          });
-
-          call.on('error', (err) => {
-            console.warn('[StudyRoom-Debug] Outgoing call error to:', targetPeerJsId, err);
-          });
-          return call;
-        }
-      } catch (err) {
-        console.error('[StudyRoom-Debug] Call execution error:', err);
-      }
-      return null;
-    }
-
-    close() {
-      this.readyState = 3;
-      clearTimeout(this.connectTimeoutTimer);
-
-      for (const call of this.activeCalls.values()) {
-        try { call.close(); } catch (e) {}
-      }
-      this.activeCalls.clear();
-
-      for (const conn of this.connections.values()) {
-        try { conn.close(); } catch (e) {}
-      }
-      this.connections.clear();
-
-      if (this.hostConn) {
-        try { this.hostConn.close(); } catch (e) {}
-        this.hostConn = null;
-      }
-
-      this.peerJsToUser.clear();
-      this.userToPeerJs.clear();
-      this.outboxQueue = [];
-
-      if (this.peer) {
-        try {
-          this.peer.destroy();
-        } catch (e) {}
-        this.peer = null;
-      }
-
-      if (this.onclose) this.onclose();
+  async function handleWebRTCAnswer(fromId, sdp) {
+    const pc = peerConnections.get(fromId);
+    if (pc) {
+      await pc.setRemoteDescription(new RTCSessionDescription(sdp));
     }
   }
 
-  function connectHub(targetRoomId) {
-    ws = new PeerJSRoomHub();
-    ws.onopen = () => {};
-    ws.onclose = () => handleDisconnect();
-    ws.onerror = (err) => {
-      console.warn('[StudyRoom-Debug] Hub reported error:', err);
-      if (!sessionActive) {
-        hideLoading();
-        cleanup();
-        renderStudyRoom();
-        notify(err.message || 'Connection failed', 'error');
-      }
-    };
-    ws.onmessage = (event) => {
+  async function handleWebRTCIce(fromId, candidate) {
+    const pc = peerConnections.get(fromId);
+    if (pc && candidate) {
       try {
-        const msg = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
-        handleServerMessage(msg);
-      } catch (e) {
-        console.error('[StudyRoom-Debug] onmessage parse error:', e);
+        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+      } catch (e) {}
+    }
+  }
+
+  function syncTracksToAllPeers() {
+    for (const [peerId, pc] of peerConnections.entries()) {
+      if (pc.signalingState === 'closed') continue;
+
+      const senders = pc.getSenders();
+      
+      // Sync local mic/cam
+      if (localMediaStream) {
+        localMediaStream.getTracks().forEach(track => {
+          const existing = senders.find(s => s.track && s.track.kind === track.kind);
+          if (existing) {
+            existing.replaceTrack(track);
+          } else {
+            pc.addTrack(track, localMediaStream);
+          }
+        });
       }
-    };
-    return ws.init(targetRoomId);
+
+      // Sync local screen
+      if (localScreenStream) {
+        localScreenStream.getTracks().forEach(track => {
+          const existing = senders.find(s => s.track && s.track.kind === track.kind);
+          if (existing) {
+            existing.replaceTrack(track);
+          } else {
+            pc.addTrack(track, localScreenStream);
+          }
+        });
+      }
+    }
+  }
+
+  /* ================================================================
+     NETWORKING ENGINE (Tauri Native Rust Relay + WebSockets)
+     ================================================================ */
+  function connectWebSocket(wsUrl, onOpenCallback) {
+    return new Promise((resolve, reject) => {
+      let isResolved = false;
+      const timer = setTimeout(() => {
+        if (!isResolved) {
+          isResolved = true;
+          if (socket) socket.close();
+          reject(new Error('Connection timed out. Check room code.'));
+        }
+      }, CONNECT_TIMEOUT_MS);
+
+      try {
+        socket = new WebSocket(wsUrl);
+      } catch (err) {
+        clearTimeout(timer);
+        return reject(err);
+      }
+
+      socket.onopen = () => {
+        clearTimeout(timer);
+        isResolved = true;
+        if (onOpenCallback) onOpenCallback();
+        resolve();
+      };
+
+      socket.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          handleServerMessage(msg);
+        } catch (e) {
+          console.error('[StudyRoom] Parse error:', e);
+        }
+      };
+
+      socket.onerror = (err) => {
+        if (!isResolved) {
+          clearTimeout(timer);
+          isResolved = true;
+          reject(new Error('Could not connect to room server.'));
+        }
+      };
+
+      socket.onclose = () => {
+        handleDisconnect();
+      };
+    });
   }
 
   function sendToServer(obj) {
-    if (ws) {
-      ws.send(JSON.stringify(obj));
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify(obj));
     }
   }
 
@@ -686,6 +463,7 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
     switch (msg.action) {
       case 'welcome':
         myId = msg.id;
+        console.log(`[StudyRoom] Assigned Client ID: ${myId}`);
         break;
 
       case 'hosted':
@@ -701,14 +479,11 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
         peers = {};
         if (Array.isArray(msg.peers)) {
           msg.peers.forEach(p => {
-            peers[p.id] = { nickname: p.nickname, goal: '', seconds: 0, peerJsId: p.peerJsId, handRaised: false, isSpeaking: false };
-            if (ws && p.peerJsId) {
-              ws.peerJsToUser.set(p.peerJsId, p.id);
-              ws.userToPeerJs.set(p.id, p.peerJsId);
-            }
+            peers[p.id] = { nickname: p.nickname, goal: '', seconds: 0, handRaised: false, isSpeaking: false };
+            // Initiate WebRTC connection to each existing peer
+            createPeerConnection(p.id, true);
           });
         }
-        roomLocked = !!msg.locked;
         sessionActive = true;
         startStudyTimerEngine();
         hideLoading();
@@ -717,7 +492,6 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
 
         broadcastData({ type: 'info-request' });
         notify('Connected to Study Room.', 'success');
-        syncLocalMediaToAllPeers();
         break;
 
       case 'auth-fail':
@@ -728,23 +502,15 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
         break;
 
       case 'peer-joined':
-        peers[msg.id] = { nickname: msg.nickname, goal: '', seconds: 0, peerJsId: msg.peerJsId, handRaised: false, isSpeaking: false };
-        if (ws && msg.peerJsId) {
-          ws.peerJsToUser.set(msg.peerJsId, msg.id);
-          ws.userToPeerJs.set(msg.id, msg.peerJsId);
-        }
+        peers[msg.id] = { nickname: msg.nickname, goal: '', seconds: 0, handRaised: false, isSpeaking: false };
         SoundFX.playJoin();
         addSystemMessage(`${msg.nickname} joined the room.`);
         updateParticipantsUI();
         updateProgressUI();
 
-        if (ws && msg.peerJsId) {
-          if (localMediaStream && localMediaStream.getTracks().length > 0) {
-            ws.callPeer(msg.peerJsId, localMediaStream, 'media');
-          }
-          if (localScreenStream && localScreenStream.getTracks().length > 0) {
-            ws.callPeer(msg.peerJsId, localScreenStream, 'screen');
-          }
+        // Host establishes WebRTC peer connection with the new participant
+        if (isHost) {
+          createPeerConnection(msg.id, true);
         }
         break;
 
@@ -754,13 +520,17 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
         addSystemMessage(`${leftNick} left the room.`);
         delete peers[msg.id];
         delete wbRemoteCursors[msg.id];
-        clearRemoteMedia(msg.id, 'media');
-        clearRemoteMedia(msg.id, 'screen');
+        clearRemoteMedia(msg.id);
         updateParticipantsUI();
         updateProgressUI();
         renderRemoteCursors();
         break;
       }
+
+      case 'room-closed':
+        notify('Host ended the study session.', 'info');
+        forceLeaveRoom();
+        break;
 
       case 'relay':
         handleRelayData(msg.from, msg.data);
@@ -772,8 +542,28 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
     if (!data || typeof data !== 'object') return;
 
     switch (data.type) {
+      /* WebRTC Signaling */
+      case 'webrtc-offer':
+        handleWebRTCOffer(fromId, data.sdp);
+        break;
+
+      case 'webrtc-answer':
+        handleWebRTCAnswer(fromId, data.sdp);
+        break;
+
+      case 'webrtc-ice':
+        handleWebRTCIce(fromId, data.candidate);
+        break;
+
+      /* Collaboration Data */
       case 'chat':
-        chatMessages.push({ sender: data.sender, text: data.text, time: data.time, type: 'chat' });
+        chatMessages.push({
+          senderId: data.senderId,
+          senderName: data.senderName,
+          text: data.text,
+          time: data.time,
+          type: 'chat'
+        });
         renderChatMessages();
         SoundFX.playPop();
         if (activeTab !== 'chat') {
@@ -854,12 +644,6 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
         }
         break;
 
-      case 'mod-lock':
-        roomLocked = data.locked;
-        updateRoomLockUI();
-        notify(`Room ${roomLocked ? 'Locked' : 'Unlocked'} by host.`, 'info');
-        break;
-
       case 'wb-live-draw':
         replayLivePoints(data.points, data.color, data.size, data.tool, data.alpha);
         break;
@@ -914,17 +698,13 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
       case 'study-material':
         receiveStudyMaterial(fromId, data.fileData, data.fileName);
         break;
-
-      case 'webrtc-stop':
-        clearRemoteMedia(fromId, data.streamType || 'screen');
-        break;
     }
   }
 
   function handleDisconnect() {
     if (!sessionActive) return;
-    notify('Lost connection to study room.', 'error');
-    setTimeout(() => forceLeaveRoom(), 1500);
+    notify('Disconnected from study room.', 'error');
+    setTimeout(() => forceLeaveRoom(), 1200);
   }
 
   /* ================================================================
@@ -941,9 +721,9 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
       <div class="sr-lobby">
         <div class="sr-lobby-header">
           <h2 class="section-title"><i class="fas fa-users"></i>Study Room</h2>
-          <span class="sr-exp-badge">Study Room v4.0</span>
+          <span class="sr-exp-badge">High-Speed Relay Mesh</span>
           <div class="sr-lobby-icon"><i class="fas fa-graduation-cap"></i></div>
-          <p class="sr-lobby-subtitle">Collaborate live with screen sharing, interactive whiteboard, synced timers, voice & notes.</p>
+          <p class="sr-lobby-subtitle">Collaborate live with real-time video, screen sharing, interactive whiteboard, synced timers & chat.</p>
         </div>
 
         <div class="sr-lobby-cards">
@@ -954,7 +734,7 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
 
           <div class="sr-lobby-card sr-card-create">
             <h3><i class="fas fa-plus-circle"></i> Create Room</h3>
-            <p>Host a study room and share your code with your group.</p>
+            <p>Host a study room and share your 10-digit code with your group.</p>
 
             <div class="sr-pw-row">
               <input type="password" id="srCreatePassword" class="sr-input" placeholder="Room password (optional)" maxlength="32" autocomplete="off">
@@ -965,9 +745,9 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
 
           <div class="sr-lobby-card sr-card-join">
             <h3><i class="fas fa-sign-in-alt"></i> Join Room</h3>
-            <p>Enter the room code shared by your study partner.</p>
+            <p>Enter the 10-digit room code shared by your study partner.</p>
             <div class="sr-join-row">
-              <input type="text" id="srJoinAddress" class="sr-input sr-code-input" placeholder="ABC123XYZ0" spellcheck="false" autocomplete="off">
+              <input type="text" id="srJoinAddress" class="sr-input sr-code-input" placeholder="4SNELCGW9X" spellcheck="false" autocomplete="off" maxlength="10">
               <button class="sr-btn sr-btn-accent" id="srJoinBtn"><i class="fas fa-arrow-right"></i> Join</button>
             </div>
             <div class="sr-pw-row" style="margin-top:0.5rem;">
@@ -1010,7 +790,7 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
         <!-- Top Toolbar -->
         <div class="sr-session-bar">
           <div class="sr-session-bar-left">
-            <span class="sr-mode-badge sr-mode-inet"><i class="fas fa-wifi"></i> Live</span>
+            <span class="sr-mode-badge sr-mode-inet"><i class="fas fa-bolt"></i> Live</span>
             <span class="sr-room-code-badge" title="Click to copy room code" id="srCopyCode">
               <i class="fas fa-key"></i> ${escapeHTML(roomAddress)}
             </span>
@@ -1058,7 +838,7 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
         <div class="sr-session-body">
           <!-- Video Area -->
           <div class="sr-video-area" id="srParticipantArea">
-            <div class="sr-video-grid" id="srParticipantsGrid"></div>
+            <div class="sr-video-grid sr-grid-1" id="srParticipantsGrid"></div>
             
             <!-- Quick Reactions Bar -->
             <div class="sr-reactions-bar">
@@ -1116,8 +896,8 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
 
             <div class="sr-wb-body">
               <div class="sr-wb-canvas-wrap" id="srWbCanvasWrap" style="touch-action: none !important;">
-                <canvas id="srWbCanvas" style="touch-action: none !important;"></canvas>
-                <canvas id="srWbOverlay" style="touch-action: none !important;"></canvas>
+                <canvas id="srWbCanvas"></canvas>
+                <canvas id="srWbOverlay"></canvas>
               </div>
               <div class="sr-wb-questions">
                 <div class="sr-wb-q-header">
@@ -1230,15 +1010,15 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
     const grid = document.getElementById('srParticipantsGrid');
     if (!grid) return;
 
-    const currentTileIds = new Set(['srTile_usr_self']);
+    const currentTileIds = new Set(['srTile_self']);
     Object.keys(peers).forEach(uId => currentTileIds.add(`srTile_${uId}`));
 
-    let selfTile = document.getElementById('srTile_usr_self');
+    // 1. Self Tile
+    let selfTile = document.getElementById('srTile_self');
     if (!selfTile) {
       selfTile = document.createElement('div');
       selfTile.className = 'sr-video-tile sr-video-local';
-      selfTile.id = 'srTile_usr_self';
-      selfTile.dataset.userid = 'usr_self';
+      selfTile.id = 'srTile_self';
       selfTile.innerHTML = `
         <div class="sr-video-off"><i class="fas fa-user"></i></div>
         <div class="sr-video-label">${escapeHTML(nickname)} (You)${isHost ? ' <i class="fas fa-crown" style="color:#f59e0b;"></i>' : ''}</div>
@@ -1252,6 +1032,7 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
       if (hand) hand.style.display = handRaised ? 'block' : 'none';
     }
 
+    // 2. Remote Peer Tiles
     Object.entries(peers).forEach(([uId, p]) => {
       const tileId = `srTile_${uId}`;
       let tile = document.getElementById(tileId);
@@ -1259,13 +1040,18 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
         tile = document.createElement('div');
         tile.className = 'sr-video-tile';
         tile.id = tileId;
-        tile.dataset.userid = uId;
         tile.innerHTML = `
           <div class="sr-video-off"><i class="fas fa-user"></i></div>
           <div class="sr-video-label">${escapeHTML(p.nickname || 'Student')}</div>
           <div class="sr-tile-hand" style="display:${p.handRaised ? 'block' : 'none'};"><i class="fas fa-hand-paper"></i></div>
         `;
         grid.appendChild(tile);
+
+        // Check if stream already exists
+        const stream = remoteStreams.get(uId);
+        if (stream) {
+          renderRemoteMedia(uId, stream);
+        }
       } else {
         const label = tile.querySelector('.sr-video-label');
         if (label) label.textContent = p.nickname || 'Student';
@@ -1275,16 +1061,14 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
       }
     });
 
+    // Cleanup abandoned tiles
     Array.from(grid.children).forEach(tile => {
       if (tile.id && !currentTileIds.has(tile.id)) {
-        tile.querySelectorAll('video, audio').forEach(el => {
-          el.pause();
-          el.srcObject = null;
-        });
         tile.remove();
       }
     });
 
+    // Dynamic grid classes
     const totalTiles = grid.children.length;
     grid.classList.remove('sr-grid-1', 'sr-grid-2', 'sr-grid-3', 'sr-grid-4plus');
     if (totalTiles <= 1) grid.classList.add('sr-grid-1');
@@ -1301,7 +1085,6 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
 
     mainInterval = setInterval(() => {
       if (!sessionActive) return;
-
       totalUptimeSeconds++;
 
       if (timerRunning) {
@@ -1313,8 +1096,7 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
             if (timerRemaining === 0) {
               timerRunning = false;
               SoundFX.playChime();
-              notify(timerMode === 'focus' ? 'Focus session complete. Time for a break.' : 'Break complete. Back to study.', 'success');
-
+              notify(timerMode === 'focus' ? 'Focus session complete! Time for a break.' : 'Break complete! Back to study.', 'success');
               if (timerMode === 'focus') {
                 timerMode = 'break';
                 timerDuration = 5 * 60;
@@ -1350,19 +1132,14 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
     timerRunning = !timerRunning;
     broadcastTimerSync();
     updateTimerDisplay();
-    notify(timerRunning ? 'Timer started' : 'Timer paused', 'info');
   }
 
   function resetTimer() {
     timerRunning = false;
-    if (timerMode === 'stopwatch') {
-      timerSeconds = 0;
-    } else {
-      timerRemaining = timerDuration;
-    }
+    if (timerMode === 'stopwatch') timerSeconds = 0;
+    else timerRemaining = timerDuration;
     broadcastTimerSync();
     updateTimerDisplay();
-    notify('Timer reset', 'info');
   }
 
   function cycleTimerMode() {
@@ -1416,22 +1193,19 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
 
     if (modeBtn) {
       let icon = 'stopwatch';
-      let label = 'Stopwatch';
-      if (timerMode === 'focus') { icon = 'brain'; label = 'Focus (25m)'; }
-      else if (timerMode === 'break') { icon = 'coffee'; label = 'Short Break (5m)'; }
-      else if (timerMode === 'long_break') { icon = 'umbrella-beach'; label = 'Long Break (15m)'; }
-
+      if (timerMode === 'focus') icon = 'brain';
+      else if (timerMode === 'break') icon = 'coffee';
+      else if (timerMode === 'long_break') icon = 'umbrella-beach';
       modeBtn.innerHTML = `<i class="fas fa-${icon}"></i>`;
-      modeBtn.title = `Mode: ${label} (Click to switch)`;
     }
   }
 
   /* ================================================================
-     SESSION LISTENERS & CONTROLS
+     SESSION LISTENERS
      ================================================================ */
   function attachSessionListeners() {
     document.getElementById('srCopyCode')?.addEventListener('click', () => {
-      navigator.clipboard.writeText(roomAddress).then(() => notify('Room code copied.', 'success')).catch(() => {
+      navigator.clipboard.writeText(roomAddress).then(() => notify('Room code copied to clipboard!', 'success')).catch(() => {
         prompt('Room Code:', roomAddress);
       });
     });
@@ -1444,24 +1218,12 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
       });
     }
 
-    document.getElementById('srLockToggle')?.addEventListener('click', () => {
-      roomLocked = !roomLocked;
-      broadcastData({ type: 'mod-lock', locked: roomLocked });
-      updateRoomLockUI();
-      notify(`Room ${roomLocked ? 'Locked' : 'Unlocked'}`, 'info');
-    });
-
     document.getElementById('srRaiseHandBtn')?.addEventListener('click', toggleRaiseHand);
-    document.getElementById('srMuteAllBtn')?.addEventListener('click', () => {
-      broadcastData({ type: 'mod-mute-all' });
-      notify('Mute request sent to all.', 'info');
-    });
-
     document.getElementById('srLeaveBtn')?.addEventListener('click', leaveRoom);
     document.getElementById('srChatSend')?.addEventListener('click', sendChatMessage);
     document.getElementById('srChatInput')?.addEventListener('keydown', e => { if (e.key === 'Enter') sendChatMessage(); });
     document.getElementById('srShareMaterial')?.addEventListener('click', handleShareMaterial);
-
+    
     document.getElementById('srToggleScreenShare')?.addEventListener('click', toggleScreenShare);
     document.getElementById('srToggleMic')?.addEventListener('click', toggleMicrophone);
     document.getElementById('srToggleCamera')?.addEventListener('click', toggleCamera);
@@ -1509,14 +1271,6 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
     initWhiteboardListeners();
   }
 
-  function updateRoomLockUI() {
-    const btn = document.getElementById('srLockToggle');
-    if (btn) {
-      btn.innerHTML = `<i class="fas fa-${roomLocked ? 'lock' : 'lock-open'}"></i>`;
-      btn.className = `sr-btn sr-btn-sm ${roomLocked ? 'sr-btn-primary' : 'sr-btn-secondary'}`;
-    }
-  }
-
   function updateUnreadBadge() {
     const badge = document.getElementById('srUnreadBadge');
     if (badge) {
@@ -1562,20 +1316,6 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
     return localMediaStream;
   }
 
-  function syncLocalMediaToAllPeers() {
-    if (!ws) return;
-    Object.entries(peers).forEach(([uId, p]) => {
-      if (p.peerJsId) {
-        if (localMediaStream && localMediaStream.getTracks().length > 0) {
-          ws.callPeer(p.peerJsId, localMediaStream, 'media');
-        }
-        if (localScreenStream && localScreenStream.getTracks().length > 0) {
-          ws.callPeer(p.peerJsId, localScreenStream, 'screen');
-        }
-      }
-    });
-  }
-
   async function toggleMicrophone() {
     try {
       const stream = await getOrCreateMediaStream();
@@ -1587,20 +1327,19 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
         stream.addTrack(audioTrack);
         micActive = true;
         audioTrack.enabled = true;
-        syncLocalMediaToAllPeers();
       } else {
         micActive = !micActive;
         audioTrack.enabled = micActive;
       }
 
+      syncTracksToAllPeers();
       updateMediaButtons();
       setupAudioAnalysis();
       notify(micActive ? 'Microphone unmuted' : 'Microphone muted', 'info');
     } catch (err) {
-      console.error('[StudyRoom-Debug] Mic Error:', err);
       micActive = false;
       updateMediaButtons();
-      notify('Could not access microphone. Check device permissions.', 'error');
+      notify('Could not access microphone.', 'error');
     }
   }
 
@@ -1611,26 +1350,25 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
 
       if (!videoTrack) {
         const videoStream = await navigator.mediaDevices.getUserMedia({
-          video: { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 24 } }
+          video: { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 30 } }
         });
         videoTrack = videoStream.getVideoTracks()[0];
         stream.addTrack(videoTrack);
         camActive = true;
         videoTrack.enabled = true;
-        syncLocalMediaToAllPeers();
       } else {
         camActive = !camActive;
         videoTrack.enabled = camActive;
       }
 
+      syncTracksToAllPeers();
       updateMediaButtons();
       renderLocalCam(camActive ? stream : null);
       notify(camActive ? 'Camera turned on' : 'Camera turned off', 'info');
     } catch (err) {
-      console.error('[StudyRoom-Debug] Camera Error:', err);
       camActive = false;
       updateMediaButtons();
-      notify('Could not access camera. Check device permissions.', 'error');
+      notify('Could not access camera.', 'error');
     }
   }
 
@@ -1666,7 +1404,7 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
           if (!micActive || !localAudioAnalyser) {
             if (isSpeaking) {
               isSpeaking = false;
-              document.getElementById('srTile_usr_self')?.classList.remove('sr-speaking');
+              document.getElementById('srTile_self')?.classList.remove('sr-speaking');
               broadcastData({ type: 'speaking', speaking: false });
             }
             return;
@@ -1680,14 +1418,12 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
 
           if (nowSpeaking !== isSpeaking) {
             isSpeaking = nowSpeaking;
-            document.getElementById('srTile_usr_self')?.classList.toggle('sr-speaking', isSpeaking);
+            document.getElementById('srTile_self')?.classList.toggle('sr-speaking', isSpeaking);
             broadcastData({ type: 'speaking', speaking: isSpeaking });
           }
         }, 200);
       }
-    } catch (e) {
-      console.warn('[StudyRoom-Debug] Audio analysis setup skipped:', e);
-    }
+    } catch (e) {}
   }
 
   async function toggleScreenShare() {
@@ -1703,7 +1439,7 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
         vTrack.onended = () => stopScreenShare();
       }
 
-      syncLocalMediaToAllPeers();
+      syncTracksToAllPeers();
       if (btn) btn.classList.add('sr-ctrl-active');
       renderLocalScreenVideo(localScreenStream);
       notify('Screen sharing started.', 'success');
@@ -1717,22 +1453,14 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
       localScreenStream.getTracks().forEach(t => t.stop());
       localScreenStream = null;
     }
+    syncTracksToAllPeers();
     const btn = document.getElementById('srToggleScreenShare');
     if (btn) btn.classList.remove('sr-ctrl-active');
     renderLocalScreenVideo(null);
-    broadcastData({ type: 'webrtc-stop', streamType: 'screen' });
-  }
-
-  function handleRemoteStream(userId, stream, type) {
-    if (type === 'screen') {
-      renderRemoteScreenVideo(userId, stream);
-    } else {
-      renderRemoteMediaStream(userId, stream);
-    }
   }
 
   function renderLocalScreenVideo(stream) {
-    const localTile = document.getElementById('srTile_usr_self');
+    const localTile = document.getElementById('srTile_self');
     if (!localTile) return;
     let video = localTile.querySelector('.sr-screen-video');
     if (!stream) {
@@ -1757,7 +1485,7 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
   }
 
   function renderLocalCam(stream) {
-    const localTile = document.getElementById('srTile_usr_self');
+    const localTile = document.getElementById('srTile_self');
     if (!localTile) return;
     const off = localTile.querySelector('.sr-video-off');
     let camVideo = localTile.querySelector('.sr-cam-video');
@@ -1780,31 +1508,14 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
     camVideo.srcObject = stream;
   }
 
-  function renderRemoteScreenVideo(userId, stream) {
-    const tile = document.getElementById(`srTile_${userId}`);
-    if (!tile) return;
-    const off = tile.querySelector('.sr-video-off');
-    if (off) off.style.display = 'none';
-
-    let video = tile.querySelector('.sr-screen-video');
-    if (!video) {
-      video = document.createElement('video');
-      video.className = 'sr-screen-video';
-      video.autoplay = true;
-      video.playsInline = true;
-      video.style.cssText = 'width:100%;height:100%;object-fit:contain;position:absolute;top:0;left:0;border-radius:12px;background:#000;z-index:2;';
-      tile.appendChild(video);
-    }
-    video.srcObject = stream;
-  }
-
-  function renderRemoteMediaStream(userId, stream) {
+  function renderRemoteMedia(userId, stream) {
     const tile = document.getElementById(`srTile_${userId}`);
     if (!tile) return;
 
-    const hasVideo = stream.getVideoTracks().length > 0 && stream.getVideoTracks().some(t => t.enabled);
+    const hasVideo = stream.getVideoTracks().length > 0;
     const off = tile.querySelector('.sr-video-off');
 
+    // Audio Receiver
     let audio = tile.querySelector('.sr-remote-audio');
     if (!audio) {
       audio = document.createElement('audio');
@@ -1815,6 +1526,7 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
     }
     audio.srcObject = stream;
 
+    // Video Receiver
     let camVideo = tile.querySelector('.sr-cam-video');
     if (hasVideo) {
       if (off) off.style.display = 'none';
@@ -1829,27 +1541,27 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
       camVideo.srcObject = stream;
     } else {
       if (camVideo) { camVideo.pause(); camVideo.srcObject = null; camVideo.remove(); }
-      if (!tile.querySelector('.sr-screen-video') && off) off.style.display = 'flex';
+      if (off) off.style.display = 'flex';
     }
   }
 
-  function clearRemoteMedia(userId, type) {
-    const tile = document.getElementById(`srTile_${userId}`);
-    if (!tile) return;
-
-    if (type === 'screen') {
-      const video = tile.querySelector('.sr-screen-video');
-      if (video) { video.pause(); video.srcObject = null; video.remove(); }
-    } else {
-      const cam = tile.querySelector('.sr-cam-video');
-      if (cam) { cam.pause(); cam.srcObject = null; cam.remove(); }
-      const aud = tile.querySelector('.sr-remote-audio');
-      if (aud) { aud.pause(); aud.srcObject = null; aud.remove(); }
+  function clearRemoteMedia(userId) {
+    const pc = peerConnections.get(userId);
+    if (pc) {
+      try { pc.close(); } catch (e) {}
+      peerConnections.delete(userId);
     }
+    remoteStreams.delete(userId);
 
-    const off = tile.querySelector('.sr-video-off');
-    if (off && !tile.querySelector('.sr-screen-video') && !tile.querySelector('.sr-cam-video')) {
-      off.style.display = 'flex';
+    const tile = document.getElementById(`srTile_${userId}`);
+    if (tile) {
+      tile.querySelectorAll('video, audio').forEach(el => {
+        el.pause();
+        el.srcObject = null;
+        el.remove();
+      });
+      const off = tile.querySelector('.sr-video-off');
+      if (off) off.style.display = 'flex';
     }
   }
 
@@ -1888,7 +1600,15 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
     const text = input.value.trim();
     if (!text) return;
     input.value = '';
-    const msg = { sender: nickname, text, time: Date.now(), type: 'chat' };
+
+    const msg = {
+      senderId: myId,
+      senderName: nickname,
+      text: text,
+      time: Date.now(),
+      type: 'chat'
+    };
+
     chatMessages.push(msg);
     broadcastData(msg);
     renderChatMessages();
@@ -1919,7 +1639,7 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
   function receiveStudyMaterial(fromId, fileData, fileName) {
     const senderName = (fromId === myId) ? nickname : (peers[fromId]?.nickname || 'Someone');
     const msgHtml = `Shared a file: <br><a href="${fileData}" download="${escapeHTML(fileName)}" class="sr-file-download-link"><i class="fas fa-file-download"></i> ${escapeHTML(fileName)}</a>`;
-    chatMessages.push({ sender: senderName, text: msgHtml, time: Date.now(), type: 'html' });
+    chatMessages.push({ senderId: fromId, senderName: senderName, text: msgHtml, time: Date.now(), type: 'html' });
     renderChatMessages();
     SoundFX.playPop();
   }
@@ -1932,14 +1652,15 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
       return;
     }
     container.innerHTML = chatMessages.map(m => {
-      const isMe = m.sender === nickname;
+      // Precise unique client ID match
+      const isMe = m.senderId === myId;
       const timeStr = new Date(m.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       if (m.type === 'system') {
         return `<div class="sr-chat-msg sr-chat-system"><em>${m.text}</em></div>`;
       }
       return `
         <div class="sr-chat-msg ${isMe ? 'sr-chat-me' : 'sr-chat-other'}">
-          <span class="sr-chat-sender">${escapeHTML(m.sender)}</span>
+          <span class="sr-chat-sender">${escapeHTML(m.senderName)}</span>
           <span class="sr-chat-text">${m.type === 'html' ? m.text : escapeHTML(m.text)}</span>
           <span class="sr-chat-time">${timeStr}</span>
         </div>`;
@@ -1948,7 +1669,7 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
   }
 
   function addSystemMessage(text) {
-    chatMessages.push({ sender: '', text, time: Date.now(), type: 'system' });
+    chatMessages.push({ senderId: '', senderName: '', text, time: Date.now(), type: 'system' });
     renderChatMessages();
   }
 
@@ -2478,26 +2199,41 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
   }
 
   /* ================================================================
-     SESSION FLOW (CREATE / JOIN / LEAVE)
+     SESSION FLOW (CREATE / JOIN / LEAVE) - 10-DIGIT CODEC ROUTER
      ================================================================ */
   async function handleCreate() {
     SoundFX.init();
-    nickname = document.getElementById('srNickname')?.value.trim() || 'Student';
+    nickname = document.getElementById('srNickname')?.value.trim() || 'Host';
     localStorage.setItem('questionary-study-nickname', nickname);
     roomPassword = document.getElementById('srCreatePassword')?.value || '';
     isHost = true;
-    const newRoomId = generateRoomId();
 
     try {
       showLoading('Creating room…');
-      roomAddress = newRoomId;
-      await connectHub(newRoomId);
-      sendToServer({ action: 'host', nickname, password: roomPassword });
+
+      // Start embedded Rust WebSocket Relay Server in Tauri
+      const serverInfo = await tauriInvoke('start_study_server', { password: roomPassword });
+
+      let targetWsUrl = '';
+      if (serverInfo && serverInfo.port) {
+        const localIp = (serverInfo.ips && serverInfo.ips.length > 0) ? serverInfo.ips[0] : '127.0.0.1';
+        // Encode IP:Port into a clean 10-character room code
+        roomAddress = ipPortToCode(localIp, serverInfo.port);
+        targetWsUrl = `ws://127.0.0.1:${serverInfo.port}`;
+      } else {
+        roomAddress = generateRandomCode();
+        targetWsUrl = 'ws://127.0.0.1:8080';
+      }
+
+      await connectWebSocket(targetWsUrl, () => {
+        sendToServer({ action: 'host', nickname, password: roomPassword, room: '_local' });
+      });
+
     } catch (err) {
       hideLoading();
       cleanup();
       renderStudyRoom();
-      notify('Could not create room: ' + (err.message || err), 'error');
+      notify('Could not start study room: ' + (err.message || err), 'error');
     }
   }
 
@@ -2507,29 +2243,38 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
     localStorage.setItem('questionary-study-nickname', nickname);
     const rawInput = document.getElementById('srJoinAddress')?.value.trim();
     if (!rawInput) {
-      notify('Please enter a room code.', 'error');
+      notify('Please enter a 10-digit room code.', 'error');
       return;
     }
     roomPassword = document.getElementById('srJoinPassword')?.value || '';
     isHost = false;
 
-    const parsedCode = normalizeRoomCode(rawInput);
-    if (!parsedCode) {
-      notify('Enter a valid room code (alphanumeric).', 'error');
+    let targetWsUrl = '';
+    const cleanCode = normalizeRoomCode(rawInput);
+
+    // Decode 10-digit code back into host's IP and port
+    const decoded = codeToIpPort(cleanCode);
+    if (decoded) {
+      targetWsUrl = `ws://${decoded.ip}:${decoded.port}`;
+      roomAddress = cleanCode;
+    } else if (rawInput.includes(':')) {
+      targetWsUrl = `ws://${rawInput.replace(/^ws:\/\//, '')}`;
+      roomAddress = rawInput;
+    } else {
+      notify('Invalid room code format. Check the 10-digit code.', 'error');
       return;
     }
 
-    roomAddress = parsedCode;
-
     try {
       showLoading('Connecting to study room…');
-      await connectHub(parsedCode);
-      sendToServer({ action: 'join', nickname, password: roomPassword });
+      await connectWebSocket(targetWsUrl, () => {
+        sendToServer({ action: 'join', nickname, password: roomPassword, room: '_local' });
+      });
     } catch (err) {
       hideLoading();
       cleanup();
       renderStudyRoom();
-      notify(err.message || 'Failed to connect to room.', 'error');
+      notify(err.message || 'Room not found or host is offline.', 'error');
     }
   }
 
@@ -2558,9 +2303,20 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
       localMediaStream = null;
     }
 
-    if (ws) {
-      try { ws.close(); } catch (_) {}
-      ws = null;
+    for (const [peerId, pc] of peerConnections.entries()) {
+      try { pc.close(); } catch (e) {}
+    }
+    peerConnections.clear();
+    remoteStreams.clear();
+
+    if (socket) {
+      try { socket.close(); } catch (_) {}
+      socket = null;
+    }
+
+    // Stop native Rust server if host in Tauri
+    if (isHost) {
+      tauriInvoke('stop_study_server').catch(() => {});
     }
 
     sessionActive = false;
@@ -2584,7 +2340,12 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
   }
 
   function cleanup() {
-    if (ws) { try { ws.close(); } catch (_) {} ws = null; }
+    if (socket) { try { socket.close(); } catch (_) {} socket = null; }
+    for (const [peerId, pc] of peerConnections.entries()) {
+      try { pc.close(); } catch (e) {}
+    }
+    peerConnections.clear();
+    remoteStreams.clear();
     sessionActive = false;
     isHost = false;
     myId = '';
@@ -2713,7 +2474,7 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
         });
       }
     } catch (e) {
-      console.warn('[StudyRoom-Debug] Enumerate devices notice:', e);
+      console.warn('[StudyRoom] Enumerate devices notice:', e);
     }
   }
 
@@ -2745,5 +2506,10 @@ window.STUDY_ROOM_ENGINE_VERSION = '4.0';
   window.testCamera = testCamera;
   window.initStudyRoomMediaSettings = initStudyRoomMediaSettings;
 
-})();
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', renderStudyRoom);
+  } else {
+    renderStudyRoom();
+  }
 
+})();
