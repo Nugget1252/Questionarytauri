@@ -1,76 +1,186 @@
-/* ================================================================
- *   ZERO-CONFIG HOT UPDATER ENGINE (CORS-Proof Multi-CDN Pipeline)
- *   Repository: Nugget1252/Questionarytauri
- *   ================================================================ */
-(function() {
+/* =========================================================================
+ *   QUESTIONARY HOT UPDATER ENGINE v7.0 (Fast, Stable & Focused)
+ *   Repository: Nugget1252/Questionarytauri (beta -> main)
+ *   ========================================================================= */
+
+(function (global) {
     'use strict';
-    
+
+    if (global._HOT_UPDATER_ENGINE_ACTIVE) return;
+    global._HOT_UPDATER_ENGINE_ACTIVE = true;
+
+    /* ---------- Configuration ---------- */
     const REPO_OWNER = 'Nugget1252';
     const REPO_NAME = 'Questionarytauri';
     const PRIMARY_BRANCH = 'beta';
     const FALLBACK_BRANCH = 'main';
-    
-    const CODE_FILES_KEY = 'questionary-code-files';
-    const INSTALLED_COMMIT_KEY = 'questionary-installed-commit-sha';
-    
+
+    const STORAGE_KEY_FILES = 'questionary_hot_files';
+    const STORAGE_KEY_COMMIT = 'questionary_hot_commit_sha';
+    const STORAGE_KEY_BRANCH = 'questionary_hot_branch';
+
+    /* Code & DB files to manage (Documents are loaded on-demand, NOT bulk-downloaded) */
     const MANAGED_FILES = [
         'index.html',
+        'pdfviewer.html',
         'css/styles.css',
         'css/features.css',
-        'js/app.js',
         'js/features.js',
         'js/studyRoom.js',
         'js/contentUpdater.js',
-        'js/hotUpdater.js',
-        'pdfviewer.html',
+        'js/app.js',
         'questionary.db'
     ];
 
-    window.codeUpdateState = {
+    /* Global State */
+    global.codeUpdateState = {
         checking: false,
         downloading: false,
         available: false,
         latestCommitSha: null,
+        installedCommitSha: localStorage.getItem(STORAGE_KEY_COMMIT) || null,
         activeBranch: PRIMARY_BRANCH,
-        pendingFiles: []
+        progress: 0
     };
 
+    /* ---------- Logging & Notifications ---------- */
+    function log(msg, type = 'info') {
+        const prefix = '[HotUpdater]';
+        if (type === 'error') console.error(`${prefix} ${msg}`);
+        else if (type === 'warn') console.warn(`${prefix} ${msg}`);
+        else console.log(`${prefix} ${msg}`);
+    }
+
     function notify(message, type = 'info') {
-        if (typeof window.showNotification === 'function') {
-            window.showNotification(message, type);
+        if (typeof global.showNotification === 'function') {
+            global.showNotification(message, type);
         } else {
-            console.log(`[HotUpdate - ${type.toUpperCase()}] ${message}`);
+            log(`[${type.toUpperCase()}] ${message}`);
         }
     }
 
+    function normalizePath(filePath) {
+        return filePath.replace(/^src\//, '').replace(/^\/+/, '');
+    }
+
+    /* ---------- Code Storage (localStorage) ---------- */
     function getStoredCodeFiles() {
         try {
-            const data = localStorage.getItem(CODE_FILES_KEY);
-            return data ? JSON.parse(data) : {};
+            const raw = localStorage.getItem(STORAGE_KEY_FILES);
+            if (!raw) return {};
+            const parsed = JSON.parse(raw);
+            let sanitized = false;
+            Object.keys(parsed).forEach(k => {
+                if (k.endsWith('.db') || k.endsWith('.pdf') || typeof parsed[k] !== 'string') {
+                    delete parsed[k];
+                    sanitized = true;
+                }
+            });
+            if (sanitized) localStorage.setItem(STORAGE_KEY_FILES, JSON.stringify(parsed));
+            return parsed;
         } catch (e) {
+            localStorage.removeItem(STORAGE_KEY_FILES);
             return {};
         }
     }
 
-    function saveStoredCodeFiles(files) {
-        localStorage.setItem(CODE_FILES_KEY, JSON.stringify(files));
+    function saveStoredCodeFiles(filesMap) {
+        try {
+            const cleanMap = {};
+            for (const [k, v] of Object.entries(filesMap)) {
+                if (!k.endsWith('.db') && !k.endsWith('.pdf') && typeof v === 'string') {
+                    cleanMap[k] = v;
+                }
+            }
+            localStorage.setItem(STORAGE_KEY_FILES, JSON.stringify(cleanMap));
+            return true;
+        } catch (e) {
+            return false;
+        }
     }
 
-    async function resetCache() {
-        localStorage.removeItem(CODE_FILES_KEY);
-        localStorage.removeItem(INSTALLED_COMMIT_KEY);
-        delete window._HOT_APP_JS_LOADED;
-        delete window._HOT_STUDY_ROOM_LOADED;
-        delete window._HOT_FEATURES_LOADED;
-        console.log('[HotUpdate] Cache cleared. Force re-syncing from GitHub...');
-        notify('Cache cleared. Fetching latest files from GitHub...', 'info');
-        
-        await downloadCodeUpdates(true);
+    /* ---------- Cache Reset & Self-Healing ---------- */
+    async function resetCache(shouldReload = true) {
+        log('Purging code cache and restoring base setup...');
+        localStorage.removeItem(STORAGE_KEY_FILES);
+        localStorage.removeItem(STORAGE_KEY_COMMIT);
+        localStorage.removeItem(STORAGE_KEY_BRANCH);
+        localStorage.removeItem('questionary-code-files');
+
+        // Delete any clogged document caches from previous bug
+        try { indexedDB.deleteDatabase('QuestionaryDocumentCache'); } catch (e) {}
+        try { indexedDB.deleteDatabase('QuestionaryDB'); } catch (e) {}
+
+        delete global._HOT_APP_JS_LOADED;
+        delete global._HOT_STUDY_ROOM_LOADED;
+        delete global._HOT_FEATURES_LOADED;
+        delete global._HOT_CONTENT_UPDATER_LOADED;
+
+        notify('Cache cleared. Reloading...', 'info');
+        if (shouldReload) {
+            setTimeout(() => location.reload(), 400);
+        }
     }
 
-    // ================================================================
-    // 1. LIVE DOM HOT-PATCHER
-    // ================================================================
+    /* ================================================================
+     * 1. LIVE DOM & SCRIPT INJECTION (Global Execution Scope)
+     * ================================================================ */
+    function applyStoredCSS() {
+        const stored = getStoredCodeFiles();
+        for (const [filename, content] of Object.entries(stored)) {
+            if (filename.endsWith('.css') && typeof content === 'string') {
+                const norm = normalizePath(filename);
+                const styleId = `hot-css-${norm.replace(/[^a-zA-Z0-9]/g, '-')}`;
+                let styleEl = document.getElementById(styleId);
+                if (!styleEl) {
+                    styleEl = document.createElement('style');
+                    styleEl.id = styleId;
+                    document.head.appendChild(styleEl);
+                }
+                styleEl.textContent = content;
+                log(`Applied stylesheet: ${norm}`);
+            }
+        }
+    }
+
+    function applyStoredJS() {
+        const stored = getStoredCodeFiles();
+        if (!stored || Object.keys(stored).length === 0) return;
+
+        const executionOrder = [
+            'js/features.js',
+            'js/studyRoom.js',
+            'js/contentUpdater.js',
+            'js/app.js'
+        ];
+
+        for (const filename of executionOrder) {
+            const content = stored[filename];
+            if (content && typeof content === 'string' && content.trim().length > 30) {
+                try {
+                    const norm = normalizePath(filename);
+                    const scriptId = `hot-js-${norm.replace(/[^a-zA-Z0-9]/g, '-')}`;
+                    const oldScript = document.getElementById(scriptId);
+                    if (oldScript) oldScript.remove();
+
+                    if (norm.includes('app.js')) global._HOT_APP_JS_LOADED = true;
+                    if (norm.includes('studyRoom.js')) global._HOT_STUDY_ROOM_LOADED = true;
+                    if (norm.includes('features.js')) global._HOT_FEATURES_LOADED = true;
+                    if (norm.includes('contentUpdater.js')) global._HOT_CONTENT_UPDATER_LOADED = true;
+
+                    const scriptEl = document.createElement('script');
+                    scriptEl.id = scriptId;
+                    scriptEl.type = 'text/javascript';
+                    scriptEl.textContent = `${content}\n//# sourceURL=hotUpdate://${norm}`;
+                    document.head.appendChild(scriptEl);
+                    log(`Hot script loaded: ${norm}`);
+                } catch (err) {
+                    log(`Script eval error (${filename}): ${err.message}`, 'error');
+                }
+            }
+        }
+    }
+
     function applyStoredHTML() {
         const stored = getStoredCodeFiles();
         const storedHtml = stored['index.html'];
@@ -84,16 +194,24 @@
             const curHeader = document.querySelector('header.header') || document.querySelector('.header');
             if (newHeader && curHeader && newHeader.innerHTML !== curHeader.innerHTML) {
                 curHeader.innerHTML = newHeader.innerHTML;
-                console.log('[HotUpdate] Hot-patched header/nav from updated index.html');
+                log('Hot-patched navigation header');
             }
 
-            const targets = ['app', 'loginScreen', 'loadingOverlay', 'accessibilityPanel', 'quickLinksPanel', 'timerPanel', 'main-content'];
-            targets.forEach(id => {
+            const syncContainers = [
+                'accessibilityPanel',
+                'quickLinksPanel',
+                'timerPanel',
+                'downloadProgressBar',
+                'contentProgressBar',
+                'mobileBottomNav'
+            ];
+
+            syncContainers.forEach(id => {
                 const newEl = newDoc.getElementById(id);
                 const curEl = document.getElementById(id);
                 if (newEl && curEl && newEl.innerHTML !== curEl.innerHTML) {
                     curEl.innerHTML = newEl.innerHTML;
-                    console.log(`[HotUpdate] Hot-patched #${id} from updated index.html`);
+                    log(`Hot-patched #${id}`);
                 }
             });
 
@@ -111,376 +229,291 @@
                 }
             });
         } catch (err) {
-            console.error('[HotUpdate] Error hot-patching HTML:', err);
+            log(`HTML patch error: ${err.message}`, 'error');
         }
     }
 
-    // ================================================================
-    // 2. LIVE CSS HOT-PATCHER
-    // ================================================================
-    function applyHotCSS(filename, content) {
-        if (!content || content.length < 10) return;
-        const styleId = `hot-css-${filename.replace(/[^a-zA-Z0-9]/g, '-')}`;
-        let styleEl = document.getElementById(styleId);
-        if (!styleEl) {
-            styleEl = document.createElement('style');
-            styleEl.id = styleId;
-            document.head.appendChild(styleEl);
-        }
-        styleEl.textContent = content;
-        console.log(`[HotUpdate] Live hot-swapped CSS: ${filename}`);
-    }
+    /* ================================================================
+     * 2. CORS-SAFE NETWORKING (NO PREFLIGHT HEADERS)
+     * ================================================================ */
+    async function fetchRawAsset(filePath, commitSha) {
+        const branch = global.codeUpdateState.activeBranch || PRIMARY_BRANCH;
+        const ref = commitSha || branch;
+        const nonce = `${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+        
+        // Search root, then src/
+        const candidatePaths = [filePath, `src/${filePath}`];
+        const isBinary = filePath.endsWith('.db');
 
-    function applyStoredCSS() {
-        const stored = getStoredCodeFiles();
-        for (const [filename, content] of Object.entries(stored)) {
-            if (filename.endsWith('.css') && content) {
-                applyHotCSS(filename, content);
-            }
-        }
-    }
-
-    // ================================================================
-    // 3. LIVE JS HOT-EXECUTOR (Evaluated in Global Scope)
-    // ================================================================
-    function applyStoredJS() {
-        const stored = getStoredCodeFiles();
-        const executionOrder = ['js/features.js', 'js/studyRoom.js', 'js/contentUpdater.js', 'js/app.js'];
-
-        for (const filename of executionOrder) {
-            const content = stored[filename];
-            if (content && content.trim().length > 50) {
-                try {
-                    console.log(`[HotUpdate] Applying stored JS override in global scope: ${filename}`);
-                    const scriptId = `hot-js-${filename.replace(/[^a-zA-Z0-9]/g, '-')}`;
-                    let scriptEl = document.getElementById(scriptId);
-                    if (scriptEl) scriptEl.remove();
-
-                    if (filename.includes('app.js')) window._HOT_APP_JS_LOADED = true;
-                    if (filename.includes('studyRoom.js')) window._HOT_STUDY_ROOM_LOADED = true;
-                    if (filename.includes('features.js')) window._HOT_FEATURES_LOADED = true;
-
-                    // Execute directly in global scope so functions bind to window
-                    scriptEl = document.createElement('script');
-                    scriptEl.id = scriptId;
-                    scriptEl.textContent = `${content}\n//# sourceURL=${filename}?hotUpdate=${Date.now()}`;
-                    document.head.appendChild(scriptEl);
-                } catch (err) {
-                    console.error(`[HotUpdate] Error executing updated ${filename}:`, err);
-                }
-            }
-        }
-    }
-
-    // ================================================================
-    // 4. CORS-PROOF FILE FETCHER (Exact SHA / Raw GitHub)
-    // ================================================================
-    async function fetchFileFromRepo(relativePath, commitSha = null) {
-        const branch = window.codeUpdateState.activeBranch || PRIMARY_BRANCH;
-        const ref = commitSha || window.codeUpdateState.latestCommitSha || branch;
-        const cacheBuster = Date.now();
-
-        const paths = [
-            relativePath,
-            `src/${relativePath}`,
-            relativePath.replace(/^js\//, ''),
-            relativePath.replace(/^css\//, ''),
-            `src/${relativePath.replace(/^js\//, '')}`,
-            `src/${relativePath.replace(/^css\//, '')}`
-        ];
-        const uniquePaths = [...new Set(paths)];
-
-        // Tier 1: jsDelivr with Exact Commit SHA (Bypasses all edge caching)
-        if (commitSha || window.codeUpdateState.latestCommitSha) {
-            for (const p of uniquePaths) {
-                const cdnUrl = `https://cdn.jsdelivr.net/gh/${REPO_OWNER}/${REPO_NAME}@${ref}/${p}`;
-                try {
-                    const res = await fetch(cdnUrl, { cache: 'no-store' });
-                    if (res.ok) {
-                        console.log(`[HotUpdate] Downloaded ${relativePath} via jsDelivr (SHA: ${ref.substring(0, 7)})`);
-                        return res;
-                    }
-                } catch (e) {}
-            }
-        }
-
-        // Tier 2: Direct Raw GitHub Fetch with Cache-Buster
-        for (const p of uniquePaths) {
-            const rawUrl = `https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${ref}/${p}?nocache=${cacheBuster}`;
+        for (const p of candidatePaths) {
+            const rawUrl = `https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${ref}/${p}?_nc=${nonce}`;
             try {
-                const res = await fetch(rawUrl, { 
-                    cache: 'no-store',
-                    headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache' }
-                });
+                // Simple GET without custom headers prevents CORS OPTIONS preflight
+                const res = await fetch(rawUrl);
                 if (res.ok) {
-                    console.log(`[HotUpdate] Downloaded ${relativePath} via Raw GitHub`);
-                    return res;
+                    if (isBinary) {
+                        const buffer = await res.arrayBuffer();
+                        if (buffer && buffer.byteLength > 100) {
+                            return { isBinary: true, buffer };
+                        }
+                    } else {
+                        const text = await res.text();
+                        const trimmed = text.trim();
+                        if (trimmed.length > 10 && !trimmed.startsWith('404: Not Found') && !trimmed.startsWith('<!DOCTYPE html>')) {
+                            return { isBinary: false, text };
+                        }
+                    }
                 }
             } catch (e) {}
         }
+        return null;
+    }
 
-        // Tier 3: Tauri Native HTTP Plugin (if available)
-        if (window.__TAURI__ && window.__TAURI__.http) {
-            for (const p of uniquePaths) {
-                const rawUrl = `https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${ref}/${p}?nocache=${cacheBuster}`;
-                try {
-                    const isDb = relativePath.endsWith('.db');
-                    const res = await window.__TAURI__.http.fetch(rawUrl, {
-                        method: 'GET',
-                        responseType: isDb ? 3 : 2
-                    });
-                    if (res.ok && res.data) {
-                        return {
-                            ok: true,
-                            text: async () => typeof res.data === 'string' ? res.data : new TextDecoder().decode(new Uint8Array(res.data)),
-                            arrayBuffer: async () => isDb ? new Uint8Array(res.data).buffer : new TextEncoder().encode(res.data).buffer
-                        };
-                    }
-                } catch (e) {}
+    async function getLatestCommitSha(branch) {
+        try {
+            const apiUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/commits/${branch}?_t=${Date.now()}`;
+            const res = await fetch(apiUrl);
+            if (res.ok) {
+                const data = await res.json();
+                if (data && data.sha) return data.sha;
             }
-        }
+        } catch (e) {}
+
+        try {
+            const feedUrl = `https://github.com/${REPO_OWNER}/${REPO_NAME}/commits/${branch}.atom?_nc=${Date.now()}`;
+            const res = await fetch(feedUrl);
+            if (res.ok) {
+                const xml = await res.text();
+                const match = xml.match(/Commit\/([a-f0-9]{40})/i);
+                if (match && match[1]) return match[1];
+            }
+        } catch (e) {}
 
         return null;
     }
 
-    // ================================================================
-    // 5. UPDATE CHECKER
-    // ================================================================
+    /* ================================================================
+     * 3. UPDATE CHECKER & DOWNLOADER
+     * ================================================================ */
     async function checkForCodeUpdates(silent = false) {
-        if (window.codeUpdateState.checking || window.codeUpdateState.downloading) {
+        if (global.codeUpdateState.checking || global.codeUpdateState.downloading) {
             return null;
         }
 
-        window.codeUpdateState.checking = true;
-        updateCodeUpdateUI('checking');
+        global.codeUpdateState.checking = true;
+        updateUIState('checking');
 
-        let latestSha = null;
-        let detectedBranch = PRIMARY_BRANCH;
-        const branchesToTry = [PRIMARY_BRANCH, FALLBACK_BRANCH];
-
-        for (const branch of branchesToTry) {
-            // A. Check GitHub API
-            try {
-                const apiUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/commits/${branch}?t=${Date.now()}`;
-                const res = await fetch(apiUrl, {
-                    cache: 'no-store',
-                    headers: { 'Accept': 'application/vnd.github.v3+json' }
-                });
-                if (res.ok) {
-                    const data = await res.json();
-                    if (data && data.sha) {
-                        latestSha = data.sha;
-                        detectedBranch = branch;
-                        break;
-                    }
-                }
-            } catch (err) {}
-
-            // B. Un-rate-limited Atom Feed Fallback
-            if (!latestSha) {
-                try {
-                    const feedUrl = `https://github.com/${REPO_OWNER}/${REPO_NAME}/commits/${branch}.atom?t=${Date.now()}`;
-                    const res = await fetch(feedUrl, { cache: 'no-store' });
-                    if (res.ok) {
-                        const xmlText = await res.text();
-                        const match = xmlText.match(/Commit\/([a-f0-9]{40})/i);
-                        if (match && match[1]) {
-                            latestSha = match[1];
-                            detectedBranch = branch;
-                            break;
-                        }
-                    }
-                } catch (e) {}
-            }
-        }
-
-        window.codeUpdateState.activeBranch = detectedBranch;
+        let targetBranch = PRIMARY_BRANCH;
+        let latestSha = await getLatestCommitSha(PRIMARY_BRANCH);
 
         if (!latestSha) {
-            window.codeUpdateState.checking = false;
-            updateCodeUpdateUI('idle');
+            latestSha = await getLatestCommitSha(FALLBACK_BRANCH);
+            if (latestSha) targetBranch = FALLBACK_BRANCH;
+        }
+
+        global.codeUpdateState.activeBranch = targetBranch;
+
+        if (!latestSha) {
+            global.codeUpdateState.checking = false;
+            updateUIState('idle');
             if (!silent) notify('Could not reach GitHub updates server.', 'error');
             return null;
         }
 
-        const installedSha = localStorage.getItem(INSTALLED_COMMIT_KEY);
-        console.log(`[HotUpdate] Latest: ${latestSha.substring(0, 7)} | Installed: ${installedSha ? installedSha.substring(0, 7) : 'None'}`);
+        const installedSha = localStorage.getItem(STORAGE_KEY_COMMIT);
+        log(`Latest: ${latestSha.substring(0, 7)} | Installed: ${installedSha ? installedSha.substring(0, 7) : 'None'}`);
 
         if (latestSha !== installedSha) {
-            window.codeUpdateState.available = true;
-            window.codeUpdateState.latestCommitSha = latestSha;
-            window.codeUpdateState.pendingFiles = [...MANAGED_FILES];
+            global.codeUpdateState.available = true;
+            global.codeUpdateState.latestCommitSha = latestSha;
+            updateUIState('available');
+            if (!silent) notify(`Update found (${latestSha.substring(0, 7)})! Downloading...`, 'success');
 
-            updateCodeUpdateUI('available', MANAGED_FILES.length);
-            if (!silent) notify('New update found! Downloading...', 'success');
-
-            window.codeUpdateState.checking = false;
-            return window.codeUpdateState.pendingFiles;
+            global.codeUpdateState.checking = false;
+            return MANAGED_FILES;
         } else {
             if (!silent) notify('Questionary is up to date!', 'success');
-            updateCodeUpdateUI('idle');
+            updateUIState('idle');
         }
 
-        window.codeUpdateState.checking = false;
+        global.codeUpdateState.checking = false;
         return null;
     }
 
-    // ================================================================
-    // 6. DOWNLOADER & APPLIER
-    // ================================================================
     async function downloadCodeUpdates(force = false) {
-        if (window.codeUpdateState.downloading) return;
+        if (global.codeUpdateState.downloading) return false;
 
-        if (!window.codeUpdateState.latestCommitSha && !force) {
-            const pending = await checkForCodeUpdates(false);
-            if (!pending) return;
+        let targetSha = global.codeUpdateState.latestCommitSha;
+
+        if (!targetSha || force) {
+            global.codeUpdateState.checking = false;
+            await checkForCodeUpdates(false);
+            targetSha = global.codeUpdateState.latestCommitSha;
         }
 
-        window.codeUpdateState.downloading = true;
-        updateCodeUpdateUI('downloading');
+        if (!targetSha && !force) return false;
+
+        global.codeUpdateState.downloading = true;
+        updateUIState('downloading');
         notify('Downloading updates from GitHub...', 'info');
 
-        const storedFiles = getStoredCodeFiles();
-        let downloadedCount = 0;
-        const targetSha = window.codeUpdateState.latestCommitSha;
+        const codeStaging = {};
+        let successCount = 0;
 
-        for (const fileRelPath of MANAGED_FILES) {
+        for (let i = 0; i < MANAGED_FILES.length; i++) {
+            const file = MANAGED_FILES[i];
+            global.codeUpdateState.progress = Math.round(((i + 1) / MANAGED_FILES.length) * 100);
+            updateProgressBar(global.codeUpdateState.progress, `Updating ${file}...`);
+
             try {
-                const res = await fetchFileFromRepo(fileRelPath, targetSha);
-                if (!res) {
-                    console.warn(`[HotUpdate] Could not fetch ${fileRelPath}`);
-                    continue;
-                }
+                const asset = await fetchRawAsset(file, targetSha);
+                if (!asset) continue;
 
-                if (fileRelPath.endsWith('.db')) {
-                    const arrayBuffer = await res.arrayBuffer();
-                    const uInt8Array = new Uint8Array(arrayBuffer);
-
-                    if (uInt8Array.length > 100) {
-                        if (window.DbService && window.DbService.SQL) {
-                            window.DbService.db = new window.DbService.SQL.Database(uInt8Array);
-                            await window.DbService.saveToIndexedDB();
-                            downloadedCount++;
+                if (asset.isBinary && file.endsWith('.db')) {
+                    // Update Database safely via DbService
+                    const uInt8 = new Uint8Array(asset.buffer);
+                    if (uInt8.length > 5000 && uInt8[0] === 0x53 && uInt8[1] === 0x51 && uInt8[2] === 0x4C) { // "SQLite"
+                        if (global.DbService && global.DbService.SQL) {
+                            global.DbService.db = new global.DbService.SQL.Database(uInt8);
+                            await global.DbService.saveToIndexedDB();
+                            log('Updated database successfully');
+                            successCount++;
                         }
                     }
-                } else {
-                    const content = await res.text();
-                    if (content && content.trim().length > 10) {
-                        storedFiles[fileRelPath] = content;
-                        downloadedCount++;
-
-                        if (fileRelPath.endsWith('.css')) {
-                            applyHotCSS(fileRelPath, content);
-                        }
-                    }
+                    asset.buffer = null;
+                } else if (!asset.isBinary) {
+                    codeStaging[file] = asset.text;
+                    successCount++;
                 }
-            } catch (error) {
-                console.error(`[HotUpdate] Sync error for ${fileRelPath}:`, error);
+            } catch (err) {
+                log(`Error on ${file}: ${err.message}`, 'error');
             }
         }
 
-        if (downloadedCount >= 1) {
-            saveStoredCodeFiles(storedFiles);
+        hideProgressBar();
+
+        if (successCount >= 2) {
+            const currentCode = getStoredCodeFiles();
+            const mergedCode = { ...currentCode, ...codeStaging };
+            saveStoredCodeFiles(mergedCode);
+
             if (targetSha) {
-                localStorage.setItem(INSTALLED_COMMIT_KEY, targetSha);
+                localStorage.setItem(STORAGE_KEY_COMMIT, targetSha);
+                localStorage.setItem(STORAGE_KEY_BRANCH, global.codeUpdateState.activeBranch);
             }
-            console.log(`[HotUpdate] Successfully downloaded ${downloadedCount} files!`);
-            notify(`Update installed (${downloadedCount} files)! Reloading...`, 'success');
-            setTimeout(() => location.reload(), 600);
-        } else {
-            console.error('[HotUpdate] Critical files failed to download.');
-            notify('Update download failed. Check network.', 'error');
-            window.codeUpdateState.downloading = false;
-            updateCodeUpdateUI('idle');
+
+            log(`Update complete (${successCount} files). Reloading...`);
+            notify(`Update installed! Reloading...`, 'success');
+            setTimeout(() => location.reload(), 500);
+            return true;
         }
+
+        notify('Update download failed. Preserving current version.', 'error');
+        global.codeUpdateState.downloading = false;
+        updateUIState('idle');
+        return false;
     }
 
-    function updateCodeUpdateUI(state) {
+    /* ================================================================
+     * 4. UI STATE & PROGRESS
+     * ================================================================ */
+    function updateUIState(state) {
         const btn = document.getElementById('checkUpdatesBtn');
         if (!btn) return;
-
         btn.classList.remove('checking', 'available', 'downloading', 'update-available');
-
-        switch (state) {
-            case 'checking':
-                btn.classList.add('checking');
-                btn.innerHTML = '<i class="fas fa-sync-alt fa-spin"></i>';
-                btn.title = 'Checking for updates...';
-                break;
-            case 'available':
-                btn.classList.add('update-available');
-                btn.innerHTML = '<i class="fas fa-download"></i>';
-                btn.title = 'New update available - click to download';
-                break;
-            case 'downloading':
-                btn.classList.add('downloading');
-                btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
-                btn.title = 'Downloading update...';
-                break;
-            default:
-                btn.innerHTML = '<i class="fas fa-sync-alt"></i>';
-                btn.title = 'Check for updates (Right-click to Force Re-sync)';
+        if (state === 'checking') {
+            btn.classList.add('checking');
+            btn.innerHTML = '<i class="fas fa-sync-alt fa-spin"></i>';
+        } else if (state === 'available') {
+            btn.classList.add('update-available');
+            btn.innerHTML = '<i class="fas fa-download"></i>';
+        } else if (state === 'downloading') {
+            btn.classList.add('downloading');
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+        } else {
+            btn.innerHTML = '<i class="fas fa-sync-alt"></i>';
         }
     }
 
-    function attachButtonListeners() {
-        const btn = document.getElementById('checkUpdatesBtn');
-        if (btn && !btn.dataset.listenersAttached) {
-            btn.dataset.listenersAttached = 'true';
+    function updateProgressBar(percent, statusText) {
+        const bar = document.getElementById('downloadProgressBar');
+        const fill = document.getElementById('downloadProgressFill');
+        const text = document.getElementById('downloadProgressText');
+        const num = document.getElementById('downloadProgressPercent');
 
+        if (bar) bar.style.display = 'block';
+        if (fill) fill.style.width = `${percent}%`;
+        if (text && statusText) text.textContent = statusText;
+        if (num) num.textContent = `${percent}%`;
+    }
+
+    function hideProgressBar() {
+        const bar = document.getElementById('downloadProgressBar');
+        if (bar) setTimeout(() => { bar.style.display = 'none'; }, 800);
+    }
+
+    function attachListeners() {
+        const btn = document.getElementById('checkUpdatesBtn');
+        if (btn && !btn.dataset.hotUpdaterBound) {
+            btn.dataset.hotUpdaterBound = 'true';
             btn.addEventListener('click', async (e) => {
                 e.preventDefault();
-                e.stopPropagation();
-                const pending = await checkForCodeUpdates(false);
-                if (pending && pending.length > 0) {
-                    await downloadCodeUpdates();
-                }
+                await downloadCodeUpdates();
             });
-
             btn.addEventListener('contextmenu', (e) => {
                 e.preventDefault();
-                e.stopPropagation();
-                if (confirm('Force-clear cache and re-download all latest files from GitHub?')) {
+                if (confirm('Clear code cache and force re-sync from GitHub?')) {
                     resetCache();
                 }
             });
         }
 
-        const homeSyncBtn = document.getElementById('homeSyncBtn');
-        if (homeSyncBtn && !homeSyncBtn.dataset.listenersAttached) {
-            homeSyncBtn.dataset.listenersAttached = 'true';
-            homeSyncBtn.addEventListener('click', (e) => {
+        const homeSync = document.getElementById('homeSyncBtn');
+        if (homeSync && !homeSync.dataset.hotUpdaterBound) {
+            homeSync.dataset.hotUpdaterBound = 'true';
+            homeSync.addEventListener('click', (e) => {
                 e.preventDefault();
                 resetCache();
             });
         }
+
+        ['resetCodeCacheBtn', 'resetCodeCacheBtnSettings'].forEach(id => {
+            const b = document.getElementById(id);
+            if (b && !b.dataset.hotUpdaterBound) {
+                b.dataset.hotUpdaterBound = 'true';
+                b.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    resetCache();
+                });
+            }
+        });
     }
 
+    /* PDF Viewer URL Helper */
     function getViewerUrl(fileUrl) {
-        const stored = getStoredCodeFiles();
-        if (stored['pdfviewer.html'] && stored['pdfviewer.html'].includes('pdfjsLib')) {
-            const blob = new Blob([stored['pdfviewer.html']], { type: 'text/html' });
-            return URL.createObjectURL(blob) + '#file=' + encodeURIComponent(fileUrl);
-        }
-        return 'pdfviewer.html?file=' + encodeURIComponent(fileUrl);
+        if (!fileUrl) return 'pdfviewer.html';
+        const absoluteUrl = (fileUrl.startsWith('blob:') || fileUrl.startsWith('data:') || fileUrl.startsWith('http'))
+            ? fileUrl
+            : new URL(fileUrl, window.location.href).href;
+        return 'pdfviewer.html?file=' + encodeURIComponent(absoluteUrl);
     }
 
     async function initHotUpdater() {
+        log('Booting Hot Updater Engine v7.0...');
         applyStoredHTML();
         applyStoredCSS();
         applyStoredJS();
-        attachButtonListeners();
+        attachListeners();
 
-        // Check for updates 3 seconds after boot
         setTimeout(async () => {
             const pending = await checkForCodeUpdates(true);
             if (pending && pending.length > 0) {
                 await downloadCodeUpdates();
             }
-        }, 3000);
+        }, 4000);
     }
 
-    window.hotCodeUpdater = {
+    global.hotCodeUpdater = {
         check: checkForCodeUpdates,
         download: downloadCodeUpdates,
         resetCache: resetCache,
@@ -490,7 +523,7 @@
         applyStoredJS,
         getViewerUrl,
         init: initHotUpdater,
-        getState: () => window.codeUpdateState
+        getState: () => global.codeUpdateState
     };
 
     if (document.readyState === 'loading') {
@@ -498,4 +531,5 @@
     } else {
         initHotUpdater();
     }
-})();
+
+})(typeof window !== 'undefined' ? window : this);
