@@ -669,16 +669,13 @@ html, body {
         if (docUndoStacks[pageNum].length > 25) docUndoStacks[pageNum].shift();
     }
 
-    /* The Glorious Offscreen Highlighter Renderer (Uniform opacity, 0 overlapping joints) */
     function renderGloriousHighlighter(targetCtx, baseImage, points, color, size, width, height) {
-        // 1. Restore clean base image prior to active stroke
         if (baseImage) {
             targetCtx.putImageData(baseImage, 0, 0);
         }
 
         if (!points || points.length < 2) return;
 
-        // 2. Render solid polyline on isolated offscreen canvas buffer
         const offCanvas = document.createElement('canvas');
         offCanvas.width = width;
         offCanvas.height = height;
@@ -695,7 +692,6 @@ html, body {
         }
         offCtx.stroke();
 
-        // 3. Stamp offscreen stroke onto target canvas with Multiply + 38% Opacity
         targetCtx.save();
         targetCtx.globalAlpha = 0.38;
         targetCtx.globalCompositeOperation = 'multiply';
@@ -785,7 +781,6 @@ html, body {
             lastX = p.x;
             lastY = p.y;
 
-            // Capture pristine base state before stroke begins
             strokeSnapshot = ctx.getImageData(0, 0, width, height);
 
             if (activeTool === 'highlighter') {
@@ -1394,35 +1389,35 @@ html, body {
     });
 
     /* ================================================================
-       TAURI-SAFE EXTERNAL PDF OPENER
+       TAURI-SAFE EXTERNAL PDF OPENER (SINGLE INVOCATION)
        ================================================================ */
-    document.getElementById('openExternalPdf').addEventListener('click', async () => {
+    document.getElementById('openExternalPdf').addEventListener('click', async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
         if (!fileUrl) return;
         const targetUrl = decodeURIComponent(fileUrl);
 
+        // 1. If embedded in Questionary parent window, delegate exclusively to parent
         if (window.parent && window.parent !== window) {
             window.parent.postMessage({ type: 'openInNewWindow', url: targetUrl, path: targetUrl }, '*');
+            return;
         }
 
+        // 2. Standalone Tauri Window
         if (window.__TAURI__ && window.__TAURI__.core && typeof window.__TAURI__.core.invoke === 'function') {
             try {
                 await window.__TAURI__.core.invoke('plugin:opener|open_url', { url: targetUrl });
                 return;
-            } catch (e) {
+            } catch (err) {
                 try {
                     await window.__TAURI__.core.invoke('plugin:opener|open_path', { path: targetUrl });
                     return;
-                } catch (err) {}
+                } catch (e) {}
             }
         }
 
-        const a = document.createElement('a');
-        a.href = targetUrl;
-        a.target = '_blank';
-        a.rel = 'noopener noreferrer';
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
+        // 3. Standalone Browser Fallback
+        window.open(targetUrl, '_blank', 'noopener,noreferrer');
     });
 
     /* ================================================================
