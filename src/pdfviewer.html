@@ -279,7 +279,6 @@ html, body {
     <div class="toolbar-sep"></div>
 
     <button class="tb-btn" id="btnUndo" title="Undo (Ctrl+Z)"><i class="fas fa-undo"></i></button>
-    <button class="tb-btn" id="btnRedo" title="Redo (Ctrl+Y)"><i class="fas fa-redo"></i></button>
     <button class="tb-btn" id="clearAnnotations" title="Clear Page Annotations"><i class="fas fa-trash-alt"></i></button>
 
     <div class="toolbar-spacer"></div>
@@ -317,9 +316,9 @@ html, body {
 <div class="tool-popover" id="popoverHighlighter">
     <div class="pop-row">
         <span class="pop-label">Thickness</span>
-        <span class="pop-val" id="hlSizeVal">20px</span>
+        <span class="pop-val" id="hlSizeVal">22px</span>
     </div>
-    <input type="range" class="pop-slider" id="hlSizeSlider" min="8" max="48" value="20">
+    <input type="range" class="pop-slider" id="hlSizeSlider" min="8" max="48" value="22">
     <div class="pop-row" style="margin-top:2px;">
         <span class="pop-label">Color</span>
         <input type="color" class="pop-color-input" id="hlColorCustom" value="#eab308">
@@ -441,13 +440,12 @@ html, body {
 
     let toolSettings = {
         pen: { size: 3, color: '#cf6215' },
-        highlighter: { size: 20, color: '#eab308' },
+        highlighter: { size: 22, color: '#eab308' },
         text: { size: 14, color: '#cf6215' },
         eraser: { size: 28 },
         shape: { size: 3, color: '#cf6215', shape: 'line' }
     };
 
-    /* Per-Page Raster / Vector History Engine */
     let docPageSnapshots = {};
     let docUndoStacks = {};
     let activeDocId = '';
@@ -469,8 +467,8 @@ html, body {
         return 'pdf_doc_' + Math.abs(hash);
     }
 
-    function getStorageKey(pageNum) { return `q_raster_v5:${activeDocId}:p${pageNum}`; }
-    function getDOMStorageKey(pageNum) { return `q_dom_v5:${activeDocId}:p${pageNum}`; }
+    function getStorageKey(pageNum) { return `q_raster_v6:${activeDocId}:p${pageNum}`; }
+    function getDOMStorageKey(pageNum) { return `q_dom_v6:${activeDocId}:p${pageNum}`; }
 
     function getEffectiveScale() {
         if (currentScale === 'auto') {
@@ -643,7 +641,7 @@ html, body {
     }
 
     /* ================================================================
-       FAST CANVAS RASTER ANNOTATION & SMOOTH PIXEL ERASER ENGINE
+       GLORIOUS OFFSCREEN-BUFFERED HIGHLIGHTER & FAST CANVAS ENGINE
        ================================================================ */
     function savePageSnapshot(pageNum, canvas) {
         try {
@@ -669,6 +667,40 @@ html, body {
         if (!docUndoStacks[pageNum]) docUndoStacks[pageNum] = [];
         docUndoStacks[pageNum].push(canvas.toDataURL('image/png'));
         if (docUndoStacks[pageNum].length > 25) docUndoStacks[pageNum].shift();
+    }
+
+    /* The Glorious Offscreen Highlighter Renderer (Uniform opacity, 0 overlapping joints) */
+    function renderGloriousHighlighter(targetCtx, baseImage, points, color, size, width, height) {
+        // 1. Restore clean base image prior to active stroke
+        if (baseImage) {
+            targetCtx.putImageData(baseImage, 0, 0);
+        }
+
+        if (!points || points.length < 2) return;
+
+        // 2. Render solid polyline on isolated offscreen canvas buffer
+        const offCanvas = document.createElement('canvas');
+        offCanvas.width = width;
+        offCanvas.height = height;
+        const offCtx = offCanvas.getContext('2d');
+
+        offCtx.strokeStyle = color;
+        offCtx.lineWidth = size;
+        offCtx.lineCap = 'square';
+        offCtx.lineJoin = 'round';
+        offCtx.beginPath();
+        offCtx.moveTo(points[0].x, points[0].y);
+        for (let i = 1; i < points.length; i++) {
+            offCtx.lineTo(points[i].x, points[i].y);
+        }
+        offCtx.stroke();
+
+        // 3. Stamp offscreen stroke onto target canvas with Multiply + 38% Opacity
+        targetCtx.save();
+        targetCtx.globalAlpha = 0.38;
+        targetCtx.globalCompositeOperation = 'multiply';
+        targetCtx.drawImage(offCanvas, 0, 0);
+        targetCtx.restore();
     }
 
     function drawShapeDirect(ctx, shape, sx, sy, ex, ey, color, size) {
@@ -721,8 +753,9 @@ html, body {
 
         let isDrawing = false;
         let lastX = 0, lastY = 0;
+        let strokeSnapshot = null;
+        let highlighterPoints = [];
         let shapeStartX = 0, shapeStartY = 0;
-        let shapePreviewImage = null;
 
         function getPos(e) {
             const rect = annotCanvas.getBoundingClientRect();
@@ -752,15 +785,22 @@ html, body {
             lastX = p.x;
             lastY = p.y;
 
+            // Capture pristine base state before stroke begins
+            strokeSnapshot = ctx.getImageData(0, 0, width, height);
+
+            if (activeTool === 'highlighter') {
+                highlighterPoints = [{ x: p.x, y: p.y }];
+                renderGloriousHighlighter(ctx, strokeSnapshot, highlighterPoints, toolSettings.highlighter.color, toolSettings.highlighter.size, width, height);
+                return;
+            }
+
             if (activeTool === 'shape') {
                 shapeStartX = p.x;
                 shapeStartY = p.y;
-                shapePreviewImage = ctx.getImageData(0, 0, width, height);
                 return;
             }
 
             if (activeTool === 'eraser') {
-                // Instant smooth point erase
                 ctx.save();
                 ctx.globalCompositeOperation = 'destination-out';
                 ctx.beginPath();
@@ -785,8 +825,13 @@ html, body {
             if (!isDrawing || !activeTool) return;
             const p = getPos(e);
 
+            if (activeTool === 'highlighter') {
+                highlighterPoints.push({ x: p.x, y: p.y });
+                renderGloriousHighlighter(ctx, strokeSnapshot, highlighterPoints, toolSettings.highlighter.color, toolSettings.highlighter.size, width, height);
+                return;
+            }
+
             if (activeTool === 'eraser') {
-                // Smooth GPU-accelerated interpolation line eraser (zero stutter)
                 ctx.save();
                 ctx.globalCompositeOperation = 'destination-out';
                 ctx.lineWidth = toolSettings.eraser.size;
@@ -802,8 +847,8 @@ html, body {
                 return;
             }
 
-            if (activeTool === 'shape' && shapePreviewImage) {
-                ctx.putImageData(shapePreviewImage, 0, 0);
+            if (activeTool === 'shape' && strokeSnapshot) {
+                ctx.putImageData(strokeSnapshot, 0, 0);
                 drawShapeDirect(ctx, activeShape, shapeStartX, shapeStartY, p.x, p.y, toolSettings.shape.color, toolSettings.shape.size);
                 return;
             }
@@ -822,21 +867,6 @@ html, body {
                 ctx.restore();
                 lastX = p.x;
                 lastY = p.y;
-            } else if (activeTool === 'highlighter') {
-                ctx.save();
-                ctx.globalCompositeOperation = 'multiply';
-                ctx.globalAlpha = 0.38;
-                ctx.strokeStyle = toolSettings.highlighter.color;
-                ctx.lineWidth = toolSettings.highlighter.size;
-                ctx.lineCap = 'square';
-                ctx.lineJoin = 'round';
-                ctx.beginPath();
-                ctx.moveTo(lastX, lastY);
-                ctx.lineTo(p.x, p.y);
-                ctx.stroke();
-                ctx.restore();
-                lastX = p.x;
-                lastY = p.y;
             }
         }
 
@@ -844,13 +874,16 @@ html, body {
             if (!isDrawing) return;
             isDrawing = false;
 
-            if (activeTool === 'shape' && shapePreviewImage) {
+            if (activeTool === 'highlighter' && highlighterPoints.length > 1) {
+                renderGloriousHighlighter(ctx, strokeSnapshot, highlighterPoints, toolSettings.highlighter.color, toolSettings.highlighter.size, width, height);
+                highlighterPoints = [];
+            } else if (activeTool === 'shape' && strokeSnapshot) {
                 const p = getPos(e);
-                ctx.putImageData(shapePreviewImage, 0, 0);
+                ctx.putImageData(strokeSnapshot, 0, 0);
                 drawShapeDirect(ctx, activeShape, shapeStartX, shapeStartY, p.x, p.y, toolSettings.shape.color, toolSettings.shape.size);
-                shapePreviewImage = null;
             }
 
+            strokeSnapshot = null;
             savePageSnapshot(pageNum, annotCanvas);
         }
 
@@ -860,6 +893,7 @@ html, body {
         annotCanvas.addEventListener('pointerleave', () => {
             if (isDrawing) {
                 isDrawing = false;
+                strokeSnapshot = null;
                 savePageSnapshot(pageNum, annotCanvas);
             }
             eraserRing.style.display = 'none';
@@ -867,13 +901,13 @@ html, body {
     }
 
     /* ================================================================
-       STICKY NOTES WITH OPACITY & COLOR PICKER
+       STICKY NOTES WITH OPACITY & COLOR CONTROLS
        ================================================================ */
     function saveDOMOverlays(wrapper, pageNum) {
         const items = [];
         wrapper.querySelectorAll('.pdf-inline-text, .pdf-sticky-note').forEach(el => {
             if (el.classList.contains('pdf-inline-text')) {
-                const textVal = el.childNodes[0]?.nodeValue || el.innerText.replace('Drag', '').trim();
+                const textVal = el.childNodes[0]?.nodeValue || el.innerText.replace('✕', '').trim();
                 items.push({
                     type: 'text',
                     text: textVal,
@@ -1366,12 +1400,10 @@ html, body {
         if (!fileUrl) return;
         const targetUrl = decodeURIComponent(fileUrl);
 
-        // 1. Send IPC message to parent window (Tauri Webview / Questionary App Bridge)
         if (window.parent && window.parent !== window) {
             window.parent.postMessage({ type: 'openInNewWindow', url: targetUrl, path: targetUrl }, '*');
         }
 
-        // 2. Direct Tauri Opener Plugin Invocation (if running inside Tauri Webview)
         if (window.__TAURI__ && window.__TAURI__.core && typeof window.__TAURI__.core.invoke === 'function') {
             try {
                 await window.__TAURI__.core.invoke('plugin:opener|open_url', { url: targetUrl });
@@ -1384,7 +1416,6 @@ html, body {
             }
         }
 
-        // 3. Fallback to anchor navigation
         const a = document.createElement('a');
         a.href = targetUrl;
         a.target = '_blank';
