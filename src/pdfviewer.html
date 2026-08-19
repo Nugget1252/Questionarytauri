@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>PDF Viewer — Questionary</title>
+<title>Questionary — PDF Studio</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf_viewer.min.css">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" crossorigin="anonymous">
 <style>
@@ -11,21 +11,20 @@
 html, body {
     height: 100%;
     overflow: hidden;
-    background: #18181b;
+    background: #121214;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
     color: #ededef;
     -webkit-font-smoothing: antialiased;
+    user-select: none;
 }
 
 /* ── TOOLBAR ── */
 #toolbar {
-    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
-    background: #111113; color: #ededef; padding: 0 10px;
+    position: fixed; top: 0; left: 0; right: 0; z-index: 1000;
+    background: #18181b; color: #ededef; padding: 0 10px;
     display: flex; align-items: center; gap: 4px;
     font-size: 13px; border-bottom: 1px solid #27272a;
-    height: 42px; user-select: none;
-    overflow-x: auto;
-    scrollbar-width: none;
+    height: 44px; overflow-x: auto; scrollbar-width: none;
 }
 #toolbar::-webkit-scrollbar { display: none; }
 
@@ -34,7 +33,7 @@ html, body {
     padding: 0 7px; cursor: pointer; border-radius: 6px; font-size: 13px;
     display: inline-flex; align-items: center; justify-content: center;
     min-width: 32px; height: 30px; transition: all 0.15s ease;
-    flex-shrink: 0;
+    flex-shrink: 0; text-decoration: none;
 }
 .tb-btn:hover { background: #27272a; color: #ededef; }
 .tb-btn.active { background: #cf6215 !important; color: #ffffff !important; border-color: #cf6215; }
@@ -47,28 +46,28 @@ html, body {
 #pageNum {
     width: 44px; text-align: center; padding: 2px 4px;
     border-radius: 6px; border: 1px solid #27272a;
-    background: #18181b; color: #ededef; font-size: 12px;
+    background: #121214; color: #ededef; font-size: 12px;
     height: 28px; outline: none; transition: border-color 0.15s;
 }
 #pageNum:focus { border-color: #cf6215; }
 
-#zoomSelect {
-    background: #18181b; color: #ededef; border: 1px solid #27272a;
+#zoomSelect, #shapeSelect {
+    background: #121214; color: #ededef; border: 1px solid #27272a;
     border-radius: 6px; padding: 2px 6px; font-size: 12px; height: 28px;
     cursor: pointer; outline: none; flex-shrink: 0;
 }
-#zoomSelect:focus { border-color: #cf6215; }
+#zoomSelect:focus, #shapeSelect:focus { border-color: #cf6215; }
 
 /* Dynamic Size Slider Group */
 .size-control-group {
     display: flex; align-items: center; gap: 6px;
-    background: #18181b; padding: 2px 8px; border-radius: 6px;
+    background: #121214; padding: 2px 8px; border-radius: 6px;
     border: 1px solid #27272a; height: 28px; flex-shrink: 0;
 }
 .size-control-group label { font-size: 11px; color: #71717a; font-weight: 600; text-transform: uppercase; }
 #toolSizeSlider {
     -webkit-appearance: none; appearance: none;
-    width: 65px; height: 4px; background: #27272a;
+    width: 60px; height: 4px; background: #27272a;
     border-radius: 2px; outline: none; cursor: pointer;
 }
 #toolSizeSlider::-webkit-slider-thumb {
@@ -76,45 +75,73 @@ html, body {
     width: 12px; height: 12px; border-radius: 50%;
     background: #cf6215; cursor: pointer;
 }
-#toolSizeValue { font-size: 11px; color: #ededef; min-width: 24px; text-align: right; font-family: monospace; }
+#toolSizeValue { font-size: 11px; color: #ededef; min-width: 26px; text-align: right; font-family: monospace; }
+
+/* Quick Palette */
+.color-swatches {
+    display: flex; align-items: center; gap: 3px; flex-shrink: 0;
+}
+.color-dot {
+    width: 16px; height: 16px; border-radius: 50%; cursor: pointer;
+    border: 1.5px solid rgba(255,255,255,0.2); transition: transform 0.15s;
+}
+.color-dot:hover { transform: scale(1.25); }
+.color-dot.active { border-color: #fff; transform: scale(1.2); box-shadow: 0 0 6px rgba(255,255,255,0.6); }
 
 #annotationColor {
-    width: 28px; height: 28px; border: 1px solid #27272a; border-radius: 6px;
-    cursor: pointer; background: #18181b; padding: 2px; flex-shrink: 0;
+    width: 26px; height: 26px; border: 1px solid #27272a; border-radius: 6px;
+    cursor: pointer; background: #121214; padding: 1px; flex-shrink: 0;
 }
 #annotationColor::-webkit-color-swatch-wrapper { padding: 0; }
 #annotationColor::-webkit-color-swatch { border: none; border-radius: 4px; }
 
-/* ── PROGRESS / LOADING BAR ── */
-#loadingBar {
-    position: fixed; top: 42px; left: 0; right: 0; height: 3px;
-    background: transparent; z-index: 101;
+/* Checkbox Toggle Group (Stroke Eraser) */
+.tb-checkbox-group {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 11px; color: #a1a1aa; cursor: pointer;
+    padding: 0 6px; height: 28px; background: #121214;
+    border: 1px solid #27272a; border-radius: 6px; flex-shrink: 0;
 }
-#loadingProgress { height: 100%; width: 0%; background: #cf6215; transition: width 0.25s ease; }
+.tb-checkbox-group input { accent-color: #cf6215; cursor: pointer; }
 
-/* ── VIEWER WORKSPACE ── */
+/* Search Bar (Collapsible) */
+#searchBar {
+    display: none; position: fixed; top: 48px; right: 16px; z-index: 1001;
+    background: #18181b; border: 1px solid #27272a; border-radius: 8px;
+    padding: 6px 10px; align-items: center; gap: 6px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+}
+#searchBar.active { display: flex; }
+#searchInput {
+    background: #121214; border: 1px solid #27272a; border-radius: 4px;
+    color: #fff; padding: 3px 8px; font-size: 12px; width: 150px; outline: none;
+}
+#searchInput:focus { border-color: #cf6215; }
+#searchCount { font-size: 11px; color: #71717a; min-width: 45px; text-align: center; }
+
+/* Loading Bar */
+#loadingBar { position: fixed; top: 44px; left: 0; right: 0; height: 3px; background: transparent; z-index: 101; }
+#loadingProgress { height: 100%; width: 0%; background: #cf6215; transition: width 0.2s ease; }
+
+/* ── WORKSPACE & PAGES ── */
 #viewerContainer {
-    position: absolute;
-    top: 42px; bottom: 0; left: 0; right: 0;
-    width: 100%;
-    overflow-x: auto; overflow-y: auto;
-    padding: 24px 0;
+    position: absolute; top: 44px; bottom: 0; left: 0; right: 0;
+    overflow: auto; padding: 24px 0;
     display: flex; flex-direction: column; align-items: center;
     box-sizing: border-box;
 }
 
-/* ── PAGE WRAPPER ── */
 .page-wrapper {
-    position: relative;
-    margin: 0 auto 20px auto;
+    position: relative; margin: 0 auto 20px auto;
     background: #ffffff;
     box-shadow: 0 4px 24px rgba(0,0,0,0.45);
-    flex-shrink: 0;
-    border-radius: 2px;
+    flex-shrink: 0; border-radius: 2px;
 }
-.page-wrapper canvas.pdf-render-canvas {
-    display: block; margin: 0 auto;
+.page-wrapper.dark-inverted canvas.pdf-render-canvas {
+    filter: invert(0.92) hue-rotate(180deg) contrast(1.05);
 }
+
+.page-wrapper canvas.pdf-render-canvas { display: block; margin: 0 auto; }
 
 /* Annotation Canvas Layer */
 .annotation-canvas {
@@ -122,86 +149,81 @@ html, body {
     z-index: 10; touch-action: none;
     pointer-events: none;
 }
-.annotation-canvas.active-tool {
-    pointer-events: auto;
-}
+.annotation-canvas.active-tool { pointer-events: auto; }
 .annotation-canvas.active-pen { cursor: crosshair; }
 .annotation-canvas.active-highlighter { cursor: crosshair; }
-.annotation-canvas.active-eraser { cursor: cell; }
+.annotation-canvas.active-eraser { cursor: none; }
+.annotation-canvas.active-shape { cursor: crosshair; }
 .annotation-canvas.active-text { cursor: text; }
 .annotation-canvas.active-note { cursor: copy; }
 
+/* Visual Eraser Circle Follower */
+#eraserCursorRing {
+    position: fixed; pointer-events: none; z-index: 99999;
+    border: 2px solid #ef4444; background: rgba(239,68,68,0.15);
+    border-radius: 50%; display: none; transform: translate(-50%, -50%);
+}
+
 /* ── TRANSPARENT INLINE TEXT BOX ── */
 .pdf-inline-text {
-    position: absolute;
-    z-index: 20;
-    background: transparent;
-    border: 1px dashed transparent;
-    padding: 2px 4px;
-    color: #18181b;
-    outline: none;
-    min-width: 32px;
-    min-height: 20px;
-    word-break: break-word;
-    white-space: pre-wrap;
-    user-select: text;
-    -webkit-user-select: text;
-    line-height: 1.25;
-    font-family: inherit;
+    position: absolute; z-index: 20;
+    background: transparent; border: 1px dashed transparent;
+    padding: 2px 6px; color: #18181b; outline: none;
+    min-width: 32px; min-height: 22px; word-break: break-word;
+    white-space: pre-wrap; user-select: text; -webkit-user-select: text;
+    line-height: 1.3; font-family: inherit; border-radius: 4px;
 }
-.pdf-inline-text:hover, .pdf-inline-text:focus {
-    border-color: #cf6215;
-    background: rgba(207, 98, 21, 0.05);
+.pdf-inline-text:hover, .pdf-inline-text:focus, .pdf-inline-text.selected {
+    border-color: #cf6215; background: rgba(207, 98, 21, 0.08);
 }
-.pdf-inline-text .text-drag-handle {
-    position: absolute; top: -14px; left: 0;
+.text-drag-bar {
+    position: absolute; top: -18px; left: 0;
     font-size: 10px; background: #cf6215; color: #fff;
-    padding: 0 4px; border-radius: 3px; cursor: move;
-    display: none; user-select: none;
+    padding: 1px 6px; border-radius: 3px; cursor: move;
+    display: none; user-select: none; align-items: center; gap: 4px;
 }
-.pdf-inline-text:hover .text-drag-handle,
-.pdf-inline-text:focus-within .text-drag-handle { display: block; }
+.pdf-inline-text:hover .text-drag-bar,
+.pdf-inline-text:focus-within .text-drag-bar { display: flex; }
+.text-del-btn { cursor: pointer; color: #fecaca; margin-left: 2px; }
+.text-del-btn:hover { color: #fff; }
 
 /* ── STICKY NOTE COMPONENT ── */
 .pdf-sticky-note {
-    position: absolute;
-    z-index: 25;
-    width: 180px;
-    background: #fef08a;
-    border: 1px solid #facc15;
-    border-radius: 8px;
-    box-shadow: 0 4px 16px rgba(0,0,0,0.25);
-    display: flex; flex-direction: column;
-    overflow: hidden;
+    position: absolute; z-index: 25; width: 190px;
+    background: #fef08a; border: 1px solid #eab308;
+    border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+    display: flex; flex-direction: column; overflow: hidden;
 }
 .pdf-sticky-header {
-    background: #fde047; padding: 4px 6px;
+    background: #fde047; padding: 4px 8px;
     display: flex; align-items: center; justify-content: space-between;
     font-size: 11px; font-weight: 700; color: #854d0e;
     cursor: move; user-select: none;
 }
 .pdf-sticky-close {
-    background: transparent; border: none; color: #854d0e;
-    cursor: pointer; font-size: 11px; padding: 0 2px;
+    background: #ef4444; border: none; color: #fff;
+    cursor: pointer; font-size: 10px; width: 18px; height: 18px;
+    border-radius: 50%; display: flex; align-items: center; justify-content: center;
+    line-height: 1; transition: transform 0.1s;
 }
-.pdf-sticky-close:hover { color: #dc2626; }
+.pdf-sticky-close:hover { transform: scale(1.15); }
 .pdf-sticky-body {
-    padding: 6px; font-size: 12px; color: #1c1917;
+    padding: 8px; font-size: 12px; color: #1c1917;
     background: transparent; border: none; outline: none;
-    resize: vertical; min-height: 60px; font-family: inherit;
+    resize: vertical; min-height: 65px; font-family: inherit; line-height: 1.4;
 }
 
-/* ── TEXT LAYER (Native Selection) ── */
+/* ── NATIVE TEXT LAYER ── */
 .textLayer {
     position: absolute; left: 0; top: 0; right: 0; bottom: 0;
-    overflow: hidden; opacity: 1; line-height: 1.0;
-    z-index: 5;
+    overflow: hidden; opacity: 1; line-height: 1.0; z-index: 5;
 }
 .textLayer span {
     color: transparent; background: transparent;
     position: absolute; white-space: pre; cursor: text;
 }
-.textLayer ::selection { background: rgba(207, 98, 21, 0.35) !important; }
+.textLayer ::selection { background: rgba(207, 98, 21, 0.4) !important; }
+.textLayer .highlight.selected { background: rgba(234, 88, 12, 0.6) !important; }
 
 #errorMessage { display: none; color: #f87171; text-align: center; padding: 60px 20px; font-size: 15px; }
 #loadingMessage { color: #71717a; text-align: center; padding: 60px 20px; font-size: 14px; }
@@ -218,7 +240,7 @@ html, body {
 
     <div class="toolbar-sep"></div>
 
-    <button class="tb-btn" id="zoomOut" title="Zoom Out"><i class="fas fa-minus"></i></button>
+    <button class="tb-btn" id="zoomOut" title="Zoom Out"><i class="fas fa-search-minus"></i></button>
     <select id="zoomSelect">
         <option value="0.75">75%</option>
         <option value="1">100%</option>
@@ -227,24 +249,49 @@ html, body {
         <option value="2">200%</option>
         <option value="auto">Fit Width</option>
     </select>
-    <button class="tb-btn" id="zoomIn" title="Zoom In"><i class="fas fa-plus"></i></button>
+    <button class="tb-btn" id="zoomIn" title="Zoom In"><i class="fas fa-search-plus"></i></button>
+    <button class="tb-btn" id="rotatePage" title="Rotate Page (R)"><i class="fas fa-redo-alt"></i></button>
 
     <div class="toolbar-sep"></div>
 
     <!-- Mode & Annotation Tools -->
-    <button class="tb-btn" id="toolSelect" title="Select / Pan Mode (V)"><i class="fas fa-mouse-pointer"></i></button>
+    <button class="tb-btn active" id="toolSelect" title="Select / Pan Mode (V)"><i class="fas fa-mouse-pointer"></i></button>
     <button class="tb-btn" id="toolPen" title="Pen Tool (P)"><i class="fas fa-pen"></i></button>
     <button class="tb-btn" id="toolHighlight" title="Highlighter (H)"><i class="fas fa-highlighter"></i></button>
     <button class="tb-btn" id="toolText" title="Transparent Text Box (T)"><i class="fas fa-font"></i></button>
     <button class="tb-btn" id="toolNote" title="Sticky Note (N)"><i class="fas fa-sticky-note"></i></button>
     <button class="tb-btn" id="toolEraser" title="Eraser (E)"><i class="fas fa-eraser"></i></button>
 
+    <!-- Shape Selection -->
+    <select id="shapeSelect" title="Draw Shape">
+        <option value="">Shapes</option>
+        <option value="line">Line</option>
+        <option value="arrow">Arrow</option>
+        <option value="rect">Rectangle</option>
+        <option value="circle">Circle</option>
+    </select>
+
+    <label class="tb-checkbox-group" id="strokeEraserGroup" title="Delete whole continuous line on touch">
+        <input type="checkbox" id="strokeEraserToggle">
+        <span>Stroke Eraser</span>
+    </label>
+
     <div class="toolbar-sep"></div>
 
-    <!-- Dynamic Sizing & Color Palette -->
-    <input type="color" id="annotationColor" value="#cf6215" title="Stroke / Text Color">
+    <!-- Quick Swatches & Color Picker -->
+    <div class="color-swatches">
+        <div class="color-dot active" style="background:#cf6215;" data-color="#cf6215"></div>
+        <div class="color-dot" style="background:#eab308;" data-color="#eab308"></div>
+        <div class="color-dot" style="background:#ef4444;" data-color="#ef4444"></div>
+        <div class="color-dot" style="background:#22c55e;" data-color="#22c55e"></div>
+        <div class="color-dot" style="background:#3b82f6;" data-color="#3b82f6"></div>
+        <div class="color-dot" style="background:#a855f7;" data-color="#a855f7"></div>
+        <div class="color-dot" style="background:#000000;" data-color="#000000"></div>
+    </div>
+    <input type="color" id="annotationColor" value="#cf6215" title="Custom Color">
+
     <div class="size-control-group">
-        <label id="toolSizeLabel">Size</label>
+        <label id="toolSizeLabel">Pen</label>
         <input type="range" id="toolSizeSlider" min="1" max="24" value="3">
         <span id="toolSizeValue">3px</span>
     </div>
@@ -256,9 +303,24 @@ html, body {
     <button class="tb-btn" id="clearAnnotations" title="Clear Page Annotations"><i class="fas fa-trash-alt"></i></button>
 
     <div class="toolbar-spacer"></div>
-    <button class="tb-btn" id="openNewTab" title="Open in External Viewer"><i class="fas fa-external-link-alt"></i></button>
+
+    <!-- View & Export Extras -->
+    <button class="tb-btn" id="toggleSearch" title="Find in Document (Ctrl+F)"><i class="fas fa-search"></i></button>
+    <button class="tb-btn" id="toggleDarkMode" title="Invert Page Colors (Dark Mode)"><i class="fas fa-moon"></i></button>
+    <button class="tb-btn" id="downloadExport" title="Export / Download Document"><i class="fas fa-download"></i></button>
+    <button class="tb-btn" id="openNewTab" title="Open in New Tab"><i class="fas fa-external-link-alt"></i></button>
 </div>
 
+<!-- Search Panel -->
+<div id="searchBar">
+    <input type="text" id="searchInput" placeholder="Find in text…">
+    <span id="searchCount">0/0</span>
+    <button class="tb-btn" id="searchPrev"><i class="fas fa-chevron-up"></i></button>
+    <button class="tb-btn" id="searchNext"><i class="fas fa-chevron-down"></i></button>
+    <button class="tb-btn" id="searchClose"><i class="fas fa-times"></i></button>
+</div>
+
+<div id="eraserCursorRing"></div>
 <div id="loadingBar"><div id="loadingProgress"></div></div>
 
 <div id="viewerContainer" class="pdfViewer">
@@ -289,14 +351,19 @@ html, body {
     const loadingMessage = document.getElementById('loadingMessage');
     const errorMessage = document.getElementById('errorMessage');
     const zoomSelect = document.getElementById('zoomSelect');
+    const shapeSelect = document.getElementById('shapeSelect');
 
     const toolSizeSlider = document.getElementById('toolSizeSlider');
     const toolSizeValue = document.getElementById('toolSizeValue');
     const toolSizeLabel = document.getElementById('toolSizeLabel');
     const colorPicker = document.getElementById('annotationColor');
+    const eraserRing = document.getElementById('eraserCursorRing');
+    const strokeEraserToggle = document.getElementById('strokeEraserToggle');
 
     let pdfDoc = null;
     let currentScale = 1.5;
+    let pageRotation = 0;
+    let isDarkModeInverted = false;
     let pagePlaceholders = [];
     let totalPages = 0;
     let currentPageNum = 1;
@@ -304,18 +371,19 @@ html, body {
     let activeRenderTasks = {};
 
     /* Active Tool Configuration */
-    let activeTool = null; // null = select/pan, 'pen', 'highlighter', 'text', 'note', 'eraser'
+    let activeTool = null; // null (select), 'pen', 'highlighter', 'text', 'note', 'eraser', 'shape'
+    let activeShape = ''; // 'line', 'arrow', 'rect', 'circle'
     let currentColor = '#cf6215';
 
     let toolSizes = {
         pen: 3,
         highlighter: 20,
-        eraser: 28,
-        text: 14
+        eraser: 24,
+        text: 14,
+        shape: 3
     };
 
-    /* Vector Annotation History per Page */
-    // docAnnotations: { [pageNum]: { strokes: [...], undoStack: [...] } }
+    /* Per-Page Vector Canvas Persistence */
     let docAnnotations = {};
     let activeDocId = '';
 
@@ -337,13 +405,8 @@ html, body {
         return 'pdf_doc_' + Math.abs(hash);
     }
 
-    function getStorageKey(pageNum) {
-        return `questionary_annot:${activeDocId}:p${pageNum}`;
-    }
-
-    function getDOMStorageKey(pageNum) {
-        return `questionary_dom:${activeDocId}:p${pageNum}`;
-    }
+    function getStorageKey(pageNum) { return `q_annot_v3:${activeDocId}:p${pageNum}`; }
+    function getDOMStorageKey(pageNum) { return `q_dom_v3:${activeDocId}:p${pageNum}`; }
 
     function getEffectiveScale() {
         if (currentScale === 'auto') {
@@ -394,10 +457,8 @@ html, body {
             docAnnotations = {};
 
             const loadingTask = pdfjsLib.getDocument({ url: url, cMapPacked: true });
-            loadingTask.onProgress = function(progress) {
-                if (progress.total > 0) {
-                    loadingProgress.style.width = Math.min(75, (progress.loaded / progress.total) * 100) + '%';
-                }
+            loadingTask.onProgress = function(p) {
+                if (p.total > 0) loadingProgress.style.width = Math.min(75, (p.loaded / p.total) * 100) + '%';
             };
 
             pdfDoc = await loadingTask.promise;
@@ -409,7 +470,7 @@ html, body {
             await setupPlaceholders();
 
             loadingProgress.style.width = '100%';
-            setTimeout(() => { loadingProgress.style.width = '0%'; }, 500);
+            setTimeout(() => { loadingProgress.style.width = '0%'; }, 400);
         } catch (err) {
             console.error('[PDFViewer] Load failed:', err);
             loadingMessage.style.display = 'none';
@@ -428,11 +489,11 @@ html, body {
 
         const scale = getEffectiveScale();
         const firstPage = await pdfDoc.getPage(1);
-        const sampleViewport = firstPage.getViewport({ scale: scale });
+        const sampleViewport = firstPage.getViewport({ scale: scale, rotation: pageRotation });
 
         for (let i = 1; i <= totalPages; i++) {
             const wrapper = document.createElement('div');
-            wrapper.className = 'page-wrapper';
+            wrapper.className = 'page-wrapper' + (isDarkModeInverted ? ' dark-inverted' : '');
             wrapper.dataset.pageNum = i;
             wrapper.dataset.rendered = 'false';
             wrapper.style.width = Math.floor(sampleViewport.width) + 'px';
@@ -457,7 +518,7 @@ html, body {
             const page = await pdfDoc.getPage(pageNum);
             if (instanceId !== globalRenderId) return;
 
-            const viewport = page.getViewport({ scale: scale });
+            const viewport = page.getViewport({ scale: scale, rotation: pageRotation });
             wrapper.style.width = Math.floor(viewport.width) + 'px';
             wrapper.style.height = Math.floor(viewport.height) + 'px';
 
@@ -476,7 +537,7 @@ html, body {
 
             if (instanceId !== globalRenderId) return;
 
-            // Native Text Layer for search & text selection
+            // Render TextLayer
             const textContent = await page.getTextContent();
             if (instanceId !== globalRenderId) return;
 
@@ -495,10 +556,8 @@ html, body {
             });
             await textLayerTask.promise;
 
-            // Setup Unified Vector Annotation Canvas
+            // Setup Interactive Annotation Layer
             setupAnnotationCanvas(wrapper, pageNum, Math.floor(viewport.width), Math.floor(viewport.height));
-
-            // Restore saved DOM elements (Text boxes & Notes)
             restoreDOMOverlays(wrapper, pageNum);
 
             wrapper.dataset.rendered = 'true';
@@ -516,24 +575,20 @@ html, body {
             try { activeRenderTasks[pageNum].cancel(); } catch(e) {}
             delete activeRenderTasks[pageNum];
         }
-
         wrapper.querySelectorAll('canvas, .textLayer, .annotation-canvas').forEach(el => el.remove());
         wrapper.dataset.rendered = 'false';
         wrapper.dataset.rendering = 'false';
     }
 
     /* ================================================================
-       VECTOR ANNOTATION & HIGH-PRECISION HIGHLIGHTER ENGINE
+       VECTOR DRAWING, SHAPES & DUAL-ERASER ENGINE
        ================================================================ */
     function ensurePageStore(pageNum) {
         if (!docAnnotations[pageNum]) {
             const raw = localStorage.getItem(getStorageKey(pageNum));
             if (raw) {
-                try {
-                    docAnnotations[pageNum] = JSON.parse(raw);
-                } catch(e) {
-                    docAnnotations[pageNum] = { strokes: [], undoStack: [] };
-                }
+                try { docAnnotations[pageNum] = JSON.parse(raw); }
+                catch(e) { docAnnotations[pageNum] = { strokes: [], undoStack: [] }; }
             } else {
                 docAnnotations[pageNum] = { strokes: [], undoStack: [] };
             }
@@ -555,25 +610,25 @@ html, body {
         ctx.clearRect(0, 0, width, height);
         const store = ensurePageStore(pageNum);
 
-        store.strokes.forEach(stroke => {
-            if (!stroke.points || stroke.points.length < 2) return;
-
+        store.strokes.forEach(item => {
             ctx.save();
-            if (stroke.tool === 'pen') {
-                ctx.globalCompositeOperation = 'source-over';
-                ctx.strokeStyle = stroke.color;
-                ctx.lineWidth = stroke.size;
+            if (item.type === 'shape') {
+                drawShapePath(ctx, item.shape, item.start, item.end, item.color, item.size, width, height);
+            } else if (item.tool === 'pen') {
+                if (!item.points || item.points.length < 2) return;
+                ctx.strokeStyle = item.color;
+                ctx.lineWidth = item.size;
                 ctx.lineCap = 'round';
                 ctx.lineJoin = 'round';
                 ctx.beginPath();
-                ctx.moveTo(stroke.points[0].x * width, stroke.points[0].y * height);
-                for (let i = 1; i < stroke.points.length; i++) {
-                    ctx.lineTo(stroke.points[i].x * width, stroke.points[i].y * height);
+                ctx.moveTo(item.points[0].x * width, item.points[0].y * height);
+                for (let i = 1; i < item.points.length; i++) {
+                    ctx.lineTo(item.points[i].x * width, item.points[i].y * height);
                 }
                 ctx.stroke();
-            } else if (stroke.tool === 'highlighter') {
-                // Render highlighter cleanly via offscreen buffer so opacity does not stack over itself
-                renderCleanHighlighter(ctx, stroke.points, stroke.color, stroke.size, width, height);
+            } else if (item.tool === 'highlighter') {
+                if (!item.points || item.points.length < 2) return;
+                renderCleanHighlighter(ctx, item.points, item.color, item.size, width, height);
             }
             ctx.restore();
         });
@@ -596,12 +651,48 @@ html, body {
         }
         offCtx.stroke();
 
-        // Blend onto target canvas with 35% global opacity
         targetCtx.save();
         targetCtx.globalAlpha = 0.38;
         targetCtx.globalCompositeOperation = 'multiply';
         targetCtx.drawImage(offCanvas, 0, 0);
         targetCtx.restore();
+    }
+
+    function drawShapePath(ctx, shape, start, end, color, size, width, height) {
+        ctx.strokeStyle = color;
+        ctx.fillStyle = color;
+        ctx.lineWidth = size;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+
+        const sx = start.x * width, sy = start.y * height;
+        const ex = end.x * width, ey = end.y * height;
+
+        ctx.beginPath();
+        if (shape === 'line') {
+            ctx.moveTo(sx, sy);
+            ctx.lineTo(ex, ey);
+            ctx.stroke();
+        } else if (shape === 'arrow') {
+            ctx.moveTo(sx, sy);
+            ctx.lineTo(ex, ey);
+            ctx.stroke();
+            const angle = Math.atan2(ey - sy, ex - sx);
+            const headLen = size * 3 + 6;
+            ctx.beginPath();
+            ctx.moveTo(ex, ey);
+            ctx.lineTo(ex - headLen * Math.cos(angle - Math.PI / 6), ey - headLen * Math.sin(angle - Math.PI / 6));
+            ctx.lineTo(ex - headLen * Math.cos(angle + Math.PI / 6), ey - headLen * Math.sin(angle + Math.PI / 6));
+            ctx.closePath();
+            ctx.fill();
+        } else if (shape === 'rect') {
+            ctx.strokeRect(Math.min(sx, ex), Math.min(sy, ey), Math.abs(ex - sx), Math.abs(ey - sy));
+        } else if (shape === 'circle') {
+            const rx = Math.abs(ex - sx) / 2;
+            const ry = Math.abs(ey - sy) / 2;
+            ctx.ellipse(Math.min(sx, ex) + rx, Math.min(sy, ey) + ry, rx, ry, 0, 0, Math.PI * 2);
+            ctx.stroke();
+        }
     }
 
     function setupAnnotationCanvas(wrapper, pageNum, width, height) {
@@ -618,6 +709,7 @@ html, body {
 
         let isDrawing = false;
         let currentPoints = [];
+        let shapeStart = null;
 
         function getNormalizedPos(e) {
             const rect = annotCanvas.getBoundingClientRect();
@@ -643,7 +735,13 @@ html, body {
 
             if (activeTool === 'eraser') {
                 isDrawing = true;
-                handleEraser(getNormalizedPos(e), pageNum, ctx, width, height);
+                handleErasure(getNormalizedPos(e), pageNum, ctx, width, height);
+                return;
+            }
+
+            if (activeTool === 'shape') {
+                isDrawing = true;
+                shapeStart = getNormalizedPos(e);
                 return;
             }
 
@@ -653,20 +751,35 @@ html, body {
         }
 
         function onPointerMove(e) {
+            if (activeTool === 'eraser') {
+                eraserRing.style.display = 'block';
+                eraserRing.style.width = toolSizes.eraser + 'px';
+                eraserRing.style.height = toolSizes.eraser + 'px';
+                eraserRing.style.left = e.clientX + 'px';
+                eraserRing.style.top = e.clientY + 'px';
+            } else {
+                eraserRing.style.display = 'none';
+            }
+
             if (!isDrawing || !activeTool) return;
             const pos = getNormalizedPos(e);
 
             if (activeTool === 'eraser') {
-                handleEraser(pos, pageNum, ctx, width, height);
+                handleErasure(pos, pageNum, ctx, width, height);
+                return;
+            }
+
+            if (activeTool === 'shape' && shapeStart) {
+                redrawPageStrokes(ctx, pageNum, width, height);
+                ctx.save();
+                drawShapePath(ctx, activeShape, shapeStart, pos, currentColor, toolSizes.shape, width, height);
+                ctx.restore();
                 return;
             }
 
             currentPoints.push(pos);
-
-            // Live continuous redraw
             redrawPageStrokes(ctx, pageNum, width, height);
 
-            // Render active stroke preview
             if (activeTool === 'pen') {
                 ctx.save();
                 ctx.strokeStyle = currentColor;
@@ -685,13 +798,32 @@ html, body {
             }
         }
 
-        function onPointerUp() {
+        function onPointerUp(e) {
             if (!isDrawing) return;
             isDrawing = false;
+            const pos = getNormalizedPos(e);
+
+            if (activeTool === 'shape' && shapeStart) {
+                const store = ensurePageStore(pageNum);
+                store.strokes.push({
+                    type: 'shape',
+                    shape: activeShape,
+                    start: shapeStart,
+                    end: pos,
+                    color: currentColor,
+                    size: toolSizes.shape
+                });
+                store.undoStack = [];
+                savePageStore(pageNum);
+                redrawPageStrokes(ctx, pageNum, width, height);
+                shapeStart = null;
+                return;
+            }
 
             if (currentPoints.length > 1 && (activeTool === 'pen' || activeTool === 'highlighter')) {
                 const store = ensurePageStore(pageNum);
                 store.strokes.push({
+                    type: 'stroke',
                     tool: activeTool,
                     color: currentColor,
                     size: activeTool === 'pen' ? toolSizes.pen : toolSizes.highlighter,
@@ -707,38 +839,80 @@ html, body {
         annotCanvas.addEventListener('pointerdown', onPointerDown);
         annotCanvas.addEventListener('pointermove', onPointerMove);
         annotCanvas.addEventListener('pointerup', onPointerUp);
-        annotCanvas.addEventListener('pointerleave', onPointerUp);
+        annotCanvas.addEventListener('pointerleave', () => {
+            isDrawing = false;
+            eraserRing.style.display = 'none';
+        });
     }
 
-    function handleEraser(pos, pageNum, ctx, width, height) {
+    function handleErasure(pos, pageNum, ctx, width, height) {
         const store = ensurePageStore(pageNum);
         const radius = (toolSizes.eraser / 2) / Math.max(width, height);
-        const prevCount = store.strokes.length;
+        const isStrokeEraser = strokeEraserToggle.checked;
 
-        store.strokes = store.strokes.filter(stroke => {
-            return !stroke.points.some(p => {
-                const dx = p.x - pos.x;
-                const dy = p.y - pos.y;
-                return (dx * dx + dy * dy) <= (radius * radius);
+        if (isStrokeEraser) {
+            // Stroke Eraser: Erases the entire continuous vector element
+            const prevLen = store.strokes.length;
+            store.strokes = store.strokes.filter(item => {
+                if (item.type === 'shape') {
+                    const d1 = Math.hypot(item.start.x - pos.x, item.start.y - pos.y);
+                    const d2 = Math.hypot(item.end.x - pos.x, item.end.y - pos.y);
+                    return d1 > radius && d2 > radius;
+                }
+                return !item.points.some(p => Math.hypot(p.x - pos.x, p.y - pos.y) <= radius);
             });
-        });
+            if (store.strokes.length !== prevLen) {
+                savePageStore(pageNum);
+                redrawPageStrokes(ctx, pageNum, width, height);
+            }
+        } else {
+            // Brush / Precision Eraser: Splits and clips intersecting strokes
+            let modified = false;
+            const newStrokes = [];
 
-        if (store.strokes.length !== prevCount) {
-            savePageStore(pageNum);
-            redrawPageStrokes(ctx, pageNum, width, height);
+            store.strokes.forEach(item => {
+                if (item.type === 'shape') {
+                    newStrokes.push(item);
+                    return;
+                }
+
+                let currentSegment = [];
+                item.points.forEach(p => {
+                    const hit = Math.hypot(p.x - pos.x, p.y - pos.y) <= radius;
+                    if (hit) {
+                        modified = true;
+                        if (currentSegment.length > 1) {
+                            newStrokes.push({ ...item, points: currentSegment });
+                        }
+                        currentSegment = [];
+                    } else {
+                        currentSegment.push(p);
+                    }
+                });
+                if (currentSegment.length > 1) {
+                    newStrokes.push({ ...item, points: currentSegment });
+                }
+            });
+
+            if (modified) {
+                store.strokes = newStrokes;
+                savePageStore(pageNum);
+                redrawPageStrokes(ctx, pageNum, width, height);
+            }
         }
     }
 
     /* ================================================================
-       TRANSPARENT INLINE TEXT BOX & STICKY NOTE DOM SYSTEM
+       TRANSPARENT TEXT BOXES & FIXED STICKY NOTES
        ================================================================ */
     function saveDOMOverlays(wrapper, pageNum) {
         const items = [];
         wrapper.querySelectorAll('.pdf-inline-text, .pdf-sticky-note').forEach(el => {
             if (el.classList.contains('pdf-inline-text')) {
+                const textVal = el.childNodes[0]?.nodeValue || el.innerText.replace('Drag', '').trim();
                 items.push({
                     type: 'text',
-                    text: el.innerText,
+                    text: textVal,
                     x: parseFloat(el.style.left) / wrapper.clientWidth,
                     y: parseFloat(el.style.top) / wrapper.clientHeight,
                     color: el.style.color,
@@ -763,11 +937,8 @@ html, body {
         try {
             const items = JSON.parse(raw);
             items.forEach(item => {
-                if (item.type === 'text') {
-                    createInlineTextBox(wrapper, pageNum, null, item);
-                } else if (item.type === 'note') {
-                    createStickyNote(wrapper, pageNum, null, item);
-                }
+                if (item.type === 'text') createInlineTextBox(wrapper, pageNum, null, item);
+                else if (item.type === 'note') createStickyNote(wrapper, pageNum, null, item);
             });
         } catch(e) {}
     }
@@ -788,7 +959,7 @@ html, body {
             const rect = wrapper.getBoundingClientRect();
             x = e.clientX - rect.left;
             y = e.clientY - rect.top;
-            box.innerText = 'Type here…';
+            box.innerText = 'Type note…';
             box.style.color = currentColor;
             box.style.fontSize = toolSizes.text + 'px';
         }
@@ -796,17 +967,29 @@ html, body {
         box.style.left = x + 'px';
         box.style.top = y + 'px';
 
-        const dragHandle = document.createElement('div');
-        dragHandle.className = 'text-drag-handle';
-        dragHandle.textContent = 'Drag';
-        box.appendChild(dragHandle);
+        const dragBar = document.createElement('div');
+        dragBar.className = 'text-drag-bar';
+        dragBar.innerHTML = `<i class="fas fa-arrows-alt"></i> <span class="text-del-btn" title="Delete"><i class="fas fa-times"></i></span>`;
+        box.appendChild(dragBar);
 
-        makeDraggable(box, dragHandle, wrapper, () => saveDOMOverlays(wrapper, pageNum));
+        const delBtn = dragBar.querySelector('.text-del-btn');
+        delBtn.addEventListener('click', (ev) => {
+            ev.stopPropagation();
+            box.remove();
+            saveDOMOverlays(wrapper, pageNum);
+        });
+
+        makeDraggable(box, dragBar, wrapper, () => saveDOMOverlays(wrapper, pageNum));
+
+        box.addEventListener('focus', () => {
+            box.classList.add('selected');
+            toolSizeSlider.value = parseInt(box.style.fontSize) || toolSizes.text;
+            toolSizeValue.textContent = box.style.fontSize || (toolSizes.text + 'px');
+        });
 
         box.addEventListener('blur', () => {
-            if (!box.innerText.trim()) {
-                box.remove();
-            }
+            box.classList.remove('selected');
+            if (!box.innerText.trim()) box.remove();
             saveDOMOverlays(wrapper, pageNum);
         });
 
@@ -837,7 +1020,7 @@ html, body {
         note.innerHTML = `
             <div class="pdf-sticky-header">
                 <span><i class="fas fa-sticky-note"></i> Note</span>
-                <button class="pdf-sticky-close" title="Delete Note"><i class="fas fa-times"></i></button>
+                <button type="button" class="pdf-sticky-close" title="Delete Note">✕</button>
             </div>
             <textarea class="pdf-sticky-body" placeholder="Write a note…"></textarea>
         `;
@@ -846,11 +1029,12 @@ html, body {
         const closeBtn = note.querySelector('.pdf-sticky-close');
         const textarea = note.querySelector('.pdf-sticky-body');
 
-        if (restoreData) {
-            textarea.value = restoreData.text || '';
-        }
+        if (restoreData) textarea.value = restoreData.text || '';
 
-        closeBtn.addEventListener('click', () => {
+        // Fixed Note Delete handler
+        closeBtn.addEventListener('click', (ev) => {
+            ev.preventDefault();
+            ev.stopPropagation();
             note.remove();
             saveDOMOverlays(wrapper, pageNum);
         });
@@ -867,6 +1051,7 @@ html, body {
         let startX, startY, initX, initY;
 
         handle.addEventListener('pointerdown', (e) => {
+            if (e.target.closest('button') || e.target.closest('.text-del-btn')) return;
             isDragging = true;
             startX = e.clientX;
             startY = e.clientY;
@@ -893,7 +1078,7 @@ html, body {
     }
 
     /* ================================================================
-       TOOLBAR, TOOL SIZING & COLOR CONTROLS
+       TOOLBAR UI & TOOL DISPATCHER
        ================================================================ */
     function updateToolUI() {
         document.querySelectorAll('#toolbar .tb-btn').forEach(btn => btn.classList.remove('active'));
@@ -912,7 +1097,6 @@ html, body {
             document.getElementById('toolSelect')?.classList.add('active');
         }
 
-        // Update annotation canvas active state and cursors
         document.querySelectorAll('.annotation-canvas').forEach(c => {
             c.className = 'annotation-canvas' + (activeTool ? ` active-tool active-${activeTool}` : '');
         });
@@ -938,16 +1122,17 @@ html, body {
             toolSizeSlider.min = 10; toolSizeSlider.max = 36;
             toolSizeSlider.value = toolSizes.text;
             toolSizeValue.textContent = toolSizes.text + 'px';
-        } else {
-            toolSizeLabel.textContent = 'Size';
-            toolSizeSlider.min = 1; toolSizeSlider.max = 30;
-            toolSizeSlider.value = toolSizes.pen;
-            toolSizeValue.textContent = toolSizes.pen + 'px';
+        } else if (activeTool === 'shape') {
+            toolSizeLabel.textContent = 'Line';
+            toolSizeSlider.min = 1; toolSizeSlider.max = 16;
+            toolSizeSlider.value = toolSizes.shape;
+            toolSizeValue.textContent = toolSizes.shape + 'px';
         }
     }
 
     function setTool(toolName) {
         activeTool = activeTool === toolName ? null : toolName;
+        if (activeTool !== 'shape') shapeSelect.value = '';
         updateToolUI();
     }
 
@@ -958,6 +1143,16 @@ html, body {
     document.getElementById('toolNote').addEventListener('click', () => setTool('note'));
     document.getElementById('toolEraser').addEventListener('click', () => setTool('eraser'));
 
+    shapeSelect.addEventListener('change', (e) => {
+        if (e.target.value) {
+            activeTool = 'shape';
+            activeShape = e.target.value;
+            updateToolUI();
+        } else {
+            setTool(null);
+        }
+    });
+
     toolSizeSlider.addEventListener('input', (e) => {
         const val = parseInt(e.target.value, 10);
         toolSizeValue.textContent = val + 'px';
@@ -966,10 +1161,25 @@ html, body {
         } else {
             toolSizes.pen = val;
         }
+
+        // Live update active text box font size if selected
+        const activeText = document.querySelector('.pdf-inline-text.selected, .pdf-inline-text:focus');
+        if (activeText) activeText.style.fontSize = val + 'px';
+    });
+
+    // Swatches & Color Picker
+    document.querySelectorAll('.color-dot').forEach(dot => {
+        dot.addEventListener('click', () => {
+            document.querySelectorAll('.color-dot').forEach(d => d.classList.remove('active'));
+            dot.classList.add('active');
+            currentColor = dot.dataset.color;
+            colorPicker.value = currentColor;
+        });
     });
 
     colorPicker.addEventListener('input', (e) => {
         currentColor = e.target.value;
+        document.querySelectorAll('.color-dot').forEach(d => d.classList.remove('active'));
     });
 
     /* Undo & Redo Handlers */
@@ -978,7 +1188,6 @@ html, body {
         if (store.strokes.length === 0) return;
         store.undoStack.push(store.strokes.pop());
         savePageStore(currentPageNum);
-
         const wrapper = viewerContainer.querySelector(`[data-page-num="${currentPageNum}"]`);
         if (wrapper) {
             const canvas = wrapper.querySelector('.annotation-canvas');
@@ -991,7 +1200,6 @@ html, body {
         if (!store.undoStack || store.undoStack.length === 0) return;
         store.strokes.push(store.undoStack.pop());
         savePageStore(currentPageNum);
-
         const wrapper = viewerContainer.querySelector(`[data-page-num="${currentPageNum}"]`);
         if (wrapper) {
             const canvas = wrapper.querySelector('.annotation-canvas');
@@ -1012,12 +1220,87 @@ html, body {
         const wrapper = viewerContainer.querySelector(`[data-page-num="${currentPageNum}"]`);
         if (wrapper) {
             const canvas = wrapper.querySelector('.annotation-canvas');
-            if (canvas) {
-                const ctx = canvas.getContext('2d');
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
-            }
+            if (canvas) canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
             wrapper.querySelectorAll('.pdf-inline-text, .pdf-sticky-note').forEach(n => n.remove());
         }
+    });
+
+    /* Dark Mode Page Inversion */
+    document.getElementById('toggleDarkMode').addEventListener('click', () => {
+        isDarkModeInverted = !isDarkModeInverted;
+        document.querySelectorAll('.page-wrapper').forEach(w => w.classList.toggle('dark-inverted', isDarkModeInverted));
+    });
+
+    /* Rotate Page */
+    document.getElementById('rotatePage').addEventListener('click', () => {
+        pageRotation = (pageRotation + 90) % 360;
+        setupPlaceholders();
+    });
+
+    /* Document Search System */
+    const searchBar = document.getElementById('searchBar');
+    const searchInput = document.getElementById('searchInput');
+    const searchCount = document.getElementById('searchCount');
+    let searchMatches = [];
+    let searchIndex = 0;
+
+    document.getElementById('toggleSearch').addEventListener('click', () => {
+        searchBar.classList.toggle('active');
+        if (searchBar.classList.contains('active')) searchInput.focus();
+    });
+    document.getElementById('searchClose').addEventListener('click', () => searchBar.classList.remove('active'));
+
+    searchInput.addEventListener('input', async () => {
+        const q = searchInput.value.trim().toLowerCase();
+        searchMatches = [];
+        searchIndex = 0;
+        if (!q || !pdfDoc) { searchCount.textContent = '0/0'; return; }
+
+        for (let i = 1; i <= totalPages; i++) {
+            const page = await pdfDoc.getPage(i);
+            const content = await page.getTextContent();
+            const str = content.items.map(it => it.str).join(' ').toLowerCase();
+            if (str.includes(q)) searchMatches.push(i);
+        }
+
+        searchCount.textContent = searchMatches.length ? `1/${searchMatches.length}` : '0/0';
+        if (searchMatches.length) scrollToPage(searchMatches[0]);
+    });
+
+    document.getElementById('searchNext').addEventListener('click', () => {
+        if (!searchMatches.length) return;
+        searchIndex = (searchIndex + 1) % searchMatches.length;
+        searchCount.textContent = `${searchIndex + 1}/${searchMatches.length}`;
+        scrollToPage(searchMatches[searchIndex]);
+    });
+
+    document.getElementById('searchPrev').addEventListener('click', () => {
+        if (!searchMatches.length) return;
+        searchIndex = (searchIndex - 1 + searchMatches.length) % searchMatches.length;
+        searchCount.textContent = `${searchIndex + 1}/${searchMatches.length}`;
+        scrollToPage(searchMatches[searchIndex]);
+    });
+
+    /* Export / Download Flattened Document */
+    document.getElementById('downloadExport').addEventListener('click', async () => {
+        const currentWrapper = viewerContainer.querySelector(`[data-page-num="${currentPageNum}"]`);
+        if (!currentWrapper) return;
+        const mainCanvas = currentWrapper.querySelector('.pdf-render-canvas');
+        const annotCanvas = currentWrapper.querySelector('.annotation-canvas');
+        if (!mainCanvas) return;
+
+        const outCanvas = document.createElement('canvas');
+        outCanvas.width = mainCanvas.width;
+        outCanvas.height = mainCanvas.height;
+        const outCtx = outCanvas.getContext('2d');
+
+        outCtx.drawImage(mainCanvas, 0, 0);
+        if (annotCanvas) outCtx.drawImage(annotCanvas, 0, 0);
+
+        const a = document.createElement('a');
+        a.href = outCanvas.toDataURL('image/png');
+        a.download = `Document-Page-${currentPageNum}.png`;
+        a.click();
     });
 
     document.getElementById('openNewTab').addEventListener('click', () => {
@@ -1031,7 +1314,7 @@ html, body {
     });
 
     /* ================================================================
-       NAVIGATION & KEYBOARD SHORTCUTS
+       PAGE SCROLLING & ZOOM CONTROLS
        ================================================================ */
     function scrollToPage(pageNum) {
         if (pageNum < 1 || pageNum > totalPages) return;
@@ -1093,26 +1376,41 @@ html, body {
         });
     });
 
+    /* Ctrl + Mouse Wheel Zoom */
+    viewerContainer.addEventListener('wheel', (e) => {
+        if (e.ctrlKey) {
+            e.preventDefault();
+            const factor = e.deltaY > 0 ? 0.9 : 1.1;
+            const currentNumericScale = getEffectiveScale();
+            currentScale = (currentNumericScale * factor).toFixed(2);
+            zoomSelect.value = '1.5'; // Switch from auto preset
+            const savedPage = currentPageNum;
+            setupPlaceholders().then(() => {
+                setTimeout(() => scrollToPage(savedPage), 40);
+            });
+        }
+    }, { passive: false });
+
     // Keyboard Shortcuts
     window.addEventListener('keydown', (e) => {
-        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) {
-            return;
-        }
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return;
 
         if (e.ctrlKey || e.metaKey) {
             if (e.key === 'z') { e.preventDefault(); undoAction(); }
             else if (e.key === 'y') { e.preventDefault(); redoAction(); }
+            else if (e.key === 'f') { e.preventDefault(); searchBar.classList.add('active'); searchInput.focus(); }
             return;
         }
 
-        if (e.key === 'ArrowLeft') { scrollToPage(currentPageNum - 1); }
-        else if (e.key === 'ArrowRight') { scrollToPage(currentPageNum + 1); }
-        else if (e.key === 'v' || e.key === 'V') { setTool(null); }
-        else if (e.key === 'p' || e.key === 'P') { setTool('pen'); }
-        else if (e.key === 'h' || e.key === 'H') { setTool('highlighter'); }
-        else if (e.key === 't' || e.key === 'T') { setTool('text'); }
-        else if (e.key === 'n' || e.key === 'N') { setTool('note'); }
-        else if (e.key === 'e' || e.key === 'E') { setTool('eraser'); }
+        if (e.key === 'ArrowLeft') scrollToPage(currentPageNum - 1);
+        else if (e.key === 'ArrowRight') scrollToPage(currentPageNum + 1);
+        else if (e.key === 'v' || e.key === 'V') setTool(null);
+        else if (e.key === 'p' || e.key === 'P') setTool('pen');
+        else if (e.key === 'h' || e.key === 'H') setTool('highlighter');
+        else if (e.key === 't' || e.key === 'T') setTool('text');
+        else if (e.key === 'n' || e.key === 'N') setTool('note');
+        else if (e.key === 'e' || e.key === 'E') setTool('eraser');
+        else if (e.key === 'r' || e.key === 'R') { pageRotation = (pageRotation + 90) % 360; setupPlaceholders(); }
     });
 
     window.addEventListener('message', (e) => {
@@ -1126,11 +1424,8 @@ html, body {
         }
     });
 
-    // Initialize Tool UI & Load file
     updateToolUI();
-    if (fileUrl) {
-        loadDocument(decodeURIComponent(fileUrl));
-    }
+    if (fileUrl) loadDocument(decodeURIComponent(fileUrl));
 })();
 </script>
 </body>
