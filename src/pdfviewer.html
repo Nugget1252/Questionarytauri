@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>Questionary — PDF Studio</title>
+<title>Questionary — PDF Viewer</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf_viewer.min.css">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" crossorigin="anonymous">
 <style>
@@ -18,13 +18,13 @@ html, body {
     user-select: none;
 }
 
-/* ── TOOLBAR ── */
+/* ── CLEAN TOP TOOLBAR ── */
 #toolbar {
     position: fixed; top: 0; left: 0; right: 0; z-index: 1000;
     background: #18181b; color: #ededef; padding: 0 10px;
     display: flex; align-items: center; gap: 4px;
     font-size: 13px; border-bottom: 1px solid #27272a;
-    height: 44px; overflow-x: auto; scrollbar-width: none;
+    height: 42px; overflow-x: auto; scrollbar-width: none;
 }
 #toolbar::-webkit-scrollbar { display: none; }
 
@@ -33,99 +33,127 @@ html, body {
     padding: 0 7px; cursor: pointer; border-radius: 6px; font-size: 13px;
     display: inline-flex; align-items: center; justify-content: center;
     min-width: 32px; height: 30px; transition: all 0.15s ease;
-    flex-shrink: 0; text-decoration: none;
+    flex-shrink: 0; text-decoration: none; position: relative;
 }
 .tb-btn:hover { background: #27272a; color: #ededef; }
 .tb-btn.active { background: #cf6215 !important; color: #ffffff !important; border-color: #cf6215; }
-.tb-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+.tb-btn.active::after {
+    content: ''; position: absolute; bottom: -6px; left: 50%;
+    transform: translateX(-50%); border-left: 4px solid transparent;
+    border-right: 4px solid transparent; border-top: 4px solid #cf6215;
+}
 
-.toolbar-sep { width: 1px; height: 22px; background: #27272a; margin: 0 3px; flex-shrink: 0; }
+.toolbar-sep { width: 1px; height: 20px; background: #27272a; margin: 0 3px; flex-shrink: 0; }
 .toolbar-spacer { flex: 1; min-width: 8px; }
 .toolbar-label { font-size: 12px; color: #71717a; white-space: nowrap; }
 
 #pageNum {
-    width: 44px; text-align: center; padding: 2px 4px;
+    width: 42px; text-align: center; padding: 2px 4px;
     border-radius: 6px; border: 1px solid #27272a;
     background: #121214; color: #ededef; font-size: 12px;
     height: 28px; outline: none; transition: border-color 0.15s;
 }
 #pageNum:focus { border-color: #cf6215; }
 
-#zoomSelect, #shapeSelect {
+#zoomSelect {
     background: #121214; color: #ededef; border: 1px solid #27272a;
     border-radius: 6px; padding: 2px 6px; font-size: 12px; height: 28px;
     cursor: pointer; outline: none; flex-shrink: 0;
 }
-#zoomSelect:focus, #shapeSelect:focus { border-color: #cf6215; }
+#zoomSelect:focus { border-color: #cf6215; }
 
-/* Dynamic Size Slider Group */
-.size-control-group {
-    display: flex; align-items: center; gap: 6px;
-    background: #121214; padding: 2px 8px; border-radius: 6px;
-    border: 1px solid #27272a; height: 28px; flex-shrink: 0;
+/* ── CONTEXTUAL TOOL POPOVERS (FLYOUT MENUS) ── */
+.tool-popover {
+    position: fixed; top: 48px; z-index: 2000;
+    background: #1c1c20; border: 1px solid #2e2e34;
+    border-radius: 10px; padding: 10px 12px;
+    display: none; flex-direction: column; gap: 8px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    min-width: 170px; animation: popIn 0.15s ease-out;
 }
-.size-control-group label { font-size: 11px; color: #71717a; font-weight: 600; text-transform: uppercase; }
-#toolSizeSlider {
+.tool-popover.open { display: flex; }
+@keyframes popIn {
+    from { opacity: 0; transform: translateY(-4px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.pop-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+}
+.pop-label {
+    font-size: 11px; font-weight: 600; color: #858590; text-transform: uppercase;
+}
+.pop-val {
+    font-size: 11px; color: #ededef; font-family: monospace; min-width: 24px; text-align: right;
+}
+
+.pop-slider {
     -webkit-appearance: none; appearance: none;
-    width: 60px; height: 4px; background: #27272a;
+    width: 100%; height: 4px; background: #2e2e34;
     border-radius: 2px; outline: none; cursor: pointer;
 }
-#toolSizeSlider::-webkit-slider-thumb {
+.pop-slider::-webkit-slider-thumb {
     -webkit-appearance: none; appearance: none;
     width: 12px; height: 12px; border-radius: 50%;
     background: #cf6215; cursor: pointer;
 }
-#toolSizeValue { font-size: 11px; color: #ededef; min-width: 26px; text-align: right; font-family: monospace; }
 
-/* Quick Palette */
-.color-swatches {
-    display: flex; align-items: center; gap: 3px; flex-shrink: 0;
+.pop-swatches {
+    display: flex; align-items: center; gap: 5px; flex-wrap: wrap;
 }
-.color-dot {
-    width: 16px; height: 16px; border-radius: 50%; cursor: pointer;
-    border: 1.5px solid rgba(255,255,255,0.2); transition: transform 0.15s;
+.pop-dot {
+    width: 18px; height: 18px; border-radius: 50%; cursor: pointer;
+    border: 1.5px solid rgba(255,255,255,0.15); transition: transform 0.1s;
 }
-.color-dot:hover { transform: scale(1.25); }
-.color-dot.active { border-color: #fff; transform: scale(1.2); box-shadow: 0 0 6px rgba(255,255,255,0.6); }
+.pop-dot:hover { transform: scale(1.2); }
+.pop-dot.active { border-color: #ffffff; transform: scale(1.15); box-shadow: 0 0 5px rgba(255,255,255,0.5); }
 
-#annotationColor {
-    width: 26px; height: 26px; border: 1px solid #27272a; border-radius: 6px;
-    cursor: pointer; background: #121214; padding: 1px; flex-shrink: 0;
+.pop-color-input {
+    width: 20px; height: 20px; border: 1px solid #2e2e34; border-radius: 4px;
+    background: transparent; cursor: pointer; padding: 0;
 }
-#annotationColor::-webkit-color-swatch-wrapper { padding: 0; }
-#annotationColor::-webkit-color-swatch { border: none; border-radius: 4px; }
+.pop-color-input::-webkit-color-swatch-wrapper { padding: 0; }
+.pop-color-input::-webkit-color-swatch { border: none; border-radius: 3px; }
 
-/* Checkbox Toggle Group (Stroke Eraser) */
-.tb-checkbox-group {
-    display: inline-flex; align-items: center; gap: 4px;
+.pop-checkbox-label {
+    display: flex; align-items: center; gap: 6px;
     font-size: 11px; color: #a1a1aa; cursor: pointer;
-    padding: 0 6px; height: 28px; background: #121214;
-    border: 1px solid #27272a; border-radius: 6px; flex-shrink: 0;
 }
-.tb-checkbox-group input { accent-color: #cf6215; cursor: pointer; }
+.pop-checkbox-label input { accent-color: #cf6215; cursor: pointer; }
 
-/* Search Bar (Collapsible) */
+.shape-btn-grid {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px;
+}
+.shape-sub-btn {
+    background: #27272a; border: 1px solid #333338; color: #a1a1aa;
+    border-radius: 6px; padding: 6px 0; cursor: pointer; font-size: 12px;
+    display: flex; align-items: center; justify-content: center;
+}
+.shape-sub-btn:hover { background: #333338; color: #fff; }
+.shape-sub-btn.active { background: #cf6215; color: #fff; border-color: #cf6215; }
+
+/* ── SEARCH BAR ── */
 #searchBar {
     display: none; position: fixed; top: 48px; right: 16px; z-index: 1001;
-    background: #18181b; border: 1px solid #27272a; border-radius: 8px;
+    background: #1c1c20; border: 1px solid #2e2e34; border-radius: 8px;
     padding: 6px 10px; align-items: center; gap: 6px;
     box-shadow: 0 8px 24px rgba(0,0,0,0.5);
 }
 #searchBar.active { display: flex; }
 #searchInput {
-    background: #121214; border: 1px solid #27272a; border-radius: 4px;
-    color: #fff; padding: 3px 8px; font-size: 12px; width: 150px; outline: none;
+    background: #121214; border: 1px solid #2e2e34; border-radius: 4px;
+    color: #fff; padding: 3px 8px; font-size: 12px; width: 140px; outline: none;
 }
 #searchInput:focus { border-color: #cf6215; }
 #searchCount { font-size: 11px; color: #71717a; min-width: 45px; text-align: center; }
 
 /* Loading Bar */
-#loadingBar { position: fixed; top: 44px; left: 0; right: 0; height: 3px; background: transparent; z-index: 101; }
+#loadingBar { position: fixed; top: 42px; left: 0; right: 0; height: 3px; background: transparent; z-index: 101; }
 #loadingProgress { height: 100%; width: 0%; background: #cf6215; transition: width 0.2s ease; }
 
-/* ── WORKSPACE & PAGES ── */
+/* ── WORKSPACE ── */
 #viewerContainer {
-    position: absolute; top: 44px; bottom: 0; left: 0; right: 0;
+    position: absolute; top: 42px; bottom: 0; left: 0; right: 0;
     overflow: auto; padding: 24px 0;
     display: flex; flex-direction: column; align-items: center;
     box-sizing: border-box;
@@ -133,14 +161,12 @@ html, body {
 
 .page-wrapper {
     position: relative; margin: 0 auto 20px auto;
-    background: #ffffff;
-    box-shadow: 0 4px 24px rgba(0,0,0,0.45);
+    background: #ffffff; box-shadow: 0 4px 24px rgba(0,0,0,0.45);
     flex-shrink: 0; border-radius: 2px;
 }
 .page-wrapper.dark-inverted canvas.pdf-render-canvas {
     filter: invert(0.92) hue-rotate(180deg) contrast(1.05);
 }
-
 .page-wrapper canvas.pdf-render-canvas { display: block; margin: 0 auto; }
 
 /* Annotation Canvas Layer */
@@ -157,14 +183,14 @@ html, body {
 .annotation-canvas.active-text { cursor: text; }
 .annotation-canvas.active-note { cursor: copy; }
 
-/* Visual Eraser Circle Follower */
+/* Visual Eraser Follower */
 #eraserCursorRing {
     position: fixed; pointer-events: none; z-index: 99999;
     border: 2px solid #ef4444; background: rgba(239,68,68,0.15);
     border-radius: 50%; display: none; transform: translate(-50%, -50%);
 }
 
-/* ── TRANSPARENT INLINE TEXT BOX ── */
+/* ── TRANSPARENT TEXT BOXES ── */
 .pdf-inline-text {
     position: absolute; z-index: 20;
     background: transparent; border: 1px dashed transparent;
@@ -189,7 +215,7 @@ html, body {
 
 /* ── STICKY NOTE COMPONENT ── */
 .pdf-sticky-note {
-    position: absolute; z-index: 25; width: 190px;
+    position: absolute; z-index: 25; width: 180px;
     background: #fef08a; border: 1px solid #eab308;
     border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.3);
     display: flex; flex-direction: column; overflow: hidden;
@@ -210,7 +236,7 @@ html, body {
 .pdf-sticky-body {
     padding: 8px; font-size: 12px; color: #1c1917;
     background: transparent; border: none; outline: none;
-    resize: vertical; min-height: 65px; font-family: inherit; line-height: 1.4;
+    resize: vertical; min-height: 60px; font-family: inherit; line-height: 1.4;
 }
 
 /* ── NATIVE TEXT LAYER ── */
@@ -223,7 +249,6 @@ html, body {
     position: absolute; white-space: pre; cursor: text;
 }
 .textLayer ::selection { background: rgba(207, 98, 21, 0.4) !important; }
-.textLayer .highlight.selected { background: rgba(234, 88, 12, 0.6) !important; }
 
 #errorMessage { display: none; color: #f87171; text-align: center; padding: 60px 20px; font-size: 15px; }
 #loadingMessage { color: #71717a; text-align: center; padding: 60px 20px; font-size: 14px; }
@@ -254,47 +279,14 @@ html, body {
 
     <div class="toolbar-sep"></div>
 
-    <!-- Mode & Annotation Tools -->
+    <!-- Active Tools -->
     <button class="tb-btn active" id="toolSelect" title="Select / Pan Mode (V)"><i class="fas fa-mouse-pointer"></i></button>
-    <button class="tb-btn" id="toolPen" title="Pen Tool (P)"><i class="fas fa-pen"></i></button>
+    <button class="tb-btn" id="toolPen" title="Pen (P)"><i class="fas fa-pen"></i></button>
     <button class="tb-btn" id="toolHighlight" title="Highlighter (H)"><i class="fas fa-highlighter"></i></button>
-    <button class="tb-btn" id="toolText" title="Transparent Text Box (T)"><i class="fas fa-font"></i></button>
+    <button class="tb-btn" id="toolText" title="Text Box (T)"><i class="fas fa-font"></i></button>
     <button class="tb-btn" id="toolNote" title="Sticky Note (N)"><i class="fas fa-sticky-note"></i></button>
     <button class="tb-btn" id="toolEraser" title="Eraser (E)"><i class="fas fa-eraser"></i></button>
-
-    <!-- Shape Selection -->
-    <select id="shapeSelect" title="Draw Shape">
-        <option value="">Shapes</option>
-        <option value="line">Line</option>
-        <option value="arrow">Arrow</option>
-        <option value="rect">Rectangle</option>
-        <option value="circle">Circle</option>
-    </select>
-
-    <label class="tb-checkbox-group" id="strokeEraserGroup" title="Delete whole continuous line on touch">
-        <input type="checkbox" id="strokeEraserToggle">
-        <span>Stroke Eraser</span>
-    </label>
-
-    <div class="toolbar-sep"></div>
-
-    <!-- Quick Swatches & Color Picker -->
-    <div class="color-swatches">
-        <div class="color-dot active" style="background:#cf6215;" data-color="#cf6215"></div>
-        <div class="color-dot" style="background:#eab308;" data-color="#eab308"></div>
-        <div class="color-dot" style="background:#ef4444;" data-color="#ef4444"></div>
-        <div class="color-dot" style="background:#22c55e;" data-color="#22c55e"></div>
-        <div class="color-dot" style="background:#3b82f6;" data-color="#3b82f6"></div>
-        <div class="color-dot" style="background:#a855f7;" data-color="#a855f7"></div>
-        <div class="color-dot" style="background:#000000;" data-color="#000000"></div>
-    </div>
-    <input type="color" id="annotationColor" value="#cf6215" title="Custom Color">
-
-    <div class="size-control-group">
-        <label id="toolSizeLabel">Pen</label>
-        <input type="range" id="toolSizeSlider" min="1" max="24" value="3">
-        <span id="toolSizeValue">3px</span>
-    </div>
+    <button class="tb-btn" id="toolShape" title="Shapes (S)"><i class="fas fa-shapes"></i></button>
 
     <div class="toolbar-sep"></div>
 
@@ -304,11 +296,107 @@ html, body {
 
     <div class="toolbar-spacer"></div>
 
-    <!-- View & Export Extras -->
     <button class="tb-btn" id="toggleSearch" title="Find in Document (Ctrl+F)"><i class="fas fa-search"></i></button>
-    <button class="tb-btn" id="toggleDarkMode" title="Invert Page Colors (Dark Mode)"><i class="fas fa-moon"></i></button>
-    <button class="tb-btn" id="downloadExport" title="Export / Download Document"><i class="fas fa-download"></i></button>
+    <button class="tb-btn" id="toggleDarkMode" title="Invert Colors (Dark Mode)"><i class="fas fa-moon"></i></button>
+    <button class="tb-btn" id="downloadExport" title="Export Page"><i class="fas fa-download"></i></button>
     <button class="tb-btn" id="openNewTab" title="Open in New Tab"><i class="fas fa-external-link-alt"></i></button>
+</div>
+
+<!-- Contextual Tool Popovers (Anchor Dynamically Under Active Tool) -->
+
+<!-- Pen Popover -->
+<div class="tool-popover" id="popoverPen">
+    <div class="pop-row">
+        <span class="pop-label">Pen Size</span>
+        <span class="pop-val" id="penSizeVal">3px</span>
+    </div>
+    <input type="range" class="pop-slider" id="penSizeSlider" min="1" max="24" value="3">
+    <div class="pop-row" style="margin-top:2px;">
+        <span class="pop-label">Color</span>
+        <input type="color" class="pop-color-input" id="penColorCustom" value="#cf6215">
+    </div>
+    <div class="pop-swatches" id="penSwatches">
+        <div class="pop-dot active" style="background:#cf6215;" data-color="#cf6215"></div>
+        <div class="pop-dot" style="background:#ef4444;" data-color="#ef4444"></div>
+        <div class="pop-dot" style="background:#22c55e;" data-color="#22c55e"></div>
+        <div class="pop-dot" style="background:#3b82f6;" data-color="#3b82f6"></div>
+        <div class="pop-dot" style="background:#a855f7;" data-color="#a855f7"></div>
+        <div class="pop-dot" style="background:#000000;" data-color="#000000"></div>
+    </div>
+</div>
+
+<!-- Highlighter Popover -->
+<div class="tool-popover" id="popoverHighlighter">
+    <div class="pop-row">
+        <span class="pop-label">Thickness</span>
+        <span class="pop-val" id="hlSizeVal">20px</span>
+    </div>
+    <input type="range" class="pop-slider" id="hlSizeSlider" min="8" max="48" value="20">
+    <div class="pop-row" style="margin-top:2px;">
+        <span class="pop-label">Color</span>
+        <input type="color" class="pop-color-input" id="hlColorCustom" value="#eab308">
+    </div>
+    <div class="pop-swatches" id="hlSwatches">
+        <div class="pop-dot active" style="background:#eab308;" data-color="#eab308"></div>
+        <div class="pop-dot" style="background:#22c55e;" data-color="#22c55e"></div>
+        <div class="pop-dot" style="background:#3b82f6;" data-color="#3b82f6"></div>
+        <div class="pop-dot" style="background:#ec4899;" data-color="#ec4899"></div>
+        <div class="pop-dot" style="background:#a855f7;" data-color="#a855f7"></div>
+        <div class="pop-dot" style="background:#cf6215;" data-color="#cf6215"></div>
+    </div>
+</div>
+
+<!-- Text Popover -->
+<div class="tool-popover" id="popoverText">
+    <div class="pop-row">
+        <span class="pop-label">Font Size</span>
+        <span class="pop-val" id="textSizeVal">14px</span>
+    </div>
+    <input type="range" class="pop-slider" id="textSizeSlider" min="10" max="36" value="14">
+    <div class="pop-row" style="margin-top:2px;">
+        <span class="pop-label">Color</span>
+        <input type="color" class="pop-color-input" id="textColorCustom" value="#cf6215">
+    </div>
+    <div class="pop-swatches" id="textSwatches">
+        <div class="pop-dot active" style="background:#cf6215;" data-color="#cf6215"></div>
+        <div class="pop-dot" style="background:#000000;" data-color="#000000"></div>
+        <div class="pop-dot" style="background:#ef4444;" data-color="#ef4444"></div>
+        <div class="pop-dot" style="background:#3b82f6;" data-color="#3b82f6"></div>
+        <div class="pop-dot" style="background:#22c55e;" data-color="#22c55e"></div>
+    </div>
+</div>
+
+<!-- Eraser Popover -->
+<div class="tool-popover" id="popoverEraser">
+    <div class="pop-row">
+        <span class="pop-label">Brush Size</span>
+        <span class="pop-val" id="eraserSizeVal">28px</span>
+    </div>
+    <input type="range" class="pop-slider" id="eraserSizeSlider" min="10" max="80" value="28">
+    <label class="pop-checkbox-label" style="margin-top:4px;">
+        <input type="checkbox" id="strokeEraserToggle">
+        <span>Stroke Eraser</span>
+    </label>
+</div>
+
+<!-- Shapes Popover -->
+<div class="tool-popover" id="popoverShape">
+    <span class="pop-label">Choose Shape</span>
+    <div class="shape-btn-grid">
+        <button class="shape-sub-btn active" data-shape="line" title="Line"><i class="fas fa-slash"></i></button>
+        <button class="shape-sub-btn" data-shape="arrow" title="Arrow"><i class="fas fa-long-arrow-alt-right"></i></button>
+        <button class="shape-sub-btn" data-shape="rect" title="Rectangle"><i class="far fa-square"></i></button>
+        <button class="shape-sub-btn" data-shape="circle" title="Circle"><i class="far fa-circle"></i></button>
+    </div>
+    <div class="pop-row" style="margin-top:2px;">
+        <span class="pop-label">Thickness</span>
+        <span class="pop-val" id="shapeSizeVal">3px</span>
+    </div>
+    <input type="range" class="pop-slider" id="shapeSizeSlider" min="1" max="16" value="3">
+    <div class="pop-row" style="margin-top:2px;">
+        <span class="pop-label">Color</span>
+        <input type="color" class="pop-color-input" id="shapeColorCustom" value="#cf6215">
+    </div>
 </div>
 
 <!-- Search Panel -->
@@ -351,12 +439,6 @@ html, body {
     const loadingMessage = document.getElementById('loadingMessage');
     const errorMessage = document.getElementById('errorMessage');
     const zoomSelect = document.getElementById('zoomSelect');
-    const shapeSelect = document.getElementById('shapeSelect');
-
-    const toolSizeSlider = document.getElementById('toolSizeSlider');
-    const toolSizeValue = document.getElementById('toolSizeValue');
-    const toolSizeLabel = document.getElementById('toolSizeLabel');
-    const colorPicker = document.getElementById('annotationColor');
     const eraserRing = document.getElementById('eraserCursorRing');
     const strokeEraserToggle = document.getElementById('strokeEraserToggle');
 
@@ -372,22 +454,21 @@ html, body {
 
     /* Active Tool Configuration */
     let activeTool = null; // null (select), 'pen', 'highlighter', 'text', 'note', 'eraser', 'shape'
-    let activeShape = ''; // 'line', 'arrow', 'rect', 'circle'
-    let currentColor = '#cf6215';
+    let activeShape = 'line';
+    let currentOpenPopover = null;
 
-    let toolSizes = {
-        pen: 3,
-        highlighter: 20,
-        eraser: 24,
-        text: 14,
-        shape: 3
+    let toolSettings = {
+        pen: { size: 3, color: '#cf6215' },
+        highlighter: { size: 20, color: '#eab308' },
+        text: { size: 14, color: '#cf6215' },
+        eraser: { size: 28 },
+        shape: { size: 3, color: '#cf6215', shape: 'line' }
     };
 
     /* Per-Page Vector Canvas Persistence */
     let docAnnotations = {};
     let activeDocId = '';
 
-    /* Resolve file parameter */
     const params = new URLSearchParams(window.location.search);
     let fileUrl = params.get('file');
     if (!fileUrl && window.location.hash) {
@@ -405,8 +486,8 @@ html, body {
         return 'pdf_doc_' + Math.abs(hash);
     }
 
-    function getStorageKey(pageNum) { return `q_annot_v3:${activeDocId}:p${pageNum}`; }
-    function getDOMStorageKey(pageNum) { return `q_dom_v3:${activeDocId}:p${pageNum}`; }
+    function getStorageKey(pageNum) { return `q_annot_v4:${activeDocId}:p${pageNum}`; }
+    function getDOMStorageKey(pageNum) { return `q_dom_v4:${activeDocId}:p${pageNum}`; }
 
     function getEffectiveScale() {
         if (currentScale === 'auto') {
@@ -537,7 +618,6 @@ html, body {
 
             if (instanceId !== globalRenderId) return;
 
-            // Render TextLayer
             const textContent = await page.getTextContent();
             if (instanceId !== globalRenderId) return;
 
@@ -556,14 +636,13 @@ html, body {
             });
             await textLayerTask.promise;
 
-            // Setup Interactive Annotation Layer
             setupAnnotationCanvas(wrapper, pageNum, Math.floor(viewport.width), Math.floor(viewport.height));
             restoreDOMOverlays(wrapper, pageNum);
 
             wrapper.dataset.rendered = 'true';
         } catch (err) {
             if (err.name !== 'RenderingCancelledException') {
-                console.warn(`[PDFViewer] Page ${pageNum} render notice:`, err);
+                console.warn(`[PDFViewer] Page ${pageNum} notice:`, err);
             }
         } finally {
             wrapper.dataset.rendering = 'false';
@@ -753,8 +832,8 @@ html, body {
         function onPointerMove(e) {
             if (activeTool === 'eraser') {
                 eraserRing.style.display = 'block';
-                eraserRing.style.width = toolSizes.eraser + 'px';
-                eraserRing.style.height = toolSizes.eraser + 'px';
+                eraserRing.style.width = toolSettings.eraser.size + 'px';
+                eraserRing.style.height = toolSettings.eraser.size + 'px';
                 eraserRing.style.left = e.clientX + 'px';
                 eraserRing.style.top = e.clientY + 'px';
             } else {
@@ -772,7 +851,7 @@ html, body {
             if (activeTool === 'shape' && shapeStart) {
                 redrawPageStrokes(ctx, pageNum, width, height);
                 ctx.save();
-                drawShapePath(ctx, activeShape, shapeStart, pos, currentColor, toolSizes.shape, width, height);
+                drawShapePath(ctx, activeShape, shapeStart, pos, toolSettings.shape.color, toolSettings.shape.size, width, height);
                 ctx.restore();
                 return;
             }
@@ -782,8 +861,8 @@ html, body {
 
             if (activeTool === 'pen') {
                 ctx.save();
-                ctx.strokeStyle = currentColor;
-                ctx.lineWidth = toolSizes.pen;
+                ctx.strokeStyle = toolSettings.pen.color;
+                ctx.lineWidth = toolSettings.pen.size;
                 ctx.lineCap = 'round';
                 ctx.lineJoin = 'round';
                 ctx.beginPath();
@@ -794,7 +873,7 @@ html, body {
                 ctx.stroke();
                 ctx.restore();
             } else if (activeTool === 'highlighter') {
-                renderCleanHighlighter(ctx, currentPoints, currentColor, toolSizes.highlighter, width, height);
+                renderCleanHighlighter(ctx, currentPoints, toolSettings.highlighter.color, toolSettings.highlighter.size, width, height);
             }
         }
 
@@ -810,8 +889,8 @@ html, body {
                     shape: activeShape,
                     start: shapeStart,
                     end: pos,
-                    color: currentColor,
-                    size: toolSizes.shape
+                    color: toolSettings.shape.color,
+                    size: toolSettings.shape.size
                 });
                 store.undoStack = [];
                 savePageStore(pageNum);
@@ -822,11 +901,12 @@ html, body {
 
             if (currentPoints.length > 1 && (activeTool === 'pen' || activeTool === 'highlighter')) {
                 const store = ensurePageStore(pageNum);
+                const isPen = activeTool === 'pen';
                 store.strokes.push({
                     type: 'stroke',
                     tool: activeTool,
-                    color: currentColor,
-                    size: activeTool === 'pen' ? toolSizes.pen : toolSizes.highlighter,
+                    color: isPen ? toolSettings.pen.color : toolSettings.highlighter.color,
+                    size: isPen ? toolSettings.pen.size : toolSettings.highlighter.size,
                     points: currentPoints
                 });
                 store.undoStack = [];
@@ -847,11 +927,10 @@ html, body {
 
     function handleErasure(pos, pageNum, ctx, width, height) {
         const store = ensurePageStore(pageNum);
-        const radius = (toolSizes.eraser / 2) / Math.max(width, height);
+        const radius = (toolSettings.eraser.size / 2) / Math.max(width, height);
         const isStrokeEraser = strokeEraserToggle.checked;
 
         if (isStrokeEraser) {
-            // Stroke Eraser: Erases the entire continuous vector element
             const prevLen = store.strokes.length;
             store.strokes = store.strokes.filter(item => {
                 if (item.type === 'shape') {
@@ -866,44 +945,43 @@ html, body {
                 redrawPageStrokes(ctx, pageNum, width, height);
             }
         } else {
-            // Brush / Precision Eraser: Splits and clips intersecting strokes
+            // Smooth Transparent Brush Erasure (Instant & Stutter-Free)
+            ctx.save();
+            ctx.globalCompositeOperation = 'destination-out';
+            ctx.beginPath();
+            ctx.arc(pos.x * width, pos.y * height, toolSettings.eraser.size / 2, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+
             let modified = false;
             const newStrokes = [];
-
             store.strokes.forEach(item => {
                 if (item.type === 'shape') {
                     newStrokes.push(item);
                     return;
                 }
-
                 let currentSegment = [];
                 item.points.forEach(p => {
-                    const hit = Math.hypot(p.x - pos.x, p.y - pos.y) <= radius;
-                    if (hit) {
+                    if (Math.hypot(p.x - pos.x, p.y - pos.y) <= radius) {
                         modified = true;
-                        if (currentSegment.length > 1) {
-                            newStrokes.push({ ...item, points: currentSegment });
-                        }
+                        if (currentSegment.length > 1) newStrokes.push({ ...item, points: currentSegment });
                         currentSegment = [];
                     } else {
                         currentSegment.push(p);
                     }
                 });
-                if (currentSegment.length > 1) {
-                    newStrokes.push({ ...item, points: currentSegment });
-                }
+                if (currentSegment.length > 1) newStrokes.push({ ...item, points: currentSegment });
             });
 
             if (modified) {
                 store.strokes = newStrokes;
                 savePageStore(pageNum);
-                redrawPageStrokes(ctx, pageNum, width, height);
             }
         }
     }
 
     /* ================================================================
-       TRANSPARENT TEXT BOXES & FIXED STICKY NOTES
+       TRANSPARENT TEXT BOXES & STICKY NOTES
        ================================================================ */
     function saveDOMOverlays(wrapper, pageNum) {
         const items = [];
@@ -953,15 +1031,15 @@ html, body {
             x = restoreData.x * wrapper.clientWidth;
             y = restoreData.y * wrapper.clientHeight;
             box.innerText = restoreData.text;
-            box.style.color = restoreData.color || currentColor;
-            box.style.fontSize = restoreData.fontSize || (toolSizes.text + 'px');
+            box.style.color = restoreData.color || toolSettings.text.color;
+            box.style.fontSize = restoreData.fontSize || (toolSettings.text.size + 'px');
         } else if (e) {
             const rect = wrapper.getBoundingClientRect();
             x = e.clientX - rect.left;
             y = e.clientY - rect.top;
             box.innerText = 'Type note…';
-            box.style.color = currentColor;
-            box.style.fontSize = toolSizes.text + 'px';
+            box.style.color = toolSettings.text.color;
+            box.style.fontSize = toolSettings.text.size + 'px';
         }
 
         box.style.left = x + 'px';
@@ -983,8 +1061,8 @@ html, body {
 
         box.addEventListener('focus', () => {
             box.classList.add('selected');
-            toolSizeSlider.value = parseInt(box.style.fontSize) || toolSizes.text;
-            toolSizeValue.textContent = box.style.fontSize || (toolSizes.text + 'px');
+            document.getElementById('textSizeSlider').value = parseInt(box.style.fontSize) || toolSettings.text.size;
+            document.getElementById('textSizeVal').textContent = box.style.fontSize || (toolSettings.text.size + 'px');
         });
 
         box.addEventListener('blur', () => {
@@ -1031,7 +1109,6 @@ html, body {
 
         if (restoreData) textarea.value = restoreData.text || '';
 
-        // Fixed Note Delete handler
         closeBtn.addEventListener('click', (ev) => {
             ev.preventDefault();
             ev.stopPropagation();
@@ -1078,21 +1155,43 @@ html, body {
     }
 
     /* ================================================================
-       TOOLBAR UI & TOOL DISPATCHER
+       CONTEXTUAL POPOVER ENGINE & TOOLBAR DISPATCHER
        ================================================================ */
+    function closeAllPopovers() {
+        document.querySelectorAll('.tool-popover').forEach(p => p.classList.remove('open'));
+        currentOpenPopover = null;
+    }
+
+    function togglePopover(btnEl, popoverId) {
+        const pop = document.getElementById(popoverId);
+        if (!pop) return;
+
+        if (currentOpenPopover === pop) {
+            closeAllPopovers();
+            return;
+        }
+
+        closeAllPopovers();
+        const rect = btnEl.getBoundingClientRect();
+        pop.style.left = Math.max(10, Math.min(window.innerWidth - 190, rect.left - 10)) + 'px';
+        pop.classList.add('open');
+        currentOpenPopover = pop;
+    }
+
     function updateToolUI() {
         document.querySelectorAll('#toolbar .tb-btn').forEach(btn => btn.classList.remove('active'));
 
-        if (activeTool) {
-            const btnMap = {
-                pen: 'toolPen',
-                highlighter: 'toolHighlight',
-                text: 'toolText',
-                note: 'toolNote',
-                eraser: 'toolEraser'
-            };
-            const btnId = btnMap[activeTool];
-            if (btnId) document.getElementById(btnId)?.classList.add('active');
+        const btnMap = {
+            pen: 'toolPen',
+            highlighter: 'toolHighlight',
+            text: 'toolText',
+            note: 'toolNote',
+            eraser: 'toolEraser',
+            shape: 'toolShape'
+        };
+
+        if (activeTool && btnMap[activeTool]) {
+            document.getElementById(btnMap[activeTool])?.classList.add('active');
         } else {
             document.getElementById('toolSelect')?.classList.add('active');
         }
@@ -1100,86 +1199,133 @@ html, body {
         document.querySelectorAll('.annotation-canvas').forEach(c => {
             c.className = 'annotation-canvas' + (activeTool ? ` active-tool active-${activeTool}` : '');
         });
+    }
 
-        // Update Slider Range & Label dynamically
-        if (activeTool === 'pen') {
-            toolSizeLabel.textContent = 'Pen';
-            toolSizeSlider.min = 1; toolSizeSlider.max = 24;
-            toolSizeSlider.value = toolSizes.pen;
-            toolSizeValue.textContent = toolSizes.pen + 'px';
-        } else if (activeTool === 'highlighter') {
-            toolSizeLabel.textContent = 'Highlighter';
-            toolSizeSlider.min = 8; toolSizeSlider.max = 48;
-            toolSizeSlider.value = toolSizes.highlighter;
-            toolSizeValue.textContent = toolSizes.highlighter + 'px';
-        } else if (activeTool === 'eraser') {
-            toolSizeLabel.textContent = 'Eraser';
-            toolSizeSlider.min = 10; toolSizeSlider.max = 80;
-            toolSizeSlider.value = toolSizes.eraser;
-            toolSizeValue.textContent = toolSizes.eraser + 'px';
-        } else if (activeTool === 'text') {
-            toolSizeLabel.textContent = 'Font';
-            toolSizeSlider.min = 10; toolSizeSlider.max = 36;
-            toolSizeSlider.value = toolSizes.text;
-            toolSizeValue.textContent = toolSizes.text + 'px';
-        } else if (activeTool === 'shape') {
-            toolSizeLabel.textContent = 'Line';
-            toolSizeSlider.min = 1; toolSizeSlider.max = 16;
-            toolSizeSlider.value = toolSizes.shape;
-            toolSizeValue.textContent = toolSizes.shape + 'px';
+    function setTool(toolName, btnEl = null, popoverId = null) {
+        if (activeTool === toolName && popoverId) {
+            togglePopover(btnEl, popoverId);
+            return;
+        }
+
+        activeTool = toolName;
+        updateToolUI();
+
+        if (popoverId && btnEl) {
+            togglePopover(btnEl, popoverId);
+        } else {
+            closeAllPopovers();
         }
     }
 
-    function setTool(toolName) {
-        activeTool = activeTool === toolName ? null : toolName;
-        if (activeTool !== 'shape') shapeSelect.value = '';
-        updateToolUI();
-    }
+    // Attach Tool Click Listeners with Anchor Popovers
+    const penBtn = document.getElementById('toolPen');
+    penBtn.addEventListener('click', () => setTool('pen', penBtn, 'popoverPen'));
+
+    const hlBtn = document.getElementById('toolHighlight');
+    hlBtn.addEventListener('click', () => setTool('highlighter', hlBtn, 'popoverHighlighter'));
+
+    const textBtn = document.getElementById('toolText');
+    textBtn.addEventListener('click', () => setTool('text', textBtn, 'popoverText'));
+
+    const noteBtn = document.getElementById('toolNote');
+    noteBtn.addEventListener('click', () => setTool('note'));
+
+    const eraserBtn = document.getElementById('toolEraser');
+    eraserBtn.addEventListener('click', () => setTool('eraser', eraserBtn, 'popoverEraser'));
+
+    const shapeBtn = document.getElementById('toolShape');
+    shapeBtn.addEventListener('click', () => setTool('shape', shapeBtn, 'popoverShape'));
 
     document.getElementById('toolSelect').addEventListener('click', () => setTool(null));
-    document.getElementById('toolPen').addEventListener('click', () => setTool('pen'));
-    document.getElementById('toolHighlight').addEventListener('click', () => setTool('highlighter'));
-    document.getElementById('toolText').addEventListener('click', () => setTool('text'));
-    document.getElementById('toolNote').addEventListener('click', () => setTool('note'));
-    document.getElementById('toolEraser').addEventListener('click', () => setTool('eraser'));
 
-    shapeSelect.addEventListener('change', (e) => {
-        if (e.target.value) {
-            activeTool = 'shape';
-            activeShape = e.target.value;
-            updateToolUI();
-        } else {
-            setTool(null);
+    // Close popovers on outside click
+    window.addEventListener('pointerdown', (e) => {
+        if (!e.target.closest('.tool-popover') && !e.target.closest('.tb-btn')) {
+            closeAllPopovers();
         }
     });
 
-    toolSizeSlider.addEventListener('input', (e) => {
-        const val = parseInt(e.target.value, 10);
-        toolSizeValue.textContent = val + 'px';
-        if (activeTool && toolSizes[activeTool] !== undefined) {
-            toolSizes[activeTool] = val;
-        } else {
-            toolSizes.pen = val;
-        }
-
-        // Live update active text box font size if selected
-        const activeText = document.querySelector('.pdf-inline-text.selected, .pdf-inline-text:focus');
-        if (activeText) activeText.style.fontSize = val + 'px';
+    /* Popover Sliders & Color Swatches */
+    // Pen
+    document.getElementById('penSizeSlider').addEventListener('input', (e) => {
+        toolSettings.pen.size = parseInt(e.target.value, 10);
+        document.getElementById('penSizeVal').textContent = toolSettings.pen.size + 'px';
     });
-
-    // Swatches & Color Picker
-    document.querySelectorAll('.color-dot').forEach(dot => {
+    document.getElementById('penColorCustom').addEventListener('input', (e) => {
+        toolSettings.pen.color = e.target.value;
+        document.querySelectorAll('#penSwatches .pop-dot').forEach(d => d.classList.remove('active'));
+    });
+    document.querySelectorAll('#penSwatches .pop-dot').forEach(dot => {
         dot.addEventListener('click', () => {
-            document.querySelectorAll('.color-dot').forEach(d => d.classList.remove('active'));
+            document.querySelectorAll('#penSwatches .pop-dot').forEach(d => d.classList.remove('active'));
             dot.classList.add('active');
-            currentColor = dot.dataset.color;
-            colorPicker.value = currentColor;
+            toolSettings.pen.color = dot.dataset.color;
+            document.getElementById('penColorCustom').value = dot.dataset.color;
         });
     });
 
-    colorPicker.addEventListener('input', (e) => {
-        currentColor = e.target.value;
-        document.querySelectorAll('.color-dot').forEach(d => d.classList.remove('active'));
+    // Highlighter
+    document.getElementById('hlSizeSlider').addEventListener('input', (e) => {
+        toolSettings.highlighter.size = parseInt(e.target.value, 10);
+        document.getElementById('hlSizeVal').textContent = toolSettings.highlighter.size + 'px';
+    });
+    document.getElementById('hlColorCustom').addEventListener('input', (e) => {
+        toolSettings.highlighter.color = e.target.value;
+        document.querySelectorAll('#hlSwatches .pop-dot').forEach(d => d.classList.remove('active'));
+    });
+    document.querySelectorAll('#hlSwatches .pop-dot').forEach(dot => {
+        dot.addEventListener('click', () => {
+            document.querySelectorAll('#hlSwatches .pop-dot').forEach(d => d.classList.remove('active'));
+            dot.classList.add('active');
+            toolSettings.highlighter.color = dot.dataset.color;
+            document.getElementById('hlColorCustom').value = dot.dataset.color;
+        });
+    });
+
+    // Text
+    document.getElementById('textSizeSlider').addEventListener('input', (e) => {
+        toolSettings.text.size = parseInt(e.target.value, 10);
+        document.getElementById('textSizeVal').textContent = toolSettings.text.size + 'px';
+        const activeText = document.querySelector('.pdf-inline-text.selected, .pdf-inline-text:focus');
+        if (activeText) activeText.style.fontSize = toolSettings.text.size + 'px';
+    });
+    document.getElementById('textColorCustom').addEventListener('input', (e) => {
+        toolSettings.text.color = e.target.value;
+        document.querySelectorAll('#textSwatches .pop-dot').forEach(d => d.classList.remove('active'));
+        const activeText = document.querySelector('.pdf-inline-text.selected, .pdf-inline-text:focus');
+        if (activeText) activeText.style.color = toolSettings.text.color;
+    });
+    document.querySelectorAll('#textSwatches .pop-dot').forEach(dot => {
+        dot.addEventListener('click', () => {
+            document.querySelectorAll('#textSwatches .pop-dot').forEach(d => d.classList.remove('active'));
+            dot.classList.add('active');
+            toolSettings.text.color = dot.dataset.color;
+            document.getElementById('textColorCustom').value = dot.dataset.color;
+            const activeText = document.querySelector('.pdf-inline-text.selected, .pdf-inline-text:focus');
+            if (activeText) activeText.style.color = dot.dataset.color;
+        });
+    });
+
+    // Eraser
+    document.getElementById('eraserSizeSlider').addEventListener('input', (e) => {
+        toolSettings.eraser.size = parseInt(e.target.value, 10);
+        document.getElementById('eraserSizeVal').textContent = toolSettings.eraser.size + 'px';
+    });
+
+    // Shapes
+    document.querySelectorAll('.shape-sub-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.shape-sub-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            activeShape = btn.dataset.shape;
+        });
+    });
+    document.getElementById('shapeSizeSlider').addEventListener('input', (e) => {
+        toolSettings.shape.size = parseInt(e.target.value, 10);
+        document.getElementById('shapeSizeVal').textContent = toolSettings.shape.size + 'px';
+    });
+    document.getElementById('shapeColorCustom').addEventListener('input', (e) => {
+        toolSettings.shape.color = e.target.value;
     });
 
     /* Undo & Redo Handlers */
@@ -1281,7 +1427,7 @@ html, body {
         scrollToPage(searchMatches[searchIndex]);
     });
 
-    /* Export / Download Flattened Document */
+    /* Export Flattened Document */
     document.getElementById('downloadExport').addEventListener('click', async () => {
         const currentWrapper = viewerContainer.querySelector(`[data-page-num="${currentPageNum}"]`);
         if (!currentWrapper) return;
@@ -1383,7 +1529,7 @@ html, body {
             const factor = e.deltaY > 0 ? 0.9 : 1.1;
             const currentNumericScale = getEffectiveScale();
             currentScale = (currentNumericScale * factor).toFixed(2);
-            zoomSelect.value = '1.5'; // Switch from auto preset
+            zoomSelect.value = '1.5';
             const savedPage = currentPageNum;
             setupPlaceholders().then(() => {
                 setTimeout(() => scrollToPage(savedPage), 40);
@@ -1405,11 +1551,12 @@ html, body {
         if (e.key === 'ArrowLeft') scrollToPage(currentPageNum - 1);
         else if (e.key === 'ArrowRight') scrollToPage(currentPageNum + 1);
         else if (e.key === 'v' || e.key === 'V') setTool(null);
-        else if (e.key === 'p' || e.key === 'P') setTool('pen');
-        else if (e.key === 'h' || e.key === 'H') setTool('highlighter');
-        else if (e.key === 't' || e.key === 'T') setTool('text');
+        else if (e.key === 'p' || e.key === 'P') setTool('pen', penBtn, 'popoverPen');
+        else if (e.key === 'h' || e.key === 'H') setTool('highlighter', hlBtn, 'popoverHighlighter');
+        else if (e.key === 't' || e.key === 'T') setTool('text', textBtn, 'popoverText');
         else if (e.key === 'n' || e.key === 'N') setTool('note');
-        else if (e.key === 'e' || e.key === 'E') setTool('eraser');
+        else if (e.key === 'e' || e.key === 'E') setTool('eraser', eraserBtn, 'popoverEraser');
+        else if (e.key === 's' || e.key === 'S') setTool('shape', shapeBtn, 'popoverShape');
         else if (e.key === 'r' || e.key === 'R') { pageRotation = (pageRotation + 90) % 360; setupPlaceholders(); }
     });
 
