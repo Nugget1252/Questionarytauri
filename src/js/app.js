@@ -4912,5 +4912,69 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
     document.addEventListener('DOMContentLoaded', initHomeSyncButton);
     setTimeout(initHomeSyncButton, 1000);
 }
+// ================================================================
+// DELEGATED THEME & ACCESSIBILITY CONTROLLER
+// ================================================================
+document.addEventListener('click', (e) => {
+    // 1. THEME TOGGLE BUTTON
+    const themeBtn = e.target.closest('#themeToggle');
+    if (themeBtn) {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        const currentTheme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+        document.documentElement.setAttribute('data-theme', currentTheme);
+        document.body.classList.toggle('dark-theme', currentTheme === 'dark');
+        localStorage.setItem('theme', currentTheme);
+        
+        const icon = document.getElementById('themeIcon') || themeBtn.querySelector('i');
+        if (icon) {
+            icon.className = currentTheme === 'dark' ? 'fas fa-sun' : 'fas fa-moon';
+        }
+        return;
+    }
 
+    // 2. ACCESSIBILITY PANEL TOGGLE BUTTON
+    const a11yToggle = e.target.closest('#accessibilityToggle');
+    if (a11yToggle) {
+        e.preventDefault();
+        e.stopPropagation();
+        const panel = document.getElementById('accessibilityPanel');
+        if (panel) panel.classList.toggle('active');
+        return;
+    }
+
+    // 3. ACCESSIBILITY TOGGLE SWITCHES (High Contrast, Large Text, etc.)
+    const a11yItem = e.target.closest('#highContrastToggle, #largeTextToggle, #reducedMotionToggle, #enhancedFocusToggle');
+    if (a11yItem) {
+        e.preventDefault();
+        e.stopPropagation();
+
+        const configMap = {
+            'highContrastToggle': { key: 'accessibility-high-contrast', cls: 'high-contrast' },
+            'largeTextToggle': { key: 'accessibility-large-text', cls: 'large-text' },
+            'reducedMotionToggle': { key: 'accessibility-reduced-motion', cls: 'reduced-motion' },
+            'enhancedFocusToggle': { key: 'accessibility-enhanced-focus', cls: 'enhanced-focus' }
+        };
+
+        const config = configMap[a11yItem.id];
+        if (config) {
+            const isActive = a11yItem.classList.toggle('active');
+            const switchEl = a11yItem.querySelector('.accessibility-switch');
+            if (switchEl) switchEl.classList.toggle('active', isActive);
+
+            document.body.classList.toggle(config.cls, isActive);
+            localStorage.setItem(config.key, isActive ? 'true' : 'false');
+        }
+        return;
+    }
+
+    // 4. CLOSE ACCESSIBILITY PANEL ON OUTSIDE CLICK
+    const panel = document.getElementById('accessibilityPanel');
+    if (panel && panel.classList.contains('active')) {
+        if (!e.target.closest('#accessibilityPanel') && !e.target.closest('#accessibilityToggle')) {
+            panel.classList.remove('active');
+        }
+    }
+});
 
