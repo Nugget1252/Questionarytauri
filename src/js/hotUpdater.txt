@@ -1,6 +1,9 @@
 /* =========================================================================
- *   QUESTIONARY HOT UPDATER ENGINE v7.0 (Fast, Stable & Focused)
+ *   QUESTIONARY HOT UPDATER ENGINE v8.0 (Master Engine + PDF Hot-Patching)
  *   Repository: Nugget1252/Questionarytauri (beta -> main)
+ *   - Auto-resolves and injects hot-patched pdfviewer.html via Blob URLs
+ *   - Global iframe interceptor for PDF rendering
+ *   - Live DOM, CSS, JS and DB Hot-Patching
  *   ========================================================================= */
 
 (function (global) {
@@ -19,7 +22,7 @@
     const STORAGE_KEY_COMMIT = 'questionary_hot_commit_sha';
     const STORAGE_KEY_BRANCH = 'questionary_hot_branch';
 
-    /* Code & DB files to manage (Documents are loaded on-demand, NOT bulk-downloaded) */
+    /* Code & DB files to manage (Documents are loaded on-demand) */
     const MANAGED_FILES = [
         'index.html',
         'pdfviewer.html',
@@ -31,6 +34,8 @@
         'js/app.js',
         'questionary.db'
     ];
+
+    let cachedPdfBlobUrl = null;
 
     /* Global State */
     global.codeUpdateState = {
@@ -93,6 +98,12 @@
                 }
             }
             localStorage.setItem(STORAGE_KEY_FILES, JSON.stringify(cleanMap));
+            
+            // Invalidate cached PDF blob on new save
+            if (cachedPdfBlobUrl) {
+                try { URL.revokeObjectURL(cachedPdfBlobUrl); } catch (e) {}
+                cachedPdfBlobUrl = null;
+            }
             return true;
         } catch (e) {
             return false;
@@ -107,7 +118,11 @@
         localStorage.removeItem(STORAGE_KEY_BRANCH);
         localStorage.removeItem('questionary-code-files');
 
-        // Delete any clogged document caches from previous bug
+        if (cachedPdfBlobUrl) {
+            try { URL.revokeObjectURL(cachedPdfBlobUrl); } catch (e) {}
+            cachedPdfBlobUrl = null;
+        }
+
         try { indexedDB.deleteDatabase('QuestionaryDocumentCache'); } catch (e) {}
         try { indexedDB.deleteDatabase('QuestionaryDB'); } catch (e) {}
 
@@ -123,8 +138,53 @@
     }
 
     /* ================================================================
-     * 1. LIVE DOM & SCRIPT INJECTION (Global Execution Scope)
+     * 1. LIVE DOM, SCRIPT & PDF VIEWER INJECTION
      * ================================================================ */
+    function getViewerUrl(fileUrl, pageNum = 1) {
+        const absoluteUrl = fileUrl ? (
+            (fileUrl.startsWith('blob:') || fileUrl.startsWith('data:') || fileUrl.startsWith('http'))
+                ? fileUrl
+                : new URL(fileUrl, window.location.href).href
+        ) : '';
+
+        const stored = getStoredCodeFiles();
+        const hotPdfHtml = stored['pdfviewer.html'] || stored['src/pdfviewer.html'];
+
+        if (hotPdfHtml && typeof hotPdfHtml === 'string' && hotPdfHtml.trim().length > 100) {
+            try {
+                if (!cachedPdfBlobUrl) {
+                    const blob = new Blob([hotPdfHtml], { type: 'text/html;charset=utf-8' });
+                    cachedPdfBlobUrl = URL.createObjectURL(blob);
+                }
+                const pageParam = pageNum > 1 ? `&page=${pageNum}` : '';
+                return `${cachedPdfBlobUrl}#file=${encodeURIComponent(absoluteUrl)}${pageParam}`;
+            } catch (err) {
+                log('Error creating Blob URL for pdfviewer: ' + err.message, 'warn');
+            }
+        }
+
+        const pageParam = pageNum > 1 ? `&page=${pageNum}` : '';
+        return `pdfviewer.html?file=${encodeURIComponent(absoluteUrl)}${pageParam}`;
+    }
+
+    function hookPdfViewerIframes() {
+        // Intercept any iframe with id="pdfViewer" or src containing pdfviewer.html
+        const iframes = document.querySelectorAll('iframe#pdfViewer, iframe.pdf-viewer-frame');
+        iframes.forEach(iframe => {
+            const currentSrc = iframe.getAttribute('src') || '';
+            if (currentSrc.includes('pdfviewer.html') && !currentSrc.startsWith('blob:')) {
+                const params = new URLSearchParams(currentSrc.split('?')[1] || currentSrc.split('#')[1] || '');
+                const file = params.get('file');
+                const page = params.get('page') || 1;
+                if (file) {
+                    const newUrl = getViewerUrl(decodeURIComponent(file), parseInt(page, 10));
+                    iframe.setAttribute('src', newUrl);
+                    log('Upgraded active PDF Viewer iframe to hot-patched build');
+                }
+            }
+        });
+    }
+
     function applyStoredCSS() {
         const stored = getStoredCodeFiles();
         for (const [filename, content] of Object.entries(stored)) {
@@ -228,27 +288,27 @@
                     }
                 }
             });
+
+            hookPdfViewerIframes();
         } catch (err) {
             log(`HTML patch error: ${err.message}`, 'error');
         }
     }
 
     /* ================================================================
-     * 2. CORS-SAFE NETWORKING (NO PREFLIGHT HEADERS)
+     * 2. CORS-SAFE NETWORKING
      * ================================================================ */
     async function fetchRawAsset(filePath, commitSha) {
         const branch = global.codeUpdateState.activeBranch || PRIMARY_BRANCH;
         const ref = commitSha || branch;
         const nonce = `${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
         
-        // Search root, then src/
         const candidatePaths = [filePath, `src/${filePath}`];
         const isBinary = filePath.endsWith('.db');
 
         for (const p of candidatePaths) {
             const rawUrl = `https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${ref}/${p}?_nc=${nonce}`;
             try {
-                // Simple GET without custom headers prevents CORS OPTIONS preflight
                 const res = await fetch(rawUrl);
                 if (res.ok) {
                     if (isBinary) {
@@ -370,7 +430,6 @@
                 if (!asset) continue;
 
                 if (asset.isBinary && file.endsWith('.db')) {
-                    // Update Database safely via DbService
                     const uInt8 = new Uint8Array(asset.buffer);
                     if (uInt8.length > 5000 && uInt8[0] === 0x53 && uInt8[1] === 0x51 && uInt8[2] === 0x4C) { // "SQLite"
                         if (global.DbService && global.DbService.SQL) {
@@ -402,9 +461,14 @@
                 localStorage.setItem(STORAGE_KEY_BRANCH, global.codeUpdateState.activeBranch);
             }
 
-            log(`Update complete (${successCount} files). Reloading...`);
-            notify(`Update installed! Reloading...`, 'success');
-            setTimeout(() => location.reload(), 500);
+            log(`Update complete (${successCount} files). Applying live patches...`);
+            applyStoredHTML();
+            applyStoredCSS();
+            applyStoredJS();
+            hookPdfViewerIframes();
+
+            notify(`Update installed successfully!`, 'success');
+            setTimeout(() => location.reload(), 600);
             return true;
         }
 
@@ -489,21 +553,15 @@
         });
     }
 
-    /* PDF Viewer URL Helper */
-    function getViewerUrl(fileUrl) {
-        if (!fileUrl) return 'pdfviewer.html';
-        const absoluteUrl = (fileUrl.startsWith('blob:') || fileUrl.startsWith('data:') || fileUrl.startsWith('http'))
-            ? fileUrl
-            : new URL(fileUrl, window.location.href).href;
-        return 'pdfviewer.html?file=' + encodeURIComponent(absoluteUrl);
-    }
-
     async function initHotUpdater() {
-        log('Booting Hot Updater Engine v7.0...');
+        log('Booting Hot Updater Engine v8.0...');
         applyStoredHTML();
         applyStoredCSS();
         applyStoredJS();
         attachListeners();
+
+        // Export getViewerUrl globally so PDF opens always use the latest code
+        global.getViewerUrl = getViewerUrl;
 
         setTimeout(async () => {
             const pending = await checkForCodeUpdates(true);
@@ -522,6 +580,7 @@
         applyStoredCSS,
         applyStoredJS,
         getViewerUrl,
+        hookPdfViewerIframes,
         init: initHotUpdater,
         getState: () => global.codeUpdateState
     };

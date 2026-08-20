@@ -974,6 +974,9 @@ function initReminders() {
 // ============================================
 // 6. THEMES — Light / Dark + Custom Theme Builder
 // ============================================
+// ============================================
+// 6. THEMES — Light / Dark + Custom Theme Builder (Unified Engine)
+// ============================================
 var defaultCustomTheme = window.defaultCustomTheme || {
     bg: '#f7f7f8', surface: '#ffffff', fg: '#18181b', accent: '#cf6215',
     navbar: '#ffffff', btnIcon: '#cf6215', line: '#e4e4e7',
@@ -982,29 +985,27 @@ var defaultCustomTheme = window.defaultCustomTheme || {
     font: "'DM Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif"
 };
 
-function setTheme(themeName) {
-    if (themeName !== 'light' && themeName !== 'dark') themeName = 'light';
-    
-    localStorage.setItem('questionary-theme', themeName);
-    localStorage.setItem('theme', themeName);
-    document.documentElement.setAttribute('data-theme', themeName);
-    
-    if (!isCustomThemeActive()) {
-        clearInlineThemeVars();
-    }
-    
-    const themeIcon = document.getElementById('themeIcon');
-    if (themeIcon) {
-        themeIcon.classList.toggle('fa-moon', themeName === 'light');
-        themeIcon.classList.toggle('fa-sun', themeName !== 'light');
-    }
-    
-    updateModeSwitcher();
-    showNotification(`Switched to ${themeName === 'light' ? 'Light' : 'Dark'} mode`, 'success');
+function isCustomThemeActive() {
+    return localStorage.getItem('questionary-custom-theme-active') === 'true';
+}
+
+function clearInlineThemeVars() {
+    const root = document.documentElement;
+    const props = [
+        '--bg','--background','--surface','--surface-hover','--fg','--text-primary',
+        '--fg2','--text-secondary','--accent','--accent-hover','--accent-light',
+        '--primary-color','--primary-hover','--primary-light','--line','--border','--hover',
+        '--folder-1','--folder-2','--folder-3','--folder-4','--folder-5','--folder-6','--folder-7',
+        '--btn-icon-color','font-family'
+    ];
+    props.forEach(p => root.style.removeProperty(p));
+    document.body.style.fontFamily = '';
+    const header = document.querySelector('.header');
+    if (header) header.style.background = '';
 }
 
 function getCurrentTheme() {
-    return localStorage.getItem('questionary-theme') || 'light';
+    return localStorage.getItem('questionary-theme') || localStorage.getItem('theme') || 'dark';
 }
 
 function updateModeSwitcher() {
@@ -1014,8 +1015,38 @@ function updateModeSwitcher() {
     });
 }
 
-function isCustomThemeActive() {
-    return localStorage.getItem('questionary-custom-theme-active') === 'true';
+function setTheme(themeName) {
+    if (themeName !== 'light' && themeName !== 'dark') themeName = 'dark';
+    
+    // 1. Save preferences
+    localStorage.setItem('questionary-theme', themeName);
+    localStorage.setItem('theme', themeName);
+    
+    // 2. Set root attribute for CSS styles
+    document.documentElement.setAttribute('data-theme', themeName);
+    
+    // 3. Clear custom inline styles if custom theme is disabled so stylesheet styles apply
+    if (!isCustomThemeActive()) {
+        clearInlineThemeVars();
+    }
+    
+    // 4. Update Header Toggle Icon (Moon for light mode, Sun for dark mode)
+    const themeIcon = document.getElementById('themeIcon');
+    if (themeIcon) {
+        themeIcon.className = (themeName === 'dark') ? 'fas fa-sun' : 'fas fa-moon';
+    }
+    
+    // 5. Update settings modal buttons
+    updateModeSwitcher();
+}
+
+function toggleTheme() {
+    const currentTheme = getCurrentTheme();
+    const newTheme = (currentTheme === 'dark') ? 'light' : 'dark';
+    setTheme(newTheme);
+    if (typeof showNotification === 'function') {
+        showNotification(`Switched to ${newTheme === 'dark' ? 'Dark' : 'Light'} mode`, 'info');
+    }
 }
 
 function toggleCustomTheme(enabled) {
@@ -1027,6 +1058,7 @@ function toggleCustomTheme(enabled) {
         applyCustomTheme();
     } else {
         clearInlineThemeVars();
+        setTheme(getCurrentTheme());
     }
 }
 
@@ -1075,19 +1107,6 @@ function applyCustomTheme() {
         root.style.setProperty('font-family', t.font);
         document.body.style.fontFamily = t.font;
     }
-}
-
-function clearInlineThemeVars() {
-    const root = document.documentElement;
-    const props = ['--bg','--background','--surface','--surface-hover','--fg','--text-primary',
-        '--fg2','--text-secondary','--accent','--accent-hover','--accent-light','--primary-color',
-        '--primary-hover','--primary-light','--line','--border','--hover',
-        '--folder-1','--folder-2','--folder-3','--folder-4','--folder-5','--folder-6','--folder-7',
-        '--btn-icon-color','font-family'];
-    props.forEach(p => root.style.removeProperty(p));
-    document.body.style.fontFamily = '';
-    const header = document.querySelector('.header');
-    if (header) header.style.background = '';
 }
 
 function updateCustomTheme() {
@@ -1174,14 +1193,7 @@ function populateCustomThemePickers(t) {
 
 function initThemeOnLoad() {
     const stored = getCurrentTheme();
-    document.documentElement.setAttribute('data-theme', stored);
-    updateModeSwitcher();
-    
-    const themeIcon = document.getElementById('themeIcon');
-    if (themeIcon) {
-        themeIcon.classList.toggle('fa-moon', stored === 'light');
-        themeIcon.classList.toggle('fa-sun', stored !== 'light');
-    }
+    setTheme(stored);
     
     const toggle = document.getElementById('customThemeToggle');
     const panel = document.getElementById('customThemePanel');
@@ -1194,12 +1206,14 @@ function initThemeOnLoad() {
         if (toggle) toggle.checked = false;
         if (panel) panel.style.display = 'none';
         populateCustomThemePickers(getCustomThemeValues());
+        clearInlineThemeVars();
     }
 }
 
 function renderThemeSelector() {
     updateModeSwitcher();
 }
+
 
 // ============================================
 // 7. TAGGING SYSTEM
@@ -3614,11 +3628,14 @@ window.toggleReminder = toggleReminder;
 window.renderReminders = renderReminders;
 
 window.setTheme = setTheme;
+window.toggleTheme = toggleTheme;
+window.getCurrentTheme = getCurrentTheme;
+window.initThemeOnLoad = initThemeOnLoad;
 window.toggleCustomTheme = toggleCustomTheme;
 window.updateCustomTheme = updateCustomTheme;
 window.saveCustomTheme = saveCustomTheme;
 window.resetCustomTheme = resetCustomTheme;
-window.initThemeOnLoad = initThemeOnLoad;
+window.clearInlineThemeVars = clearInlineThemeVars;
 
 window.createTag = createTag;
 window.deleteTag = deleteTag;
@@ -3713,47 +3730,3 @@ if (document.readyState === 'loading') {
 } else {
     initEnhancedFeatures();
 }
-/// ============================================
-// BULLETPROOF THEME SWITCHER
-// ============================================
-function toggleTheme() {
-    const currentTheme = document.documentElement.getAttribute('data-theme') || localStorage.getItem('questionary-theme') || 'dark';
-    const newTheme = (currentTheme === 'dark') ? 'light' : 'dark';
-    
-    // 1. Apply to HTML tag so styles.css switches instantly
-    document.documentElement.setAttribute('data-theme', newTheme);
-    localStorage.setItem('questionary-theme', newTheme);
-    localStorage.setItem('theme', newTheme);
-    
-    // 2. Update Icon
-    const themeIcon = document.getElementById('themeIcon');
-    if (themeIcon) {
-        themeIcon.className = (newTheme === 'dark') ? 'fas fa-sun' : 'fas fa-moon';
-    }
-
-    // 3. Sync Settings Modal buttons if open
-    document.querySelectorAll('.mode-btn').forEach(btn => {
-        btn.classList.toggle('active', btn.dataset.mode === newTheme);
-    });
-
-    if (typeof showNotification === 'function') {
-        showNotification(`Switched to ${newTheme} mode`, 'info');
-    }
-}
-
-function setTheme(themeName) {
-    if (themeName !== 'light' && themeName !== 'dark') themeName = 'dark';
-    document.documentElement.setAttribute('data-theme', themeName);
-    localStorage.setItem('questionary-theme', themeName);
-    localStorage.setItem('theme', themeName);
-    
-    const themeIcon = document.getElementById('themeIcon');
-    if (themeIcon) {
-        themeIcon.className = (themeName === 'dark') ? 'fas fa-sun' : 'fas fa-moon';
-    }
-}
-// ============================================
-// CLEAN ACCESSIBILITY CONTROLLER (KILLS CONFLICTS)
-// ============================================
-// ================================================================
-// UNBREAKABLE ACCESSIBILITY CONTROLLER (Global Capture Delegation)
