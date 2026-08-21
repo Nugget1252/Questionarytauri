@@ -1,17 +1,4 @@
-/* =========================================================================
- *   QUESTIONARY STUDY ROOM ENGINE - COMPLETE COLLABORATIVE SUITE v9.5
- *   =========================================================================
- *   - 10-Digit Base32 IP:Port Codec (50-Bit Packed Endpoints)
- *   - Dual-Engine Networking (Tauri Native Rust Relay + PeerJS Cloud Fallback)
- *   - Native WebRTC Audio / Video / Screen Share Mesh with Spotlight Stage
- *   - Infinite Vector Whiteboard (Bezier Smoothing, Shapes, Text & Lasers)
- *   - Voice Activity Detection (VAD) with Speaking Border Highlights
- *   - Drift-Compensated Synchronized Pomodoro / Study Timer Engine
- *   - Zero-Asset Web Audio Synthesizer (SoundFX + Focus Soundscapes)
- *   - Collaborative Q&A Forum with Upvoting & Threaded Notes
- *   - Real-Time Chat & File / Document Sharing Pipeline
- *   - Hardware Device Tester with Live VU Volume Equalizer
- *   ========================================================================= */
+
 
 (function (window, document) {
   'use strict';
@@ -47,9 +34,6 @@
     iceCandidatePoolSize: 4
   };
 
-  /* ----------------------------------------------------------------
-   * 10-DIGIT BASE32 IP:PORT CODEC (Bit-Packed Networking)
-   * ---------------------------------------------------------------- */
   function ipPortToCode(ipStr, portNum) {
     try {
       const parts = ipStr.split('.').map(Number);
