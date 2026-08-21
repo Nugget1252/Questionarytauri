@@ -2489,6 +2489,20 @@
   /* =========================================================================
    * 15. SESSION FLOW (CREATE / JOIN / SOLO / LEAVE)
    * ========================================================================= */
+/* ---------- PeerJS Dynamic CDN Loader ---------- */
+  function loadPeerJSLibrary() {
+    return new Promise((resolve, reject) => {
+      if (window.Peer) return resolve(window.Peer);
+      const script = document.createElement('script');
+      script.src = 'https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js';
+      script.async = true;
+      script.onload = () => resolve(window.Peer);
+      script.onerror = () => reject(new Error('Failed to load PeerJS'));
+      document.head.appendChild(script);
+    });
+  }
+
+  /* ---------- Create Room ---------- */
   async function handleCreate() {
     SoundFX.init();
     nickname = document.getElementById('srNickname')?.value.trim() || 'Host';
@@ -2504,7 +2518,7 @@
         serverInfo = await tauriInvoke('start_study_server', { password: roomPassword });
       }
 
-      // If running inside Tauri desktop with active Rust backend
+      // Native Desktop App mode with Rust backend
       if (serverInfo && serverInfo.port) {
         const localIp = (serverInfo.ips && serverInfo.ips.length > 0) ? serverInfo.ips[0] : '127.0.0.1';
         roomAddress = ipPortToCode(localIp, serverInfo.port);
@@ -2514,14 +2528,13 @@
           sendToServer({ action: 'host', nickname, password: roomPassword, room: '_local' });
         });
       } else {
-        // BROWSER / WEB FALLBACK: Use PeerJS WebRTC directly (No local 8080 server needed)
-        console.log('[StudyRoom] Rust server not detected. Using WebRTC Peer signaling.');
-        roomAddress = generateRandomRoomCode();
-        
+        // Browser / Web fallback mode using PeerJS
+        roomAddress = generateRandomCode();
         await loadPeerJSLibrary();
-        State.peer = new window.Peer(`qroom-${roomAddress}-host`, { config: ICE_CONFIG });
-        
-        State.peer.on('open', (id) => {
+
+        window.studyPeer = new window.Peer(`qroom-${roomAddress}-host`, { config: ICE_CONFIG });
+
+        window.studyPeer.on('open', (id) => {
           myId = id;
           sessionActive = true;
           startStudyTimerEngine();
@@ -2531,24 +2544,37 @@
           notify(`Study Room live! Code: ${roomAddress}`, 'success');
         });
 
-        State.peer.on('connection', (conn) => {
-          handleIncomingPeerConnection(conn);
+        window.studyPeer.on('connection', (conn) => {
+          conn.on('open', () => {
+            peers[conn.peer] = { nickname: conn.metadata?.nickname || 'Student', goal: '', seconds: 0, handRaised: false, isSpeaking: false };
+            updateParticipantsUI();
+            SoundFX.playJoin();
+          });
+          conn.on('data', (data) => handleRelayData(conn.peer, data));
+          conn.on('close', () => {
+            delete peers[conn.peer];
+            updateParticipantsUI();
+          });
         });
 
-        State.peer.on('error', (err) => {
+        window.studyPeer.on('error', (err) => {
           hideLoading();
-          notify('Peer error: ' + err.type, 'error');
+          if (err.type === 'unavailable-id') {
+            handleCreate(); // Retry with fresh code
+          } else {
+            notify('Peer connection error: ' + err.type, 'error');
+          }
         });
       }
-
     } catch (err) {
       hideLoading();
       cleanup();
       renderStudyRoom();
-      notify('Could not start room: ' + (err.message || err), 'error');
+      notify('Could not start study room: ' + (err.message || err), 'error');
     }
   }
 
+  /* ---------- Join Room ---------- */
   async function handleJoin() {
     SoundFX.init();
     nickname = document.getElementById('srNickname')?.value.trim() || 'Student';
@@ -2561,31 +2587,62 @@
     roomPassword = document.getElementById('srJoinPassword')?.value || '';
     isHost = false;
 
-    let targetWsUrl = '';
     const cleanCode = normalizeRoomCode(rawInput);
-
     const decoded = codeToIpPort(cleanCode);
-    if (decoded) {
-      targetWsUrl = `ws://${decoded.ip}:${decoded.port}`;
-      roomAddress = cleanCode;
-    } else if (rawInput.includes(':')) {
-      targetWsUrl = `ws://${rawInput.replace(/^ws:\/\//, '')}`;
-      roomAddress = rawInput;
-    } else {
-      notify('Invalid room code format. Check the 10-digit code.', 'error');
-      return;
-    }
 
-    try {
-      showLoading('Connecting to study room…');
-      await connectWebSocket(targetWsUrl, () => {
-        sendToServer({ action: 'join', nickname, password: roomPassword, room: '_local' });
-      });
-    } catch (err) {
-      hideLoading();
-      cleanup();
-      renderStudyRoom();
-      notify(err.message || 'Room not found or host is offline.', 'error');
+    if (decoded && window.__TAURI__) {
+      // Native Rust mode
+      const targetWsUrl = `ws://${decoded.ip}:${decoded.port}`;
+      roomAddress = cleanCode;
+      try {
+        showLoading('Connecting to study room…');
+        await connectWebSocket(targetWsUrl, () => {
+          sendToServer({ action: 'join', nickname, password: roomPassword, room: '_local' });
+        });
+      } catch (err) {
+        hideLoading();
+        notify(err.message || 'Room not found or host is offline.', 'error');
+      }
+    } else {
+      // Web / Browser mode
+      try {
+        showLoading('Connecting to room…');
+        roomAddress = cleanCode;
+        await loadPeerJSLibrary();
+
+        const clientId = 'qclient-' + Math.random().toString(36).substring(2, 9);
+        window.studyPeer = new window.Peer(clientId, { config: ICE_CONFIG });
+
+        window.studyPeer.on('open', (id) => {
+          myId = id;
+          const hostConn = window.studyPeer.connect(`qroom-${cleanCode}-host`, {
+            metadata: { nickname }
+          });
+
+          hostConn.on('open', () => {
+            sessionActive = true;
+            startStudyTimerEngine();
+            hideLoading();
+            renderActiveSession();
+            SoundFX.playJoin();
+            notify('Connected to Study Room.', 'success');
+          });
+
+          hostConn.on('data', (data) => handleRelayData('host', data));
+          hostConn.on('error', () => {
+            hideLoading();
+            notify('Could not reach room host.', 'error');
+          });
+        });
+
+        window.studyPeer.on('error', (err) => {
+          hideLoading();
+          notify('Connection error: ' + err.type, 'error');
+        });
+      } catch (err) {
+        hideLoading();
+        notify(err.message || 'Could not join room.', 'error');
+      }
     }
   }
 
