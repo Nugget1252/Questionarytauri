@@ -2497,29 +2497,55 @@
     isHost = true;
 
     try {
-      showLoading('Starting high-speed room server…');
+      showLoading('Creating room…');
 
-      const serverInfo = await tauriInvoke('start_study_server', { password: roomPassword });
+      let serverInfo = null;
+      if (window.__TAURI__) {
+        serverInfo = await tauriInvoke('start_study_server', { password: roomPassword });
+      }
 
-      let targetWsUrl = '';
+      // If running inside Tauri desktop with active Rust backend
       if (serverInfo && serverInfo.port) {
         const localIp = (serverInfo.ips && serverInfo.ips.length > 0) ? serverInfo.ips[0] : '127.0.0.1';
         roomAddress = ipPortToCode(localIp, serverInfo.port);
-        targetWsUrl = `ws://127.0.0.1:${serverInfo.port}`;
-      } else {
-        roomAddress = generateRandomRoomCode();
-        targetWsUrl = 'ws://127.0.0.1:8080';
-      }
+        const targetWsUrl = `ws://127.0.0.1:${serverInfo.port}`;
 
-      await connectWebSocket(targetWsUrl, () => {
-        sendToServer({ action: 'host', nickname, password: roomPassword, room: '_local' });
-      });
+        await connectWebSocket(targetWsUrl, () => {
+          sendToServer({ action: 'host', nickname, password: roomPassword, room: '_local' });
+        });
+      } else {
+        // BROWSER / WEB FALLBACK: Use PeerJS WebRTC directly (No local 8080 server needed)
+        console.log('[StudyRoom] Rust server not detected. Using WebRTC Peer signaling.');
+        roomAddress = generateRandomRoomCode();
+        
+        await loadPeerJSLibrary();
+        State.peer = new window.Peer(`qroom-${roomAddress}-host`, { config: ICE_CONFIG });
+        
+        State.peer.on('open', (id) => {
+          myId = id;
+          sessionActive = true;
+          startStudyTimerEngine();
+          hideLoading();
+          renderActiveSession();
+          SoundFX.playJoin();
+          notify(`Study Room live! Code: ${roomAddress}`, 'success');
+        });
+
+        State.peer.on('connection', (conn) => {
+          handleIncomingPeerConnection(conn);
+        });
+
+        State.peer.on('error', (err) => {
+          hideLoading();
+          notify('Peer error: ' + err.type, 'error');
+        });
+      }
 
     } catch (err) {
       hideLoading();
       cleanup();
       renderStudyRoom();
-      notify('Could not start study room: ' + (err.message || err), 'error');
+      notify('Could not start room: ' + (err.message || err), 'error');
     }
   }
 
