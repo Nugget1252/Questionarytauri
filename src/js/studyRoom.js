@@ -1,33 +1,30 @@
-
 /* =========================================================================
- *   QUESTIONARY STUDY ROOM ENGINE - ENTERPRISE COLLABORATIVE SUITE v9.0
+ *   QUESTIONARY STUDY ROOM ENGINE - COMPLETE COLLABORATIVE SUITE v9.5
  *   =========================================================================
  *   - 10-Digit Base32 IP:Port Codec (50-Bit Packed Endpoints)
- *   - Dual-Layer WebRTC Mesh + Native Tauri Rust WebSocket Relay Bridge
- *   - Infinite Vector Whiteboard with Cubic Bezier Smoothing & Shape Suite
- *   - Real-Time Laser Pointer Particle Trails & Multi-User Cursor Mesh
- *   - WebRTC Audio/Video Mesh with Dynamic Voice Activity Detection (VAD)
- *   - Screen Share Spotlight Stage with Picture-in-Picture & Overlay Tools
+ *   - Dual-Engine Networking (Tauri Native Rust Relay + PeerJS Cloud Fallback)
+ *   - Native WebRTC Audio / Video / Screen Share Mesh with Spotlight Stage
+ *   - Infinite Vector Whiteboard (Bezier Smoothing, Shapes, Text & Lasers)
+ *   - Voice Activity Detection (VAD) with Speaking Border Highlights
  *   - Drift-Compensated Synchronized Pomodoro / Study Timer Engine
- *   - Zero-Asset Web Audio Synthesizer (SoundFX + Focus Ambience Mixer)
- *   - Collaborative Q&A Forum with Upvoting, Answers & Whiteboard Pins
- *   - Real-Time Chat with File / Study Material Sharing Pipeline
- *   - Live Media Hardware Testing & VU Meter Equalizer Calibration
+ *   - Zero-Asset Web Audio Synthesizer (SoundFX + Focus Soundscapes)
+ *   - Collaborative Q&A Forum with Upvoting & Threaded Notes
+ *   - Real-Time Chat & File / Document Sharing Pipeline
+ *   - Hardware Device Tester with Live VU Volume Equalizer
  *   ========================================================================= */
 
 (function (window, document) {
   'use strict';
 
-  console.log('[StudyRoom] Booting Master Study Room Collaborative Suite v9.0...');
+  console.log('[StudyRoom] Booting Master Study Room Collaborative Suite v9.5...');
 
   /* =========================================================================
    * 1. CONSTANTS, CODECS & ICE SERVERS
    * ========================================================================= */
-  const MAX_PARTICIPANTS = 16;
   const ROOM_CODE_LENGTH = 10;
   const BASE32_ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
-  const CONNECT_TIMEOUT_MS = 25000;
-  const PEER_HEARTBEAT_INTERVAL = 5000;
+  const CONNECT_TIMEOUT_MS = 20000;
+  const PEERJS_CDN = 'https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js';
 
   const ICE_CONFIG = {
     iceServers: [
@@ -49,12 +46,6 @@
     sdpSemantics: 'unified-plan',
     iceCandidatePoolSize: 4
   };
-
-  const COLOR_PALETTE = [
-    '#ffffff', '#ef4444', '#f97316', '#f59e0b', 
-    '#10b981', '#06b6d4', '#3b82f6', '#8b5cf6', 
-    '#ec4899', '#94a3b8', '#334155', '#000000'
-  ];
 
   /* ----------------------------------------------------------------
    * 10-DIGIT BASE32 IP:PORT CODEC (Bit-Packed Networking)
@@ -122,6 +113,30 @@
     return raw.toUpperCase().trim().replace(/[^2-9A-Z0-9]/g, '');
   }
 
+  /* ----------------------------------------------------------------
+   * PEERJS CDN LOADER
+   * ---------------------------------------------------------------- */
+  function loadPeerJSLibrary() {
+    return new Promise((resolve, reject) => {
+      if (window.Peer) return resolve(window.Peer);
+      const existingScript = document.querySelector(`script[src="${PEERJS_CDN}"]`);
+      if (existingScript) {
+        existingScript.addEventListener('load', () => resolve(window.Peer));
+        existingScript.addEventListener('error', () => reject(new Error('PeerJS load error')));
+        return;
+      }
+      const script = document.createElement('script');
+      script.src = PEERJS_CDN;
+      script.async = true;
+      script.onload = () => {
+        console.log('[StudyRoom] WebRTC PeerJS runtime loaded.');
+        resolve(window.Peer);
+      };
+      script.onerror = () => reject(new Error('Network failure loading PeerJS CDN'));
+      document.head.appendChild(script);
+    });
+  }
+
   /* =========================================================================
    * 2. ZERO-ASSET WEB AUDIO SYNTHESIZER & SOUNDSCAPE MIXER
    * ========================================================================= */
@@ -181,7 +196,6 @@
       setTimeout(() => this.playTone(700, 'triangle', 0.25, 0.1), 100);
     },
 
-    // Procedural Ambience Generator
     setAmbience(track, volume = 0.4) {
       this.stopAmbience();
       if (track === 'none') return;
@@ -191,7 +205,6 @@
       const ctx = this.ctx;
 
       if (track === 'binaural') {
-        // Dual Detuned Sine Waves (10Hz Alpha Focus Waves)
         const oscL = ctx.createOscillator();
         const oscR = ctx.createOscillator();
         const merger = ctx.createChannelMerger(2);
@@ -212,7 +225,6 @@
         return;
       }
 
-      // Filtered Noise Generator for Rain / Campfire / Waves / White Noise
       const bufferSize = ctx.sampleRate * 2;
       const noiseBuffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
       const output = noiseBuffer.getChannelData(0);
@@ -268,9 +280,13 @@
   };
 
   /* =========================================================================
-   * 3. CORE STATE MODEL
+   * 3. MASTER APPLICATION STATE
    * ========================================================================= */
   let socket = null;
+  let peerInstance = null;
+  let peerDataConns = new Map(); // peerId -> DataConnection (PeerJS fallback mode)
+  let isPeerJSMode = false;
+
   let myId = '';
   let roomAddress = '';
   let isHost = false;
@@ -283,11 +299,11 @@
   let unreadChatCount = 0;
   let activeSidebarTab = 'chat';
 
-  // Peer & Media Management
+  // Peers & WebRTC Media
   let peers = {}; // id -> { nickname, goal, seconds, handRaised, isSpeaking, hasCam, hasScreen }
   let peerConnections = new Map(); // id -> RTCPeerConnection
   let remoteStreams = new Map(); // id -> MediaStream
-  let screenShareOwnerId = null; // null | 'self' | peerId
+  let screenShareOwnerId = null;
 
   let localMediaStream = null;
   let localScreenStream = null;
@@ -302,7 +318,7 @@
   let speechInterval = null;
   let isSpeaking = false;
 
-  // Synced Pomodoro / Study Timer
+  // Timer & Pomodoro
   let mainInterval = null;
   let timerMode = 'stopwatch'; // 'stopwatch' | 'focus' | 'break' | 'long_break'
   let timerRunning = false;
@@ -312,18 +328,16 @@
   let studyGoal = '';
   let totalUptimeSeconds = 0;
 
-  // Real-Time Chat & Activity Messages
+  // Chat & Q&A
   let chatMessages = [];
-
-  // Collaborative Q&A Forum
   let wbQuestions = [];
   let wbNextQId = 1;
 
-  // Ambience State
+  // Ambience
   let currentAmbienceTrack = 'none';
   let ambienceVolume = 0.4;
 
-  // Infinite Vector Whiteboard State
+  // Whiteboard State
   let wbActive = false;
   let wbCanvas = null;
   let wbCtx = null;
@@ -336,7 +350,7 @@
   let wbEraserSize = 28;
   let wbHighlighterSize = 22;
   let wbTool = 'pen'; // 'pen' | 'highlighter' | 'line' | 'arrow' | 'rect' | 'circle' | 'text' | 'eraser' | 'pan'
-  let wbGridStyle = 'dots'; // 'dots' | 'grid' | 'lined' | 'none'
+  let wbGridStyle = 'dots';
   let wbStrokes = [];
   let wbRedoStrokes = [];
   let wbShapeStart = null;
@@ -397,175 +411,7 @@
   }
 
   /* =========================================================================
-   * 5. WEBRTC P2P MEDIA MESH OVER WEBSOCKET RELAY
-   * ========================================================================= */
-  function createPeerConnection(remotePeerId, isInitiator = false) {
-    if (peerConnections.has(remotePeerId)) {
-      return peerConnections.get(remotePeerId);
-    }
-
-    console.log(`[WebRTC] Initializing Peer Connection -> ${remotePeerId} (Initiator: ${isInitiator})`);
-    const pc = new RTCPeerConnection(ICE_CONFIG);
-    peerConnections.set(remotePeerId, pc);
-
-    // Attach Local Audio/Video Tracks
-    if (localMediaStream) {
-      localMediaStream.getTracks().forEach(track => {
-        pc.addTrack(track, localMediaStream);
-      });
-    }
-
-    // Attach Local Screen Share Tracks
-    if (localScreenStream) {
-      localScreenStream.getTracks().forEach(track => {
-        pc.addTrack(track, localScreenStream);
-      });
-    }
-
-    // ICE Candidate Exchange
-    pc.onicecandidate = (event) => {
-      if (event.candidate) {
-        sendToServer({
-          action: 'relay-to',
-          to: remotePeerId,
-          data: { type: 'webrtc-ice', candidate: event.candidate }
-        });
-      }
-    };
-
-    // Remote Track Receiver
-    pc.ontrack = (event) => {
-      console.log(`[WebRTC] Received inbound track (${event.track.kind}) from ${remotePeerId}`);
-      let stream = event.streams && event.streams[0] ? event.streams[0] : remoteStreams.get(remotePeerId);
-      if (!stream) {
-        stream = new MediaStream();
-      }
-      if (!stream.getTracks().includes(event.track)) {
-        stream.addTrack(event.track);
-      }
-      remoteStreams.set(remotePeerId, stream);
-      renderRemoteMedia(remotePeerId, stream);
-    };
-
-    pc.onconnectionstatechange = () => {
-      console.log(`[WebRTC] Connection state with ${remotePeerId}: ${pc.connectionState}`);
-      if (['disconnected', 'failed', 'closed'].includes(pc.connectionState)) {
-        clearRemoteMedia(remotePeerId);
-      }
-    };
-
-    pc.onnegotiationneeded = async () => {
-      try {
-        if (pc.signalingState !== 'stable') return;
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        sendToServer({
-          action: 'relay-to',
-          to: remotePeerId,
-          data: { type: 'webrtc-offer', sdp: pc.localDescription }
-        });
-      } catch (e) {
-        console.warn(`[WebRTC] Negotiation error with ${remotePeerId}:`, e);
-      }
-    };
-
-    if (isInitiator) {
-      pc.onnegotiationneeded();
-    }
-
-    return pc;
-  }
-
-  async function handleWebRTCOffer(fromId, sdp) {
-    const pc = createPeerConnection(fromId, false);
-    try {
-      await pc.setRemoteDescription(new RTCSessionDescription(sdp));
-      const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
-      sendToServer({
-        action: 'relay-to',
-        to: fromId,
-        data: { type: 'webrtc-answer', sdp: pc.localDescription }
-      });
-    } catch (err) {
-      console.error('[WebRTC] Error handling offer:', err);
-    }
-  }
-
-  async function handleWebRTCAnswer(fromId, sdp) {
-    const pc = peerConnections.get(fromId);
-    if (pc && pc.signalingState !== 'closed') {
-      try {
-        await pc.setRemoteDescription(new RTCSessionDescription(sdp));
-      } catch (err) {
-        console.error('[WebRTC] Error handling answer:', err);
-      }
-    }
-  }
-
-  async function handleWebRTCIce(fromId, candidate) {
-    const pc = peerConnections.get(fromId);
-    if (pc && candidate && pc.signalingState !== 'closed') {
-      try {
-        await pc.addIceCandidate(new RTCIceCandidate(candidate));
-      } catch (e) {}
-    }
-  }
-
-  async function syncTracksToAllPeers() {
-    for (const [peerId, pc] of peerConnections.entries()) {
-      if (pc.signalingState === 'closed') continue;
-
-      const senders = pc.getSenders();
-
-      // Sync Camera / Microphone
-      if (localMediaStream) {
-        for (const track of localMediaStream.getTracks()) {
-          const sender = senders.find(s => s.track && s.track.kind === track.kind && s.track.id === track.id);
-          if (!sender) {
-            pc.addTrack(track, localMediaStream);
-          }
-        }
-      }
-
-      // Sync Screenshare
-      if (localScreenStream) {
-        for (const track of localScreenStream.getTracks()) {
-          const sender = senders.find(s => s.track && s.track.kind === track.kind && s.track.id === track.id);
-          if (!sender) {
-            pc.addTrack(track, localScreenStream);
-          }
-        }
-      }
-
-      // Remove stopped senders
-      for (const sender of senders) {
-        if (!sender.track) continue;
-        const inMedia = localMediaStream && localMediaStream.getTracks().includes(sender.track);
-        const inScreen = localScreenStream && localScreenStream.getTracks().includes(sender.track);
-        if (!inMedia && !inScreen) {
-          pc.removeTrack(sender);
-        }
-      }
-
-      try {
-        if (pc.signalingState === 'stable') {
-          const offer = await pc.createOffer();
-          await pc.setLocalDescription(offer);
-          sendToServer({
-            action: 'relay-to',
-            to: peerId,
-            data: { type: 'webrtc-offer', sdp: pc.localDescription }
-          });
-        }
-      } catch (err) {
-        console.warn(`[WebRTC] Track resync error with ${peerId}:`, err);
-      }
-    }
-  }
-
-  /* =========================================================================
-   * 6. NETWORKING ENGINE (TAURI RUST RELAY + WEBSOCKET PROTOCOL)
+   * 5. UNIFIED MESSAGING & NETWORKING ENGINE
    * ========================================================================= */
   function connectWebSocket(wsUrl, onOpenCallback) {
     return new Promise((resolve, reject) => {
@@ -574,7 +420,7 @@
         if (!isResolved) {
           isResolved = true;
           if (socket) socket.close();
-          reject(new Error('Connection timed out. Check room code or server availability.'));
+          reject(new Error('Connection timed out.'));
         }
       }, CONNECT_TIMEOUT_MS);
 
@@ -605,7 +451,7 @@
         if (!isResolved) {
           clearTimeout(timer);
           isResolved = true;
-          reject(new Error('WebSocket connection failed. Verify host address.'));
+          reject(new Error('WebSocket connection failed.'));
         }
       };
 
@@ -622,14 +468,32 @@
   }
 
   function broadcastData(data) {
-    sendToServer({ action: 'relay', data });
+    if (!isPeerJSMode && socket && socket.readyState === WebSocket.OPEN) {
+      sendToServer({ action: 'relay', data });
+    } else if (isPeerJSMode) {
+      peerDataConns.forEach((conn) => {
+        if (conn && conn.open) {
+          conn.send({ action: 'relay', from: myId, data });
+        }
+      });
+    }
+  }
+
+  function sendDirectData(toPeerId, data) {
+    if (!isPeerJSMode && socket && socket.readyState === WebSocket.OPEN) {
+      sendToServer({ action: 'relay-to', to: toPeerId, data });
+    } else if (isPeerJSMode) {
+      const conn = peerDataConns.get(toPeerId);
+      if (conn && conn.open) {
+        conn.send({ action: 'relay', from: myId, data });
+      }
+    }
   }
 
   function handleServerMessage(msg) {
     switch (msg.action) {
       case 'welcome':
         myId = msg.id;
-        console.log(`[StudyRoom] Assigned Client ID: ${myId}`);
         break;
 
       case 'hosted':
@@ -711,7 +575,6 @@
     if (!data || typeof data !== 'object') return;
 
     switch (data.type) {
-      /* WebRTC Signaling */
       case 'webrtc-offer':
         handleWebRTCOffer(fromId, data.sdp);
         break;
@@ -732,7 +595,6 @@
         }
         break;
 
-      /* Messaging & Reactions */
       case 'chat':
         chatMessages.push({
           senderId: data.senderId,
@@ -824,7 +686,6 @@
         }
         break;
 
-      /* Whiteboard Real-Time Sync */
       case 'wb-live-draw':
         replayLivePoints(data.points, data.color, data.size, data.tool, data.alpha);
         break;
@@ -889,6 +750,148 @@
   }
 
   /* =========================================================================
+   * 6. WEBRTC P2P MEDIA MESH
+   * ========================================================================= */
+  function createPeerConnection(remotePeerId, isInitiator = false) {
+    if (peerConnections.has(remotePeerId)) {
+      return peerConnections.get(remotePeerId);
+    }
+
+    const pc = new RTCPeerConnection(ICE_CONFIG);
+    peerConnections.set(remotePeerId, pc);
+
+    if (localMediaStream) {
+      localMediaStream.getTracks().forEach(track => {
+        pc.addTrack(track, localMediaStream);
+      });
+    }
+
+    if (localScreenStream) {
+      localScreenStream.getTracks().forEach(track => {
+        pc.addTrack(track, localScreenStream);
+      });
+    }
+
+    pc.onicecandidate = (event) => {
+      if (event.candidate) {
+        sendDirectData(remotePeerId, { type: 'webrtc-ice', candidate: event.candidate });
+      }
+    };
+
+    pc.ontrack = (event) => {
+      let stream = event.streams && event.streams[0] ? event.streams[0] : remoteStreams.get(remotePeerId);
+      if (!stream) {
+        stream = new MediaStream();
+      }
+      if (!stream.getTracks().includes(event.track)) {
+        stream.addTrack(event.track);
+      }
+      remoteStreams.set(remotePeerId, stream);
+      renderRemoteMedia(remotePeerId, stream);
+    };
+
+    pc.onconnectionstatechange = () => {
+      if (['disconnected', 'failed', 'closed'].includes(pc.connectionState)) {
+        clearRemoteMedia(remotePeerId);
+      }
+    };
+
+    pc.onnegotiationneeded = async () => {
+      try {
+        if (pc.signalingState !== 'stable') return;
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        sendDirectData(remotePeerId, { type: 'webrtc-offer', sdp: pc.localDescription });
+      } catch (e) {
+        console.warn(`[WebRTC] Negotiation error with ${remotePeerId}:`, e);
+      }
+    };
+
+    if (isInitiator) {
+      pc.onnegotiationneeded();
+    }
+
+    return pc;
+  }
+
+  async function handleWebRTCOffer(fromId, sdp) {
+    const pc = createPeerConnection(fromId, false);
+    try {
+      await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      sendDirectData(fromId, { type: 'webrtc-answer', sdp: pc.localDescription });
+    } catch (err) {
+      console.error('[WebRTC] Error handling offer:', err);
+    }
+  }
+
+  async function handleWebRTCAnswer(fromId, sdp) {
+    const pc = peerConnections.get(fromId);
+    if (pc && pc.signalingState !== 'closed') {
+      try {
+        await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+      } catch (err) {
+        console.error('[WebRTC] Error handling answer:', err);
+      }
+    }
+  }
+
+  async function handleWebRTCIce(fromId, candidate) {
+    const pc = peerConnections.get(fromId);
+    if (pc && candidate && pc.signalingState !== 'closed') {
+      try {
+        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+      } catch (e) {}
+    }
+  }
+
+  async function syncTracksToAllPeers() {
+    for (const [peerId, pc] of peerConnections.entries()) {
+      if (pc.signalingState === 'closed') continue;
+
+      const senders = pc.getSenders();
+
+      if (localMediaStream) {
+        for (const track of localMediaStream.getTracks()) {
+          const sender = senders.find(s => s.track && s.track.kind === track.kind && s.track.id === track.id);
+          if (!sender) {
+            pc.addTrack(track, localMediaStream);
+          }
+        }
+      }
+
+      if (localScreenStream) {
+        for (const track of localScreenStream.getTracks()) {
+          const sender = senders.find(s => s.track && s.track.kind === track.kind && s.track.id === track.id);
+          if (!sender) {
+            pc.addTrack(track, localScreenStream);
+          }
+        }
+      }
+
+      for (const sender of senders) {
+        if (!sender.track) continue;
+        const inMedia = localMediaStream && localMediaStream.getTracks().includes(sender.track);
+        const inScreen = localScreenStream && localScreenStream.getTracks().includes(sender.track);
+        if (!inMedia && !inScreen) {
+          pc.removeTrack(sender);
+        }
+      }
+
+      try {
+        if (pc.signalingState === 'stable') {
+          const offer = await pc.createOffer();
+          await pc.setLocalDescription(offer);
+          sendDirectData(peerId, { type: 'webrtc-offer', sdp: pc.localDescription });
+        }
+      } catch (err) {
+        console.warn(`[WebRTC] Track resync error with ${peerId}:`, err);
+      }
+    }
+  }
+
+  /* =========================================================================
    * 7. UI — LOBBY
    * ========================================================================= */
   function renderStudyRoom() {
@@ -905,7 +908,7 @@
       <div class="sr-lobby">
         <div class="sr-lobby-header">
           <h2 class="section-title"><i class="fas fa-users-class"></i>Study Room Suite</h2>
-          <span class="sr-exp-badge">Ultra-Fast WebRTC Mesh</span>
+          <span class="sr-exp-badge">WebRTC Real-Time Mesh</span>
           <div class="sr-lobby-icon"><i class="fas fa-graduation-cap"></i></div>
           <p class="sr-lobby-subtitle">Collaborate live with multi-user video, screen sharing, infinite vector whiteboard, synchronized timers & audio ambience.</p>
         </div>
@@ -2489,20 +2492,6 @@
   /* =========================================================================
    * 15. SESSION FLOW (CREATE / JOIN / SOLO / LEAVE)
    * ========================================================================= */
-/* ---------- PeerJS Dynamic CDN Loader ---------- */
-  function loadPeerJSLibrary() {
-    return new Promise((resolve, reject) => {
-      if (window.Peer) return resolve(window.Peer);
-      const script = document.createElement('script');
-      script.src = 'https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js';
-      script.async = true;
-      script.onload = () => resolve(window.Peer);
-      script.onerror = () => reject(new Error('Failed to load PeerJS'));
-      document.head.appendChild(script);
-    });
-  }
-
-  /* ---------- Create Room ---------- */
   async function handleCreate() {
     SoundFX.init();
     nickname = document.getElementById('srNickname')?.value.trim() || 'Host';
@@ -2518,8 +2507,9 @@
         serverInfo = await tauriInvoke('start_study_server', { password: roomPassword });
       }
 
-      // Native Desktop App mode with Rust backend
+      // 1. Native Desktop App mode with Rust backend
       if (serverInfo && serverInfo.port) {
+        isPeerJSMode = false;
         const localIp = (serverInfo.ips && serverInfo.ips.length > 0) ? serverInfo.ips[0] : '127.0.0.1';
         roomAddress = ipPortToCode(localIp, serverInfo.port);
         const targetWsUrl = `ws://127.0.0.1:${serverInfo.port}`;
@@ -2528,15 +2518,17 @@
           sendToServer({ action: 'host', nickname, password: roomPassword, room: '_local' });
         });
       } else {
-        // Browser / Web fallback mode using PeerJS
-        roomAddress = generateRandomCode();
+        // 2. Web / Browser fallback mode using PeerJS Cloud Signaling
+        isPeerJSMode = true;
+        roomAddress = generateRandomRoomCode();
         await loadPeerJSLibrary();
 
-        window.studyPeer = new window.Peer(`qroom-${roomAddress}-host`, { config: ICE_CONFIG });
+        peerInstance = new window.Peer(`qroom-${roomAddress}-host`, { config: ICE_CONFIG });
 
-        window.studyPeer.on('open', (id) => {
+        peerInstance.on('open', (id) => {
           myId = id;
           sessionActive = true;
+          isSoloMode = false;
           startStudyTimerEngine();
           hideLoading();
           renderActiveSession();
@@ -2544,28 +2536,55 @@
           notify(`Study Room live! Code: ${roomAddress}`, 'success');
         });
 
-        window.studyPeer.on('connection', (conn) => {
+        peerInstance.on('connection', (conn) => {
           conn.on('open', () => {
-            peers[conn.peer] = { nickname: conn.metadata?.nickname || 'Student', goal: '', seconds: 0, handRaised: false, isSpeaking: false };
+            peerDataConns.set(conn.peer, conn);
+            const remoteNick = conn.metadata?.nickname || 'Student';
+            peers[conn.peer] = { nickname: remoteNick, goal: '', seconds: 0, handRaised: false, isSpeaking: false };
             updateParticipantsUI();
             SoundFX.playJoin();
+            addSystemMessage(`${remoteNick} joined the room.`);
+
+            // Send authoritative snapshot
+            conn.send({
+              action: 'relay',
+              from: myId,
+              data: {
+                type: 'wb-full-sync',
+                strokes: wbStrokes,
+                questions: wbQuestions,
+                nextId: wbNextQId
+              }
+            });
           });
-          conn.on('data', (data) => handleRelayData(conn.peer, data));
+
+          conn.on('data', (payload) => {
+            if (payload && payload.action === 'relay') {
+              handleRelayData(payload.from || conn.peer, payload.data);
+            }
+          });
+
           conn.on('close', () => {
+            peerDataConns.delete(conn.peer);
+            const leftNick = peers[conn.peer]?.nickname || 'Student';
             delete peers[conn.peer];
+            delete wbRemoteCursors[conn.peer];
+            clearRemoteMedia(conn.peer);
             updateParticipantsUI();
+            addSystemMessage(`${leftNick} left the room.`);
           });
         });
 
-        window.studyPeer.on('error', (err) => {
+        peerInstance.on('error', (err) => {
           hideLoading();
           if (err.type === 'unavailable-id') {
-            handleCreate(); // Retry with fresh code
+            handleCreate();
           } else {
-            notify('Peer connection error: ' + err.type, 'error');
+            notify('Peer connection notice: ' + err.type, 'warning');
           }
         });
       }
+
     } catch (err) {
       hideLoading();
       cleanup();
@@ -2574,7 +2593,6 @@
     }
   }
 
-  /* ---------- Join Room ---------- */
   async function handleJoin() {
     SoundFX.init();
     nickname = document.getElementById('srNickname')?.value.trim() || 'Student';
@@ -2591,7 +2609,8 @@
     const decoded = codeToIpPort(cleanCode);
 
     if (decoded && window.__TAURI__) {
-      // Native Rust mode
+      // 1. Native Rust Desktop mode
+      isPeerJSMode = false;
       const targetWsUrl = `ws://${decoded.ip}:${decoded.port}`;
       roomAddress = cleanCode;
       try {
@@ -2604,23 +2623,27 @@
         notify(err.message || 'Room not found or host is offline.', 'error');
       }
     } else {
-      // Web / Browser mode
+      // 2. Web / Browser fallback mode using PeerJS Cloud Signaling
+      isPeerJSMode = true;
       try {
         showLoading('Connecting to room…');
         roomAddress = cleanCode;
         await loadPeerJSLibrary();
 
         const clientId = 'qclient-' + Math.random().toString(36).substring(2, 9);
-        window.studyPeer = new window.Peer(clientId, { config: ICE_CONFIG });
+        peerInstance = new window.Peer(clientId, { config: ICE_CONFIG });
 
-        window.studyPeer.on('open', (id) => {
+        peerInstance.on('open', (id) => {
           myId = id;
-          const hostConn = window.studyPeer.connect(`qroom-${cleanCode}-host`, {
+          const hostConn = peerInstance.connect(`qroom-${cleanCode}-host`, {
             metadata: { nickname }
           });
 
           hostConn.on('open', () => {
+            peerDataConns.set(`qroom-${cleanCode}-host`, hostConn);
+            peers[`qroom-${cleanCode}-host`] = { nickname: 'Host', goal: '', seconds: 0, handRaised: false, isSpeaking: false };
             sessionActive = true;
+            isSoloMode = false;
             startStudyTimerEngine();
             hideLoading();
             renderActiveSession();
@@ -2628,14 +2651,24 @@
             notify('Connected to Study Room.', 'success');
           });
 
-          hostConn.on('data', (data) => handleRelayData('host', data));
+          hostConn.on('data', (payload) => {
+            if (payload && payload.action === 'relay') {
+              handleRelayData(payload.from || 'host', payload.data);
+            }
+          });
+
           hostConn.on('error', () => {
             hideLoading();
             notify('Could not reach room host.', 'error');
           });
+
+          hostConn.on('close', () => {
+            notify('Host disconnected.', 'info');
+            forceLeaveRoom();
+          });
         });
 
-        window.studyPeer.on('error', (err) => {
+        peerInstance.on('error', (err) => {
           hideLoading();
           notify('Connection error: ' + err.type, 'error');
         });
@@ -2688,18 +2721,25 @@
     }
     peerConnections.clear();
     remoteStreams.clear();
+    peerDataConns.clear();
 
     if (socket) {
       try { socket.close(); } catch (_) {}
       socket = null;
     }
 
-    if (isHost) {
+    if (peerInstance) {
+      try { peerInstance.destroy(); } catch (_) {}
+      peerInstance = null;
+    }
+
+    if (isHost && window.__TAURI__) {
       tauriInvoke('stop_study_server').catch(() => {});
     }
 
     sessionActive = false;
     isSoloMode = false;
+    isPeerJSMode = false;
     isHost = false;
     myId = '';
     peers = {};
@@ -2722,13 +2762,16 @@
 
   function cleanup() {
     if (socket) { try { socket.close(); } catch (_) {} socket = null; }
+    if (peerInstance) { try { peerInstance.destroy(); } catch (_) {} peerInstance = null; }
     for (const [, pc] of peerConnections.entries()) {
       try { pc.close(); } catch (e) {}
     }
     peerConnections.clear();
     remoteStreams.clear();
+    peerDataConns.clear();
     sessionActive = false;
     isSoloMode = false;
+    isPeerJSMode = false;
     isHost = false;
     myId = '';
     peers = {};
