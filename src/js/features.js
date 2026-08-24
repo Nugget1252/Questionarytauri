@@ -165,6 +165,13 @@ function addPdfBookmark(pdfUrl, pageNumber, title = '') {
         pdfBookmarks[pdfUrl] = [];
     }
     
+    // 1. Check if a bookmark for this page already exists
+    const isDuplicate = pdfBookmarks[pdfUrl].some(b => b.page === pageNumber);
+    if (isDuplicate) {
+        showNotification(`Page ${pageNumber} is already bookmarked.`, 'warning');
+        return null; // Stop execution
+    }
+    
     const bookmark = {
         id: Date.now().toString(),
         page: pageNumber,
@@ -194,7 +201,6 @@ function removePdfBookmark(pdfUrl, bookmarkId) {
 function getPdfBookmarks(pdfUrl) {
     return pdfBookmarks[pdfUrl] || [];
 }
-
 function renderPdfBookmarks(pdfUrl) {
     const container = document.getElementById('pdfBookmarksList');
     if (!container) return;
@@ -226,14 +232,12 @@ function renderPdfBookmarks(pdfUrl) {
         });
     });
 }
-
 function goToPdfPage(pageNumber) {
     const iframe = document.getElementById('pdfViewer');
     if (!iframe || !iframe.contentWindow) return;
     iframe.contentWindow.postMessage({ type: 'goToPage', page: pageNumber }, '*');
     showNotification(`Navigating to page ${pageNumber}`, 'info');
 }
-
 function openBookmarkModal() {
     const modal = document.getElementById('bookmarkModal');
     if (modal) {
@@ -244,28 +248,9 @@ function openBookmarkModal() {
         if (pageInput) pageInput.value = '1';
     }
 }
-
 function closeBookmarkModal() {
     const modal = document.getElementById('bookmarkModal');
     if (modal) modal.classList.remove('active');
-}
-
-function saveBookmarkFromModal() {
-    const title = document.getElementById('bookmarkTitleInput')?.value.trim();
-    const page = parseInt(document.getElementById('bookmarkPageInput')?.value, 10) || 1;
-    
-    if (!title) {
-        showNotification('Please enter a bookmark title', 'warning');
-        return;
-    }
-    
-    const pdfUrl = currentPdfUrl || window.currentPdfUrlForBookmarks;
-    if (pdfUrl) {
-        addPdfBookmark(pdfUrl, page, title);
-        closeBookmarkModal();
-    } else {
-        showNotification('No PDF currently open', 'error');
-    }
 }
 
 function toggleBookmarksPanel() {
@@ -275,7 +260,6 @@ function toggleBookmarksPanel() {
         panel.style.display = isHidden ? 'block' : 'none';
     }
 }
-
 function openPdfViewer(pdfUrl, pdfName) {
     currentPdfUrl = pdfUrl;
     window.currentPdfUrlForBookmarks = pdfUrl;
