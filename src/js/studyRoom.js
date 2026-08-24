@@ -1,7 +1,21 @@
 
 (function (window, document) {
   'use strict';
-
+// Polyfill WebKit / Safari WebRTC Constructors
+  const RTCPeerConnection = window.RTCPeerConnection || 
+                            window.webkitRTCPeerConnection || 
+                            window.mozRTCPeerConnection || 
+                            null;
+                            
+  const RTCSessionDescription = window.RTCSessionDescription || 
+                                window.webkitRTCSessionDescription || 
+                                window.mozRTCSessionDescription || 
+                                null;
+                                
+  const RTCIceCandidate = window.RTCIceCandidate || 
+                          window.webkitRTCIceCandidate || 
+                          window.mozRTCIceCandidate || 
+                          null;
   console.log('[StudyRoom] Booting Master Study Room Collaborative Suite v10.0...');
 
   /* =========================================================================
@@ -741,8 +755,14 @@
    * 6. ROBUST WEBRTC MEDIA MESH (PERFECT NEGOTIATION PATTERN)
    * ========================================================================= */
   function getOrCreatePeerConnection(remotePeerId) {
-    if (peerConnections.has(remotePeerId)) {
+   if (peerConnections.has(remotePeerId)) {
       return peerConnections.get(remotePeerId).pc;
+    }
+
+    // Safety guard if WebRTC is disabled or unsupported
+    if (!RTCPeerConnection) {
+      console.warn('[WebRTC] RTCPeerConnection is not supported or disabled in this webview environment.');
+      return null;
     }
 
     const pc = new RTCPeerConnection(ICE_CONFIG);
