@@ -3783,6 +3783,7 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
 
     function addPageBookmark(docPath, pageNumber, label = '') {
       if (!pageBookmarks[docPath]) {
+        
         pageBookmarks[docPath] = [];
       }
 
