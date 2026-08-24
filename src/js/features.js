@@ -165,13 +165,6 @@ function addPdfBookmark(pdfUrl, pageNumber, title = '') {
         pdfBookmarks[pdfUrl] = [];
     }
     
-    // 1. Check if a bookmark for this page already exists
-    const isDuplicate = pdfBookmarks[pdfUrl].some(b => b.page === pageNumber);
-    if (isDuplicate) {
-        showNotification(`Page ${pageNumber} is already bookmarked.`, 'warning');
-        return null; // Stop execution
-    }
-    
     const bookmark = {
         id: Date.now().toString(),
         page: pageNumber,
