@@ -194,6 +194,7 @@ function removePdfBookmark(pdfUrl, bookmarkId) {
 function getPdfBookmarks(pdfUrl) {
     return pdfBookmarks[pdfUrl] || [];
 }
+
 function renderPdfBookmarks(pdfUrl) {
     const container = document.getElementById('pdfBookmarksList');
     if (!container) return;
@@ -245,6 +246,23 @@ function closeBookmarkModal() {
     const modal = document.getElementById('bookmarkModal');
     if (modal) modal.classList.remove('active');
 }
+function saveBookmarkFromModal() {
+    const title = document.getElementById('bookmarkTitleInput')?.value.trim();
+    const page = parseInt(document.getElementById('bookmarkPageInput')?.value, 10) || 1;
+    
+    if (!title) {
+        showNotification('Please enter a bookmark title', 'warning');
+        return;
+    }
+    
+    const pdfUrl = currentPdfUrl || window.currentPdfUrlForBookmarks;
+    if (pdfUrl) {
+        addPdfBookmark(pdfUrl, page, title);
+        closeBookmarkModal();
+    } else {
+        showNotification('No PDF currently open', 'error');
+    }
+}
 
 function toggleBookmarksPanel() {
     const panel = document.getElementById('pdfBookmarksPanel');
@@ -253,6 +271,7 @@ function toggleBookmarksPanel() {
         panel.style.display = isHidden ? 'block' : 'none';
     }
 }
+
 function openPdfViewer(pdfUrl, pdfName) {
     currentPdfUrl = pdfUrl;
     window.currentPdfUrlForBookmarks = pdfUrl;
