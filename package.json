@@ -1,18 +1,55 @@
 {
-  "name": "Questionary",
-  "private": true,
-  "version": "0.9.7",
-  "type": "module",
+  "name": "questionary",
+  "version": "0.9.8",
+  "description": "Questionary Desktop Study App",
+  "main": "main.js",
+  "author": "Your Organization",
   "scripts": {
-    "tauri": "tauri",
-    "dev": "serve src -p 3000 --no-clipboard"
-  },
-  "devDependencies": {
-    "@tauri-apps/cli": "^2.10.0",
-    "serve": "^14"
+    "start": "electron .",
+    "build:linux": "electron-builder --linux",
+    "build:appimage": "electron-builder --linux AppImage",
+    "build:rpm": "electron-builder --linux rpm",
+    "build:deb": "electron-builder --linux deb",
+    "build:win": "electron-builder --win",
+    "build:mac": "electron-builder --mac"
   },
   "dependencies": {
-    "peerjs": "^1.5.5",
-    "ws": "^8.20.0"
+    "sql.js": "^1.8.0"
+  },
+  "devDependencies": {
+    "electron": "^29.1.0",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.questionary.app",
+    "productName": "Questionary",
+    "files": [
+      "**/*",
+      "!dist/**",
+      "!src-tauri/**",
+      "!.git/**",
+      "!.github/**",
+      "!*.md",
+      "!*.log"
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "linux": {
+      "target": ["AppImage", "rpm", "deb"],
+      "icon": "assets/logo.png",
+      "category": "Education",
+      "maintainer": "Your Name <you@example.com>",
+      "synopsis": "Questionary Desktop Study & Practice Companion"
+    },
+    "win": {
+      "target": ["nsis", "portable"],
+      "icon": "assets/logo.png"
+    },
+    "mac": {
+      "target": ["dmg", "zip"],
+      "icon": "assets/logo.png",
+      "category": "public.app-category.education"
+    }
   }
 }
