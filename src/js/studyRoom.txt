@@ -1,16 +1,29 @@
 
-
 (function (window, document) {
   'use strict';
+// Polyfill WebKit / Safari WebRTC Constructors
+  const RTCPeerConnection = window.RTCPeerConnection ||
+                            window.webkitRTCPeerConnection ||
+                            window.mozRTCPeerConnection ||
+                            null;
 
-  console.log('[StudyRoom] Booting Master Study Room Collaborative Suite v9.5...');
+  const RTCSessionDescription = window.RTCSessionDescription ||
+                                window.webkitRTCSessionDescription ||
+                                window.mozRTCSessionDescription ||
+                                null;
+
+  const RTCIceCandidate = window.RTCIceCandidate ||
+                          window.webkitRTCIceCandidate ||
+                          window.mozRTCIceCandidate ||
+                          null;
+  console.log('[StudyRoom] Booting Master Study Room Collaborative Suite v10.0...');
 
   /* =========================================================================
    * 1. CONSTANTS, CODECS & ICE SERVERS
    * ========================================================================= */
   const ROOM_CODE_LENGTH = 10;
   const BASE32_ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
-  const CONNECT_TIMEOUT_MS = 20000;
+  const CONNECT_TIMEOUT_MS = 25000;
   const PEERJS_CDN = 'https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js';
 
   const ICE_CONFIG = {
@@ -34,6 +47,9 @@
     iceCandidatePoolSize: 4
   };
 
+  /* ----------------------------------------------------------------
+   * 10-DIGIT BASE32 IP:PORT CODEC (Bit-Packed Networking)
+   * ---------------------------------------------------------------- */
   function ipPortToCode(ipStr, portNum) {
     try {
       const parts = ipStr.split('.').map(Number);
@@ -268,7 +284,7 @@
    * ========================================================================= */
   let socket = null;
   let peerInstance = null;
-  let peerDataConns = new Map(); // peerId -> DataConnection (PeerJS fallback mode)
+  let peerDataConns = new Map();
   let isPeerJSMode = false;
 
   let myId = '';
@@ -283,19 +299,21 @@
   let unreadChatCount = 0;
   let activeSidebarTab = 'chat';
 
-  // Peers & WebRTC Media
-  let peers = {}; // id -> { nickname, goal, seconds, handRaised, isSpeaking, hasCam, hasScreen }
-  let peerConnections = new Map(); // id -> RTCPeerConnection
+  // WebRTC Peer Connection Pool with Negotiation Tracking
+  let peers = {}; // id -> { nickname, goal, seconds, handRaised, isSpeaking }
+  let peerConnections = new Map(); // id -> { pc, makingOffer, ignoreOffer, isSettingRemoteAnswerPending }
   let remoteStreams = new Map(); // id -> MediaStream
   let screenShareOwnerId = null;
 
-  let localMediaStream = null;
+  // Media Streams
+  let localAudioStream = null;
+  let localVideoStream = null;
   let localScreenStream = null;
   let micActive = false;
   let camActive = false;
   let pttActive = false;
 
-  // Voice Activity Detection (VAD)
+  // Audio Analysis & VAD
   let audioContext = null;
   let localAudioAnalyser = null;
   let localAudioSource = null;
@@ -304,7 +322,7 @@
 
   // Timer & Pomodoro
   let mainInterval = null;
-  let timerMode = 'stopwatch'; // 'stopwatch' | 'focus' | 'break' | 'long_break'
+  let timerMode = 'stopwatch';
   let timerRunning = false;
   let timerSeconds = 0;
   let timerDuration = 25 * 60;
@@ -333,7 +351,7 @@
   let wbPenSize = 3;
   let wbEraserSize = 28;
   let wbHighlighterSize = 22;
-  let wbTool = 'pen'; // 'pen' | 'highlighter' | 'line' | 'arrow' | 'rect' | 'circle' | 'text' | 'eraser' | 'pan'
+  let wbTool = 'pen';
   let wbGridStyle = 'dots';
   let wbStrokes = [];
   let wbRedoStrokes = [];
@@ -395,7 +413,7 @@
   }
 
   /* =========================================================================
-   * 5. UNIFIED MESSAGING & NETWORKING ENGINE
+   * 5. UNIFIED MESSAGING & SIGNALING ENGINE
    * ========================================================================= */
   function connectWebSocket(wsUrl, onOpenCallback) {
     return new Promise((resolve, reject) => {
@@ -495,7 +513,7 @@
         if (Array.isArray(msg.peers)) {
           msg.peers.forEach(p => {
             peers[p.id] = { nickname: p.nickname, goal: '', seconds: 0, handRaised: false, isSpeaking: false };
-            createPeerConnection(p.id, true);
+            getOrCreatePeerConnection(p.id);
           });
         }
         sessionActive = true;
@@ -524,7 +542,7 @@
         updateProgressUI();
 
         if (isHost) {
-          createPeerConnection(msg.id, true);
+          getOrCreatePeerConnection(msg.id);
         }
         break;
 
@@ -734,44 +752,70 @@
   }
 
   /* =========================================================================
-   * 6. WEBRTC P2P MEDIA MESH
+   * 6. ROBUST WEBRTC MEDIA MESH (PERFECT NEGOTIATION PATTERN)
    * ========================================================================= */
-  function createPeerConnection(remotePeerId, isInitiator = false) {
-    if (peerConnections.has(remotePeerId)) {
-      return peerConnections.get(remotePeerId);
+  function getOrCreatePeerConnection(remotePeerId) {
+   if (peerConnections.has(remotePeerId)) {
+      return peerConnections.get(remotePeerId).pc;
+    }
+
+    // Safety guard if WebRTC is disabled or unsupported
+    if (!RTCPeerConnection) {
+      console.warn('[WebRTC] RTCPeerConnection is not supported or disabled in this webview environment.');
+      return null;
     }
 
     const pc = new RTCPeerConnection(ICE_CONFIG);
-    peerConnections.set(remotePeerId, pc);
 
-    if (localMediaStream) {
-      localMediaStream.getTracks().forEach(track => {
-        pc.addTrack(track, localMediaStream);
-      });
-    }
+    // Polite Peer logic (Host is polite or based on string ID comparison)
+    const isPolite = isHost ? false : true;
 
-    if (localScreenStream) {
-      localScreenStream.getTracks().forEach(track => {
-        pc.addTrack(track, localScreenStream);
-      });
-    }
+    const peerObj = {
+      pc,
+      makingOffer: false,
+      ignoreOffer: false,
+      isSettingRemoteAnswerPending: false,
+      isPolite
+    };
 
-    pc.onicecandidate = (event) => {
-      if (event.candidate) {
-        sendDirectData(remotePeerId, { type: 'webrtc-ice', candidate: event.candidate });
+    peerConnections.set(remotePeerId, peerObj);
+
+    // Initial Transceivers Setup
+    pc.addTransceiver('audio', { direction: 'sendrecv' });
+    pc.addTransceiver('video', { direction: 'sendrecv' });
+
+    // Sync currently active local tracks
+    syncLocalTracksToPeer(pc);
+
+    pc.onicecandidate = ({ candidate }) => {
+      if (candidate) {
+        sendDirectData(remotePeerId, { type: 'webrtc-ice', candidate });
       }
     };
 
     pc.ontrack = (event) => {
-      let stream = event.streams && event.streams[0] ? event.streams[0] : remoteStreams.get(remotePeerId);
+      let stream = remoteStreams.get(remotePeerId);
       if (!stream) {
         stream = new MediaStream();
+        remoteStreams.set(remotePeerId, stream);
       }
       if (!stream.getTracks().includes(event.track)) {
         stream.addTrack(event.track);
       }
-      remoteStreams.set(remotePeerId, stream);
       renderRemoteMedia(remotePeerId, stream);
+    };
+
+    // W3C Perfect Negotiation Handler
+    pc.onnegotiationneeded = async () => {
+      try {
+        peerObj.makingOffer = true;
+        await pc.setLocalDescription();
+        sendDirectData(remotePeerId, { type: 'webrtc-offer', sdp: pc.localDescription });
+      } catch (err) {
+        console.warn(`[WebRTC] Offer generation error with ${remotePeerId}:`, err);
+      } finally {
+        peerObj.makingOffer = false;
+      }
     };
 
     pc.onconnectionstatechange = () => {
@@ -780,103 +824,367 @@
       }
     };
 
-    pc.onnegotiationneeded = async () => {
-      try {
-        if (pc.signalingState !== 'stable') return;
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        sendDirectData(remotePeerId, { type: 'webrtc-offer', sdp: pc.localDescription });
-      } catch (e) {
-        console.warn(`[WebRTC] Negotiation error with ${remotePeerId}:`, e);
-      }
-    };
-
-    if (isInitiator) {
-      pc.onnegotiationneeded();
-    }
-
     return pc;
   }
 
   async function handleWebRTCOffer(fromId, sdp) {
-    const pc = createPeerConnection(fromId, false);
+    const pc = getOrCreatePeerConnection(fromId);
+    const peerObj = peerConnections.get(fromId);
+    if (!peerObj) return;
+
+    const offerCollision = (sdp.type === 'offer') &&
+                           (peerObj.makingOffer || pc.signalingState !== 'stable');
+
+    peerObj.ignoreOffer = !peerObj.isPolite && offerCollision;
+    if (peerObj.ignoreOffer) {
+      console.warn(`[WebRTC] Collision detected. Ignoring offer from ${fromId}`);
+      return;
+    }
+
     try {
+      peerObj.isSettingRemoteAnswerPending = (sdp.type === 'answer');
       await pc.setRemoteDescription(new RTCSessionDescription(sdp));
-      const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
-      sendDirectData(fromId, { type: 'webrtc-answer', sdp: pc.localDescription });
+      peerObj.isSettingRemoteAnswerPending = false;
+
+      if (sdp.type === 'offer') {
+        syncLocalTracksToPeer(pc);
+        await pc.setLocalDescription();
+        sendDirectData(fromId, { type: 'webrtc-answer', sdp: pc.localDescription });
+      }
     } catch (err) {
-      console.error('[WebRTC] Error handling offer:', err);
+      console.error(`[WebRTC] Failed setting remote offer/answer from ${fromId}:`, err);
     }
   }
 
   async function handleWebRTCAnswer(fromId, sdp) {
-    const pc = peerConnections.get(fromId);
-    if (pc && pc.signalingState !== 'closed') {
+    const peerObj = peerConnections.get(fromId);
+    if (peerObj && peerObj.pc.signalingState !== 'closed') {
       try {
-        await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+        await peerObj.pc.setRemoteDescription(new RTCSessionDescription(sdp));
       } catch (err) {
-        console.error('[WebRTC] Error handling answer:', err);
+        console.error(`[WebRTC] Error setting answer from ${fromId}:`, err);
       }
     }
   }
 
   async function handleWebRTCIce(fromId, candidate) {
-    const pc = peerConnections.get(fromId);
-    if (pc && candidate && pc.signalingState !== 'closed') {
+    const peerObj = peerConnections.get(fromId);
+    if (peerObj && peerObj.pc.signalingState !== 'closed') {
       try {
-        await pc.addIceCandidate(new RTCIceCandidate(candidate));
-      } catch (e) {}
+        await peerObj.pc.addIceCandidate(new RTCIceCandidate(candidate));
+      } catch (e) {
+        if (!peerObj.ignoreOffer) {
+          console.warn(`[WebRTC] ICE candidate rejection from ${fromId}:`, e);
+        }
+      }
     }
   }
 
-  async function syncTracksToAllPeers() {
-    for (const [peerId, pc] of peerConnections.entries()) {
-      if (pc.signalingState === 'closed') continue;
+  function syncLocalTracksToPeer(pc) {
+    const senders = pc.getSenders();
 
-      const senders = pc.getSenders();
+    // Audio Track
+    const aSender = senders.find(s => s.track && s.track.kind === 'audio') ||
+                    senders.find(s => s.dtlsTransport && !s.track);
+    const localAudioTrack = (localAudioStream && micActive) ? localAudioStream.getAudioTracks()[0] : null;
 
-      if (localMediaStream) {
-        for (const track of localMediaStream.getTracks()) {
-          const sender = senders.find(s => s.track && s.track.kind === track.kind && s.track.id === track.id);
-          if (!sender) {
-            pc.addTrack(track, localMediaStream);
-          }
-        }
-      }
-
-      if (localScreenStream) {
-        for (const track of localScreenStream.getTracks()) {
-          const sender = senders.find(s => s.track && s.track.kind === track.kind && s.track.id === track.id);
-          if (!sender) {
-            pc.addTrack(track, localScreenStream);
-          }
-        }
-      }
-
-      for (const sender of senders) {
-        if (!sender.track) continue;
-        const inMedia = localMediaStream && localMediaStream.getTracks().includes(sender.track);
-        const inScreen = localScreenStream && localScreenStream.getTracks().includes(sender.track);
-        if (!inMedia && !inScreen) {
-          pc.removeTrack(sender);
-        }
-      }
-
-      try {
-        if (pc.signalingState === 'stable') {
-          const offer = await pc.createOffer();
-          await pc.setLocalDescription(offer);
-          sendDirectData(peerId, { type: 'webrtc-offer', sdp: pc.localDescription });
-        }
-      } catch (err) {
-        console.warn(`[WebRTC] Track resync error with ${peerId}:`, err);
-      }
+    if (aSender) {
+      aSender.replaceTrack(localAudioTrack || null).catch(() => {});
+    } else if (localAudioTrack) {
+      pc.addTrack(localAudioTrack, localAudioStream);
     }
+
+    // Video Track (Camera OR Screenshare)
+    const vSender = senders.find(s => s.track && s.track.kind === 'video') ||
+                    senders.find(s => s.dtlsTransport && !s.track);
+
+    let activeVideoTrack = null;
+    if (localScreenStream) {
+      activeVideoTrack = localScreenStream.getVideoTracks()[0];
+    } else if (localVideoStream && camActive) {
+      activeVideoTrack = localVideoStream.getVideoTracks()[0];
+    }
+
+    if (vSender) {
+      vSender.replaceTrack(activeVideoTrack || null).catch(() => {});
+    } else if (activeVideoTrack) {
+      pc.addTrack(activeVideoTrack, localScreenStream || localVideoStream);
+    }
+  }
+
+  function syncTracksToAllPeers() {
+    peerConnections.forEach(({ pc }) => {
+      if (pc.signalingState !== 'closed') {
+        syncLocalTracksToPeer(pc);
+      }
+    });
   }
 
   /* =========================================================================
-   * 7. UI — LOBBY
+   * 7. CAMERA & SCREEN SHARE CONTROLLER (WAYLAND / LINUX SAFE)
+   * ========================================================================= */
+  async function toggleMicrophone() {
+    try {
+      if (!localAudioStream) {
+        localAudioStream = await navigator.mediaDevices.getUserMedia({
+          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+        });
+      }
+      micActive = !micActive;
+      localAudioStream.getAudioTracks().forEach(t => t.enabled = micActive);
+
+      syncTracksToAllPeers();
+      updateMediaButtons();
+      setupAudioAnalysis();
+      notify(micActive ? 'Microphone unmuted' : 'Microphone muted', 'info');
+    } catch (err) {
+      micActive = false;
+      updateMediaButtons();
+      notify('Microphone hardware access denied.', 'error');
+    }
+  }
+
+  async function toggleCamera() {
+    try {
+      if (!localVideoStream) {
+        localVideoStream = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 30 } }
+        });
+      }
+      camActive = !camActive;
+      localVideoStream.getVideoTracks().forEach(t => t.enabled = camActive);
+
+      syncTracksToAllPeers();
+      updateMediaButtons();
+      renderLocalCam(camActive ? localVideoStream : null);
+      notify(camActive ? 'Camera turned on' : 'Camera turned off', 'info');
+    } catch (err) {
+      camActive = false;
+      updateMediaButtons();
+      notify('Camera hardware access denied.', 'error');
+    }
+  }
+
+  async function toggleScreenShare() {
+    const btn = document.getElementById('srToggleScreenShare');
+    if (localScreenStream) {
+      stopScreenShare();
+      return;
+    }
+    try {
+      // Safe parameters compatible with PipeWire, xdg-desktop-portal, Wayland & Windows
+      localScreenStream = await navigator.mediaDevices.getDisplayMedia({
+        video: true,
+        audio: false
+      });
+
+      const vTrack = localScreenStream.getVideoTracks()[0];
+      if (vTrack) {
+        vTrack.onended = () => stopScreenShare(); // Native OS stop sharing button handler
+      }
+
+      if (btn) btn.classList.add('sr-ctrl-active');
+
+      setSpotlight('self');
+      if (!isSoloMode) broadcastData({ type: 'screen-share-status', active: true, nickname });
+
+      syncTracksToAllPeers();
+      notify('Screen sharing active.', 'success');
+    } catch (err) {
+      console.warn('[ScreenShare] Cancelled or portal permission error:', err);
+      notify('Screen share cancelled.', 'info');
+    }
+  }
+
+  function stopScreenShare() {
+    if (localScreenStream) {
+      localScreenStream.getTracks().forEach(t => t.stop());
+      localScreenStream = null;
+    }
+
+    const btn = document.getElementById('srToggleScreenShare');
+    if (btn) btn.classList.remove('sr-ctrl-active');
+
+    if (screenShareOwnerId === 'self') {
+      setSpotlight(null);
+    }
+
+    if (!isSoloMode) broadcastData({ type: 'screen-share-status', active: false });
+    syncTracksToAllPeers();
+  }
+
+  function renderLocalCam(stream) {
+    const localTile = document.getElementById('srTile_self');
+    if (!localTile) return;
+    const off = localTile.querySelector('.sr-video-off');
+    let camVideo = localTile.querySelector('.sr-cam-video');
+
+    if (!stream) {
+      if (camVideo) { camVideo.pause(); camVideo.srcObject = null; camVideo.remove(); }
+      if (off) off.style.display = 'flex';
+      return;
+    }
+    if (off) off.style.display = 'none';
+    if (!camVideo) {
+      camVideo = document.createElement('video');
+      camVideo.className = 'sr-cam-video';
+      camVideo.autoplay = true;
+      camVideo.playsInline = true;
+      camVideo.muted = true;
+      camVideo.style.cssText = 'width:100%;height:100%;object-fit:cover;position:absolute;top:0;left:0;border-radius:12px;z-index:1;';
+      localTile.appendChild(camVideo);
+    }
+    camVideo.srcObject = stream;
+    camVideo.play().catch(() => {});
+  }
+
+  function renderRemoteMedia(userId, stream) {
+    const tile = document.getElementById(`srTile_${userId}`);
+    if (!tile) return;
+
+    const hasVideo = stream.getVideoTracks().length > 0;
+    const off = tile.querySelector('.sr-video-off');
+
+    let audio = tile.querySelector('.sr-remote-audio');
+    if (!audio) {
+      audio = document.createElement('audio');
+      audio.className = 'sr-remote-audio';
+      audio.autoplay = true;
+      audio.style.display = 'none';
+      tile.appendChild(audio);
+    }
+    audio.srcObject = stream;
+    audio.play().catch(() => {});
+
+    let camVideo = tile.querySelector('.sr-cam-video');
+    if (hasVideo) {
+      if (off) off.style.display = 'none';
+      if (!camVideo) {
+        camVideo = document.createElement('video');
+        camVideo.className = 'sr-cam-video';
+        camVideo.autoplay = true;
+        camVideo.playsInline = true;
+        camVideo.style.cssText = 'width:100%;height:100%;object-fit:cover;position:absolute;top:0;left:0;border-radius:12px;z-index:1;';
+        tile.appendChild(camVideo);
+      }
+      camVideo.srcObject = stream;
+      camVideo.play().catch(() => {});
+
+      if (screenShareOwnerId === userId) {
+        const spotVideo = document.getElementById('srSpotlightVideo');
+        if (spotVideo) {
+          spotVideo.srcObject = stream;
+          spotVideo.play().catch(() => {});
+        }
+      }
+    } else {
+      if (camVideo) { camVideo.pause(); camVideo.srcObject = null; camVideo.remove(); }
+      if (off) off.style.display = 'flex';
+    }
+  }
+
+  function clearRemoteMedia(userId) {
+    const peerObj = peerConnections.get(userId);
+    if (peerObj) {
+      try { peerObj.pc.close(); } catch (e) {}
+      peerConnections.delete(userId);
+    }
+    remoteStreams.delete(userId);
+
+    const tile = document.getElementById(`srTile_${userId}`);
+    if (tile) {
+      tile.querySelectorAll('video, audio').forEach(el => {
+        el.pause();
+        el.srcObject = null;
+        el.remove();
+      });
+      const off = tile.querySelector('.sr-video-off');
+      if (off) off.style.display = 'flex';
+    }
+  }
+
+  function updateMediaButtons() {
+    const mbtn = document.getElementById('srToggleMic');
+    if (mbtn) {
+      mbtn.innerHTML = `<i class="fas fa-${micActive ? 'microphone' : 'microphone-slash'}" style="${micActive ? '' : 'color: #ef4444;'}"></i>`;
+      mbtn.classList.toggle('sr-ctrl-active', micActive);
+    }
+    const cbtn = document.getElementById('srToggleCamera');
+    if (cbtn) {
+      cbtn.innerHTML = `<i class="fas fa-${camActive ? 'video' : 'video-slash'}" style="${camActive ? '' : 'color: #ef4444;'}"></i>`;
+      cbtn.classList.toggle('sr-ctrl-active', camActive);
+    }
+  }
+
+  function setupAudioAnalysis() {
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!audioContext && AudioCtx) audioContext = new AudioCtx();
+      if (!audioContext) return;
+
+      if (!localAudioAnalyser && localAudioStream && localAudioStream.getAudioTracks().length > 0) {
+        localAudioSource = audioContext.createMediaStreamSource(localAudioStream);
+        localAudioAnalyser = audioContext.createAnalyser();
+        localAudioAnalyser.fftSize = 256;
+        localAudioSource.connect(localAudioAnalyser);
+
+        const dataArray = new Uint8Array(localAudioAnalyser.frequencyBinCount);
+        if (speechInterval) clearInterval(speechInterval);
+
+        speechInterval = setInterval(() => {
+          if (!micActive || !localAudioAnalyser) {
+            if (isSpeaking) {
+              isSpeaking = false;
+              document.getElementById('srTile_self')?.classList.remove('sr-speaking');
+              if (!isSoloMode) broadcastData({ type: 'speaking', speaking: false });
+            }
+            return;
+          }
+
+          localAudioAnalyser.getByteFrequencyData(dataArray);
+          let sum = 0;
+          for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
+          const avg = sum / dataArray.length;
+          const nowSpeaking = avg > 22;
+
+          if (nowSpeaking !== isSpeaking) {
+            isSpeaking = nowSpeaking;
+            document.getElementById('srTile_self')?.classList.toggle('sr-speaking', isSpeaking);
+            if (!isSoloMode) broadcastData({ type: 'speaking', speaking: isSpeaking });
+          }
+        }, 200);
+      }
+    } catch (e) {}
+  }
+
+  function setupPushToTalk() {
+    window.addEventListener('keydown', (e) => {
+      if (e.code === 'Space' && !pttActive && !wbActive) {
+        const tag = document.activeElement?.tagName.toLowerCase();
+        if (tag === 'input' || tag === 'textarea') return;
+        if (localAudioStream && localAudioStream.getAudioTracks().length > 0 && !micActive) {
+          pttActive = true;
+          localAudioStream.getAudioTracks()[0].enabled = true;
+          const mbtn = document.getElementById('srToggleMic');
+          if (mbtn) mbtn.classList.add('sr-ctrl-active');
+        }
+      }
+    });
+
+    window.addEventListener('keyup', (e) => {
+      if (e.code === 'Space' && pttActive) {
+        pttActive = false;
+        if (localAudioStream && localAudioStream.getAudioTracks().length > 0 && !micActive) {
+          localAudioStream.getAudioTracks()[0].enabled = false;
+          const mbtn = document.getElementById('srToggleMic');
+          if (mbtn) mbtn.classList.remove('sr-ctrl-active');
+        }
+      }
+    });
+  }
+
+  /* =========================================================================
+   * 8. UI — LOBBY
    * ========================================================================= */
   function renderStudyRoom() {
     const section = document.getElementById('studyRoomSection');
@@ -956,7 +1264,7 @@
   }
 
   /* =========================================================================
-   * 8. UI — ACTIVE SESSION
+   * 9. UI — ACTIVE SESSION & VIDEO TILES
    * ========================================================================= */
   function renderActiveSession() {
     const section = document.getElementById('studyRoomSection');
@@ -1328,7 +1636,7 @@
   }
 
   /* =========================================================================
-   * 9. SYNCHRONIZED POMODORO ENGINE
+   * 10. SYNCHRONIZED POMODORO ENGINE
    * ========================================================================= */
   function startStudyTimerEngine() {
     if (mainInterval) clearInterval(mainInterval);
@@ -1451,7 +1759,7 @@
   }
 
   /* =========================================================================
-   * 10. SESSION LISTENERS & USER ACTIONS
+   * 11. SESSION LISTENERS & USER ACTIONS
    * ========================================================================= */
   function attachSessionListeners() {
     document.getElementById('srCopyCode')?.addEventListener('click', () => {
@@ -1574,289 +1882,6 @@
     container.appendChild(el);
 
     setTimeout(() => el.remove(), 2000);
-  }
-
-  /* =========================================================================
-   * 11. MEDIA CONTROLLER (MIC, CAM, SCREEN SHARE, VAD)
-   * ========================================================================= */
-  async function getOrCreateMediaStream() {
-    if (!localMediaStream) {
-      localMediaStream = new MediaStream();
-    }
-    return localMediaStream;
-  }
-
-  async function toggleMicrophone() {
-    try {
-      const stream = await getOrCreateMediaStream();
-      let audioTrack = stream.getAudioTracks()[0];
-
-      if (!audioTrack) {
-        const audioStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
-        audioTrack = audioStream.getAudioTracks()[0];
-        stream.addTrack(audioTrack);
-        micActive = true;
-        audioTrack.enabled = true;
-      } else {
-        micActive = !micActive;
-        audioTrack.enabled = micActive;
-      }
-
-      await syncTracksToAllPeers();
-      updateMediaButtons();
-      setupAudioAnalysis();
-      notify(micActive ? 'Microphone unmuted' : 'Microphone muted', 'info');
-    } catch (err) {
-      micActive = false;
-      updateMediaButtons();
-      notify('Could not access microphone.', 'error');
-    }
-  }
-
-  async function toggleCamera() {
-    try {
-      const stream = await getOrCreateMediaStream();
-      let videoTrack = stream.getVideoTracks()[0];
-
-      if (!videoTrack) {
-        const videoStream = await navigator.mediaDevices.getUserMedia({
-          video: { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 30 } }
-        });
-        videoTrack = videoStream.getVideoTracks()[0];
-        stream.addTrack(videoTrack);
-        camActive = true;
-        videoTrack.enabled = true;
-      } else {
-        camActive = !camActive;
-        videoTrack.enabled = camActive;
-      }
-
-      await syncTracksToAllPeers();
-      updateMediaButtons();
-      renderLocalCam(camActive ? stream : null);
-      notify(camActive ? 'Camera turned on' : 'Camera turned off', 'info');
-    } catch (err) {
-      camActive = false;
-      updateMediaButtons();
-      notify('Could not access camera.', 'error');
-    }
-  }
-
-  function updateMediaButtons() {
-    const mbtn = document.getElementById('srToggleMic');
-    if (mbtn) {
-      mbtn.innerHTML = `<i class="fas fa-${micActive ? 'microphone' : 'microphone-slash'}" style="${micActive ? '' : 'color: #ef4444;'}"></i>`;
-      mbtn.classList.toggle('sr-ctrl-active', micActive);
-    }
-    const cbtn = document.getElementById('srToggleCamera');
-    if (cbtn) {
-      cbtn.innerHTML = `<i class="fas fa-${camActive ? 'video' : 'video-slash'}" style="${camActive ? '' : 'color: #ef4444;'}"></i>`;
-      cbtn.classList.toggle('sr-ctrl-active', camActive);
-    }
-  }
-
-  function setupAudioAnalysis() {
-    try {
-      const AudioCtx = window.AudioContext || window.webkitAudioContext;
-      if (!audioContext && AudioCtx) audioContext = new AudioCtx();
-      if (!audioContext) return;
-
-      if (!localAudioAnalyser && localMediaStream && localMediaStream.getAudioTracks().length > 0) {
-        localAudioSource = audioContext.createMediaStreamSource(localMediaStream);
-        localAudioAnalyser = audioContext.createAnalyser();
-        localAudioAnalyser.fftSize = 256;
-        localAudioSource.connect(localAudioAnalyser);
-
-        const dataArray = new Uint8Array(localAudioAnalyser.frequencyBinCount);
-        if (speechInterval) clearInterval(speechInterval);
-
-        speechInterval = setInterval(() => {
-          if (!micActive || !localAudioAnalyser) {
-            if (isSpeaking) {
-              isSpeaking = false;
-              document.getElementById('srTile_self')?.classList.remove('sr-speaking');
-              if (!isSoloMode) broadcastData({ type: 'speaking', speaking: false });
-            }
-            return;
-          }
-
-          localAudioAnalyser.getByteFrequencyData(dataArray);
-          let sum = 0;
-          for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
-          const avg = sum / dataArray.length;
-          const nowSpeaking = avg > 20;
-
-          if (nowSpeaking !== isSpeaking) {
-            isSpeaking = nowSpeaking;
-            document.getElementById('srTile_self')?.classList.toggle('sr-speaking', isSpeaking);
-            if (!isSoloMode) broadcastData({ type: 'speaking', speaking: isSpeaking });
-          }
-        }, 200);
-      }
-    } catch (e) {}
-  }
-
-  async function toggleScreenShare() {
-    const btn = document.getElementById('srToggleScreenShare');
-    if (localScreenStream) {
-      stopScreenShare();
-      return;
-    }
-    try {
-      localScreenStream = await navigator.mediaDevices.getDisplayMedia({
-        video: { cursor: 'always', frameRate: { ideal: 30, max: 60 } },
-        audio: false
-      });
-
-      const vTrack = localScreenStream.getVideoTracks()[0];
-      if (vTrack) {
-        vTrack.onended = () => stopScreenShare();
-      }
-
-      if (btn) btn.classList.add('sr-ctrl-active');
-
-      setSpotlight('self');
-      if (!isSoloMode) broadcastData({ type: 'screen-share-status', active: true, nickname });
-
-      await syncTracksToAllPeers();
-      notify('Screen sharing active.', 'success');
-    } catch (err) {
-      console.warn('[ScreenShare] Notice:', err);
-      notify('Screen share cancelled.', 'info');
-    }
-  }
-
-  function stopScreenShare() {
-    if (localScreenStream) {
-      localScreenStream.getTracks().forEach(t => t.stop());
-      localScreenStream = null;
-    }
-
-    const btn = document.getElementById('srToggleScreenShare');
-    if (btn) btn.classList.remove('sr-ctrl-active');
-
-    if (screenShareOwnerId === 'self') {
-      setSpotlight(null);
-    }
-
-    if (!isSoloMode) broadcastData({ type: 'screen-share-status', active: false });
-    syncTracksToAllPeers().catch(() => {});
-  }
-
-  function renderLocalCam(stream) {
-    const localTile = document.getElementById('srTile_self');
-    if (!localTile) return;
-    const off = localTile.querySelector('.sr-video-off');
-    let camVideo = localTile.querySelector('.sr-cam-video');
-
-    if (!stream) {
-      if (camVideo) { camVideo.pause(); camVideo.srcObject = null; camVideo.remove(); }
-      if (off) off.style.display = 'flex';
-      return;
-    }
-    if (off) off.style.display = 'none';
-    if (!camVideo) {
-      camVideo = document.createElement('video');
-      camVideo.className = 'sr-cam-video';
-      camVideo.autoplay = true;
-      camVideo.playsInline = true;
-      camVideo.muted = true;
-      camVideo.style.cssText = 'width:100%;height:100%;object-fit:cover;position:absolute;top:0;left:0;border-radius:12px;z-index:1;';
-      localTile.appendChild(camVideo);
-    }
-    camVideo.srcObject = stream;
-    camVideo.play().catch(() => {});
-  }
-
-  function renderRemoteMedia(userId, stream) {
-    const tile = document.getElementById(`srTile_${userId}`);
-    if (!tile) return;
-
-    const hasVideo = stream.getVideoTracks().length > 0;
-    const off = tile.querySelector('.sr-video-off');
-
-    let audio = tile.querySelector('.sr-remote-audio');
-    if (!audio) {
-      audio = document.createElement('audio');
-      audio.className = 'sr-remote-audio';
-      audio.autoplay = true;
-      audio.style.display = 'none';
-      tile.appendChild(audio);
-    }
-    audio.srcObject = stream;
-    audio.play().catch(() => {});
-
-    let camVideo = tile.querySelector('.sr-cam-video');
-    if (hasVideo) {
-      if (off) off.style.display = 'none';
-      if (!camVideo) {
-        camVideo = document.createElement('video');
-        camVideo.className = 'sr-cam-video';
-        camVideo.autoplay = true;
-        camVideo.playsInline = true;
-        camVideo.style.cssText = 'width:100%;height:100%;object-fit:cover;position:absolute;top:0;left:0;border-radius:12px;z-index:1;';
-        tile.appendChild(camVideo);
-      }
-      camVideo.srcObject = stream;
-      camVideo.play().catch(() => {});
-
-      if (screenShareOwnerId === userId) {
-        const spotVideo = document.getElementById('srSpotlightVideo');
-        if (spotVideo) {
-          spotVideo.srcObject = stream;
-          spotVideo.play().catch(() => {});
-        }
-      }
-    } else {
-      if (camVideo) { camVideo.pause(); camVideo.srcObject = null; camVideo.remove(); }
-      if (off) off.style.display = 'flex';
-    }
-  }
-
-  function clearRemoteMedia(userId) {
-    const pc = peerConnections.get(userId);
-    if (pc) {
-      try { pc.close(); } catch (e) {}
-      peerConnections.delete(userId);
-    }
-    remoteStreams.delete(userId);
-
-    const tile = document.getElementById(`srTile_${userId}`);
-    if (tile) {
-      tile.querySelectorAll('video, audio').forEach(el => {
-        el.pause();
-        el.srcObject = null;
-        el.remove();
-      });
-      const off = tile.querySelector('.sr-video-off');
-      if (off) off.style.display = 'flex';
-    }
-  }
-
-  function setupPushToTalk() {
-    window.addEventListener('keydown', (e) => {
-      if (e.code === 'Space' && !pttActive && !wbActive) {
-        const tag = document.activeElement?.tagName.toLowerCase();
-        if (tag === 'input' || tag === 'textarea') return;
-        if (localMediaStream && localMediaStream.getAudioTracks().length > 0 && !micActive) {
-          pttActive = true;
-          localMediaStream.getAudioTracks()[0].enabled = true;
-          const mbtn = document.getElementById('srToggleMic');
-          if (mbtn) mbtn.classList.add('sr-ctrl-active');
-        }
-      }
-    });
-
-    window.addEventListener('keyup', (e) => {
-      if (e.code === 'Space' && pttActive) {
-        pttActive = false;
-        if (localMediaStream && localMediaStream.getAudioTracks().length > 0 && !micActive) {
-          localMediaStream.getAudioTracks()[0].enabled = false;
-          const mbtn = document.getElementById('srToggleMic');
-          if (mbtn) mbtn.classList.remove('sr-ctrl-active');
-        }
-      }
-    });
   }
 
   /* =========================================================================
@@ -2695,13 +2720,17 @@
     stopScreenShare();
     SoundFX.stopAmbience();
 
-    if (localMediaStream) {
-      localMediaStream.getTracks().forEach(t => t.stop());
-      localMediaStream = null;
+    if (localAudioStream) {
+      localAudioStream.getTracks().forEach(t => t.stop());
+      localAudioStream = null;
+    }
+    if (localVideoStream) {
+      localVideoStream.getTracks().forEach(t => t.stop());
+      localVideoStream = null;
     }
 
-    for (const [, pc] of peerConnections.entries()) {
-      try { pc.close(); } catch (e) {}
+    for (const [, peerObj] of peerConnections.entries()) {
+      try { peerObj.pc.close(); } catch (e) {}
     }
     peerConnections.clear();
     remoteStreams.clear();
@@ -2747,8 +2776,8 @@
   function cleanup() {
     if (socket) { try { socket.close(); } catch (_) {} socket = null; }
     if (peerInstance) { try { peerInstance.destroy(); } catch (_) {} peerInstance = null; }
-    for (const [, pc] of peerConnections.entries()) {
-      try { pc.close(); } catch (e) {}
+    for (const [, peerObj] of peerConnections.entries()) {
+      try { peerObj.pc.close(); } catch (e) {}
     }
     peerConnections.clear();
     remoteStreams.clear();
@@ -2889,7 +2918,7 @@
   }
 
   /* =========================================================================
-   * 17. GLOBAL API EXPORTS & BRIDGES
+   * 18. GLOBAL API EXPORTS & BRIDGES
    * ========================================================================= */
   window.renderStudyRoom = renderStudyRoom;
   window.leaveStudyRoom = leaveRoom;
