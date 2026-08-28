@@ -21,7 +21,6 @@
     "sql.js": "^1.8.0"
   },
   "devDependencies": {
-    "dmg-license": "^1.0.11",
     "electron": "^29.1.0",
     "electron-builder": "^24.13.3"
   },
@@ -86,7 +85,8 @@
       "identity": null
     },
     "dmg": {
-      "sign": false
+      "sign": false,
+      "writeUpdateInfo": false
     },
     "nsis": {
       "oneClick": false,
