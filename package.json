@@ -52,7 +52,7 @@
     },
     "rpm": {
       "fpm": [
-        "--rpm-compression", "none",
+        "--rpm-compression", "xz",
         "--rpm-auto-add-directories",
         "--rpm-rpmbuild-define", "_build_id_links none",
         "--rpm-rpmbuild-define", "debug_package %{nil}",
