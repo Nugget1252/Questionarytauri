@@ -18,8 +18,10 @@ jobs:
             artifact-path: 'dist/*.exe'
 
           - platform: macos-latest
-            build-cmd: 'npx electron-builder --mac'
-            artifact-path: 'dist/*.dmg'
+            build-cmd: 'npx electron-builder --mac dmg zip'
+            artifact-path: |
+              dist/*.dmg
+              dist/*.zip
 
           - platform: ubuntu-22.04
             build-cmd: 'npx electron-builder --linux AppImage deb rpm'
@@ -104,9 +106,18 @@ jobs:
       - name: Install Dependencies
         run: npm install
 
-      - name: Setup Capacitor Android
+      - name: Stage Web Assets for Capacitor
         run: |
-          npx cap add android || true
+          rm -rf www
+          mkdir -p www
+          cp index.html pdfviewer.html questionary.db www/ 2>/dev/null || true
+          cp -r assets css js www/ 2>/dev/null || true
+
+      - name: Setup and Sync Android Project
+        run: |
+          if [ ! -d "android" ]; then
+            npx cap add android
+          fi
           npx cap sync android
 
       - name: Build Android Release APK
@@ -120,7 +131,7 @@ jobs:
           mkdir -p release-apks
           VERSION="${GITHUB_REF_NAME#v}"
           
-          # Generate one-time CI signing key
+          # Generate CI keystore
           keytool -genkey -v -keystore release.jks -keyalg RSA -keysize 2048 -validity 10000 \
             -alias android-release -storepass android -keypass android \
             -dname "CN=Questionary, OU=CI, O=Questionary, L=CI, S=CI, C=US"
