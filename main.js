@@ -195,6 +195,51 @@ ipcMain.handle('move-storage-folder', async (event, { oldDir, newDir }) => {
 });
 
 // ================================================================
+// NATIVE USER LIBRARY IMPORT & BINARY STORE IPC
+// ================================================================
+
+ipcMain.handle('select-files-to-import', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openFile', 'multiSelections'],
+    filters: [
+      { name: 'Documents & Images', extensions: ['pdf', 'png', 'jpg', 'jpeg', 'webp', 'gif', 'svg', 'txt', 'md', 'docx'] }
+    ]
+  });
+  if (!result.canceled && result.filePaths.length > 0) {
+    return result.filePaths.map(filePath => ({
+      name: path.basename(filePath),
+      path: filePath,
+      size: fs.statSync(filePath).size,
+      buffer: fs.readFileSync(filePath)
+    }));
+  }
+  return [];
+});
+
+ipcMain.handle('save-user-library-file', async (event, { blobId, storageDir, buffer }) => {
+  const libDir = path.join(storageDir, 'user_library_files');
+  if (!fs.existsSync(libDir)) fs.mkdirSync(libDir, { recursive: true });
+  fs.writeFileSync(path.join(libDir, `${blobId}.bin`), Buffer.from(buffer));
+  return true;
+});
+
+ipcMain.handle('get-user-library-file', async (event, { blobId, storageDir }) => {
+  const target = path.join(storageDir, 'user_library_files', `${blobId}.bin`);
+  if (fs.existsSync(target)) {
+    return fs.readFileSync(target);
+  }
+  return null;
+});
+
+ipcMain.handle('delete-user-library-file', async (event, { blobId, storageDir }) => {
+  const target = path.join(storageDir, 'user_library_files', `${blobId}.bin`);
+  if (fs.existsSync(target)) {
+    try { fs.unlinkSync(target); } catch(e) {}
+  }
+  return true;
+});
+
+// ================================================================
 // PURE NATIVE ZIP EXTRACTION (Zero external dependencies)
 // ================================================================
 

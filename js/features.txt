@@ -497,6 +497,46 @@ async function openAnyDocument(urlOrBlob, fileName) {
             await window.showPDF(pdfSrc, fileName);
         }
     }
+async function openAnyDocument(urlOrBlob, fileName) {
+    const category = getFileTypeCategory(fileName);
+    let target = urlOrBlob;
+
+    // Route database document paths through DownloadManager for local storage resolution
+    if (window.DownloadManager && typeof target === 'string' && !target.startsWith('blob:') && !target.startsWith('data:') && !target.startsWith('http') && !target.startsWith('local-pdf:')) {
+        target = window.DownloadManager.resolveDocumentUrl(target);
+    }
+
+    if (category === 'image') {
+        let src = target;
+        if (typeof target === 'string' && target.startsWith('blob-id:')) {
+            const blobId = target.replace('blob-id:', '');
+            const blob = await UserLibraryFileStore.getFileBlob(blobId);
+            src = URL.createObjectURL(blob);
+        } else if (target instanceof Blob) {
+            src = URL.createObjectURL(target);
+        }
+        if (typeof window.showImage === 'function') window.showImage(src, fileName);
+    } else if (category === 'text') {
+        await showTextFile(target, fileName);
+    } else if (category === 'docx') {
+        await showDocxFile(target, fileName);
+    } else {
+        // PDF handler
+        let pdfSrc = target;
+        if (typeof target === 'string' && target.startsWith('blob-id:')) {
+            const blobId = target.replace('blob-id:', '');
+            const blob = await UserLibraryFileStore.getFileBlob(blobId);
+            if (blob) {
+                pdfSrc = URL.createObjectURL(blob);
+            }
+        } else if (target instanceof Blob) {
+            pdfSrc = URL.createObjectURL(target);
+        }
+
+        if (typeof window.showPDF === 'function') {
+            await window.showPDF(pdfSrc, fileName);
+        }
+    }
 }
 
 function closePdfViewer() {
@@ -2261,7 +2301,23 @@ function initAlarmUI() {
 
 var UserLibraryFileStore = window.UserLibraryFileStore || {
     async saveBytes(blobId, uInt8Array) {
-        await new Promise((resolve, reject) => {
+        const storagePath = localStorage.getItem('questionary-storage-path') || '';
+
+        // 1. Electron Native FS
+        if (window.electronAPI && storagePath) {
+            try {
+                await window.electronAPI.saveUserLibraryFile({
+                    blobId,
+                    storageDir: storagePath,
+                    buffer: uInt8Array
+                });
+            } catch(e) {
+                console.warn('[UserLibrary] Electron save failed, falling back to IndexedDB:', e);
+            }
+        }
+
+        // 2. IndexedDB backup
+        return new Promise((resolve, reject) => {
             const request = indexedDB.open('QuestionaryUserLibraryFiles', 1);
             request.onupgradeneeded = e => e.target.result.createObjectStore('files_store');
             request.onsuccess = e => {
@@ -2273,26 +2329,6 @@ var UserLibraryFileStore = window.UserLibraryFileStore || {
             };
             request.onerror = () => reject(request.error);
         });
-
-        if (window.__TAURI__ && window.__TAURI__.fs) {
-            try {
-                const fs = window.__TAURI__.fs;
-                const writeBinaryFile = fs.writeBinaryFile || fs.writeFile;
-                const mkdir = fs.mkdir || fs.createDir;
-                const exists = fs.exists;
-                const BaseDirectory = fs.BaseDirectory || 1;
-
-                if (exists && mkdir && writeBinaryFile) {
-                    const dirExists = await exists('user_library_files', { baseDir: BaseDirectory.AppData });
-                    if (!dirExists) {
-                        await mkdir('user_library_files', { baseDir: BaseDirectory.AppData, recursive: true });
-                    }
-                    await writeBinaryFile(`user_library_files/${blobId}.bin`, uInt8Array, { baseDir: BaseDirectory.AppData });
-                }
-            } catch (e) {
-                console.warn('[UserLibraryFileStore] Tauri file save warning:', e);
-            }
-        }
     },
 
     async saveFile(blobId, fileOrBlob) {
@@ -2301,16 +2337,17 @@ var UserLibraryFileStore = window.UserLibraryFileStore || {
     },
 
     async getFileBlob(blobId) {
-        if (window.__TAURI__ && window.__TAURI__.fs) {
+        const storagePath = localStorage.getItem('questionary-storage-path') || '';
+
+        // 1. Electron Native FS
+        if (window.electronAPI && storagePath) {
             try {
-                const fs = window.__TAURI__.fs;
-                const readBinaryFile = fs.readBinaryFile || fs.readFile;
-                const BaseDirectory = fs.BaseDirectory || 1;
-                const data = await readBinaryFile(`user_library_files/${blobId}.bin`, { baseDir: BaseDirectory.AppData });
-                if (data) return new Blob([data]);
-            } catch (e) {}
+                const buffer = await window.electronAPI.getUserLibraryFile({ blobId, storageDir: storagePath });
+                if (buffer) return new Blob([buffer]);
+            } catch(e) {}
         }
 
+        // 2. IndexedDB fallback
         return new Promise(resolve => {
             const request = indexedDB.open('QuestionaryUserLibraryFiles', 1);
             request.onupgradeneeded = e => e.target.result.createObjectStore('files_store');
@@ -2329,7 +2366,14 @@ var UserLibraryFileStore = window.UserLibraryFileStore || {
     },
 
     async removeFile(blobId) {
-        await new Promise(resolve => {
+        const storagePath = localStorage.getItem('questionary-storage-path') || '';
+        if (window.electronAPI && storagePath) {
+            try {
+                await window.electronAPI.deleteUserLibraryFile({ blobId, storageDir: storagePath });
+            } catch(e) {}
+        }
+
+        return new Promise(resolve => {
             const request = indexedDB.open('QuestionaryUserLibraryFiles', 1);
             request.onsuccess = e => {
                 const idb = e.target.result;
@@ -2339,19 +2383,9 @@ var UserLibraryFileStore = window.UserLibraryFileStore || {
             };
             request.onerror = () => resolve();
         });
-
-        if (window.__TAURI__ && window.__TAURI__.fs) {
-            try {
-                const fs = window.__TAURI__.fs;
-                const removeFile = fs.removeFile || fs.remove;
-                const BaseDirectory = fs.BaseDirectory || 1;
-                await removeFile(`user_library_files/${blobId}.bin`, { baseDir: BaseDirectory.AppData });
-            } catch (e) {}
-        }
     }
 };
 window.UserLibraryFileStore = UserLibraryFileStore;
-
 var UserLibraryDbService = window.UserLibraryDbService || {
     db: null,
     SQL: null,
@@ -2912,8 +2946,23 @@ async function confirmMoveItem() {
         showNotification('Item moved successfully', 'success');
     }
 }
+async function openPdfFilePicker() {
+    // 1. If in Electron, use native native dialog with direct buffer read
+    if (window.electronAPI && typeof window.electronAPI.selectFilesToImport === 'function') {
+        const selected = await window.electronAPI.selectFilesToImport();
+        if (selected && selected.length > 0) {
+            for (const fileItem of selected) {
+                const blob = new Blob([fileItem.buffer]);
+                const fileObj = new File([blob], fileItem.name);
+                await UserLibraryDbService.importFile(fileObj, UserLibraryDbService.currentFolderId);
+            }
+            await renderLibrary();
+            showNotification(`Imported ${selected.length} document(s) successfully!`, 'success');
+            return;
+        }
+    }
 
-function openPdfFilePicker() {
+    // 2. Browser fallback
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = '.pdf,.png,.jpg,.jpeg,.webp,.gif,.svg,.txt,.md,.markdown,.json,.csv,.docx';
@@ -2925,7 +2974,6 @@ function openPdfFilePicker() {
     };
     input.click();
 }
-
 async function importPdfToLibrary(file) {
     if (!file) return;
     await processAndImportFiles([file]);
@@ -3298,6 +3346,7 @@ function renderSettings() {
     renderTagsList();
     renderVoiceNotes();
     renderDashboardWidgets();
+    if (window.DownloadManager) window.DownloadManager.renderSettingsStorageTab();
     if (typeof window.renderKeybindsSettings === 'function') window.renderKeybindsSettings();
     if (typeof window.initStudyRoomMediaSettings === 'function') window.initStudyRoomMediaSettings();
 }

@@ -4,7 +4,7 @@
 // Complete Local-First Desktop & Web Engine
 // ============================================
 
-// Global Drop Target Tracker for Tauri Native Drop Events
+// Global Drop Target Tracker for Native Drop Events
 window.activeDropTargetFolderId = null;
 
 // Utility & Helper Functions
@@ -164,19 +164,19 @@ function addPdfBookmark(pdfUrl, pageNumber, title = '') {
     if (!pdfBookmarks[pdfUrl]) {
         pdfBookmarks[pdfUrl] = [];
     }
-    
+
     const bookmark = {
         id: Date.now().toString(),
         page: pageNumber,
         title: title || `Page ${pageNumber}`,
         createdAt: new Date().toISOString()
     };
-    
+
     pdfBookmarks[pdfUrl].push(bookmark);
     savePdfBookmarks();
     showNotification(`Bookmark added: ${bookmark.title}`, 'success');
     renderPdfBookmarks(pdfUrl);
-    
+
     const panel = document.getElementById('pdfBookmarksPanel');
     if (panel) panel.style.display = 'block';
     return bookmark;
@@ -198,14 +198,14 @@ function getPdfBookmarks(pdfUrl) {
 function renderPdfBookmarks(pdfUrl) {
     const container = document.getElementById('pdfBookmarksList');
     if (!container) return;
-    
+
     const bookmarks = getPdfBookmarks(pdfUrl);
-    
+
     if (bookmarks.length === 0) {
         container.innerHTML = '<p class="empty-state">No bookmarks yet. Click "Add Bookmark" while viewing a PDF.</p>';
         return;
     }
-    
+
     container.innerHTML = bookmarks.map(b => `
         <div class="bookmark-item" data-page="${b.page}">
             <i class="fas fa-bookmark"></i>
@@ -216,7 +216,7 @@ function renderPdfBookmarks(pdfUrl) {
             </button>
         </div>
     `).join('');
-    
+
     container.querySelectorAll('.bookmark-item').forEach(item => {
         item.addEventListener('click', (e) => {
             if (!e.target.closest('.bookmark-delete')) {
@@ -226,12 +226,14 @@ function renderPdfBookmarks(pdfUrl) {
         });
     });
 }
+
 function goToPdfPage(pageNumber) {
     const iframe = document.getElementById('pdfViewer');
     if (!iframe || !iframe.contentWindow) return;
     iframe.contentWindow.postMessage({ type: 'goToPage', page: pageNumber }, '*');
     showNotification(`Navigating to page ${pageNumber}`, 'info');
 }
+
 function openBookmarkModal() {
     const modal = document.getElementById('bookmarkModal');
     if (modal) {
@@ -242,19 +244,21 @@ function openBookmarkModal() {
         if (pageInput) pageInput.value = '1';
     }
 }
+
 function closeBookmarkModal() {
     const modal = document.getElementById('bookmarkModal');
     if (modal) modal.classList.remove('active');
 }
+
 function saveBookmarkFromModal() {
     const title = document.getElementById('bookmarkTitleInput')?.value.trim();
     const page = parseInt(document.getElementById('bookmarkPageInput')?.value, 10) || 1;
-    
+
     if (!title) {
         showNotification('Please enter a bookmark title', 'warning');
         return;
     }
-    
+
     const pdfUrl = currentPdfUrl || window.currentPdfUrlForBookmarks;
     if (pdfUrl) {
         addPdfBookmark(pdfUrl, page, title);
@@ -275,12 +279,12 @@ function toggleBookmarksPanel() {
 function openPdfViewer(pdfUrl, pdfName) {
     currentPdfUrl = pdfUrl;
     window.currentPdfUrlForBookmarks = pdfUrl;
-    
+
     const container = document.getElementById('pdfViewerContainer');
     const tilesContainer = document.getElementById('tilesContainer');
     const pdfViewer = document.getElementById('pdfViewer');
     const pdfNameEl = document.getElementById('currentPdfName');
-    
+
     if (container && pdfViewer) {
         if (tilesContainer) tilesContainer.style.display = 'none';
         container.style.display = 'block';
@@ -296,16 +300,16 @@ function openPdfViewer(pdfUrl, pdfName) {
 }
 
 function closePdfViewer() {
-    const container = document.getElementById('pdfViewerContainer');
-    const tilesContainer = document.getElementById('tilesContainer');
-    const pdfViewer = document.getElementById('pdfViewer');
-    
-    if (container && pdfViewer) {
-        container.style.display = 'none';
+    if (typeof window.closePDF === 'function') {
+        window.closePDF();
+    } else {
+        document.body.classList.remove('pdf-view-active');
+        const container = document.getElementById('pdfViewerContainer');
+        const tilesContainer = document.getElementById('tilesContainer');
+        const pdfViewer = document.getElementById('pdfViewer');
+        if (container) container.style.display = 'none';
         if (tilesContainer) tilesContainer.style.display = 'grid';
-        pdfViewer.src = '';
-        currentPdfUrl = null;
-        window.currentPdfUrlForBookmarks = null;
+        if (pdfViewer) pdfViewer.src = '';
     }
 }
 
@@ -462,46 +466,11 @@ function downloadDocxContent() {
     URL.revokeObjectURL(url);
 }
 
-/* Top/Middle of js/features.js */
-async function openAnyDocument(urlOrBlob, fileName) {
-    const category = getFileTypeCategory(fileName);
-    if (category === 'image') {
-        let src = urlOrBlob;
-        if (typeof urlOrBlob === 'string' && urlOrBlob.startsWith('blob-id:')) {
-            const blobId = urlOrBlob.replace('blob-id:', '');
-            const blob = await UserLibraryFileStore.getFileBlob(blobId);
-            src = URL.createObjectURL(blob);
-        } else if (urlOrBlob instanceof Blob) {
-            src = URL.createObjectURL(urlOrBlob);
-        }
-        if (typeof window.showImage === 'function') window.showImage(src, fileName);
-    } else if (category === 'text') {
-        await showTextFile(urlOrBlob, fileName);
-    } else if (category === 'docx') {
-        await showDocxFile(urlOrBlob, fileName);
-    } else {
-        // PDF handler
-        let pdfSrc = urlOrBlob;
-        if (typeof urlOrBlob === 'string' && urlOrBlob.startsWith('blob-id:')) {
-            const blobId = urlOrBlob.replace('blob-id:', '');
-            const blob = await UserLibraryFileStore.getFileBlob(blobId);
-            if (blob) {
-                pdfSrc = URL.createObjectURL(blob);
-            }
-        } else if (urlOrBlob instanceof Blob) {
-            pdfSrc = URL.createObjectURL(urlOrBlob);
-        }
-        
-        // Pass the actual fileName to showPDF so it displays properly!
-        if (typeof window.showPDF === 'function') {
-            await window.showPDF(pdfSrc, fileName);
-        }
-    }
+// Master Document Opener
 async function openAnyDocument(urlOrBlob, fileName) {
     const category = getFileTypeCategory(fileName);
     let target = urlOrBlob;
 
-    // Route database document paths through DownloadManager for local storage resolution
     if (window.DownloadManager && typeof target === 'string' && !target.startsWith('blob:') && !target.startsWith('data:') && !target.startsWith('http') && !target.startsWith('local-pdf:')) {
         target = window.DownloadManager.resolveDocumentUrl(target);
     }
@@ -511,7 +480,7 @@ async function openAnyDocument(urlOrBlob, fileName) {
         if (typeof target === 'string' && target.startsWith('blob-id:')) {
             const blobId = target.replace('blob-id:', '');
             const blob = await UserLibraryFileStore.getFileBlob(blobId);
-            src = URL.createObjectURL(blob);
+            if (blob) src = URL.createObjectURL(blob);
         } else if (target instanceof Blob) {
             src = URL.createObjectURL(target);
         }
@@ -521,7 +490,6 @@ async function openAnyDocument(urlOrBlob, fileName) {
     } else if (category === 'docx') {
         await showDocxFile(target, fileName);
     } else {
-        // PDF handler
         let pdfSrc = target;
         if (typeof target === 'string' && target.startsWith('blob-id:')) {
             const blobId = target.replace('blob-id:', '');
@@ -539,20 +507,6 @@ async function openAnyDocument(urlOrBlob, fileName) {
     }
 }
 
-function closePdfViewer() {
-    // Sync with closePDF
-    if (typeof window.closePDF === 'function') {
-        window.closePDF();
-    } else {
-        document.body.classList.remove('pdf-view-active');
-        const container = document.getElementById('pdfViewerContainer');
-        const tilesContainer = document.getElementById('tilesContainer');
-        const pdfViewer = document.getElementById('pdfViewer');
-        if (container) container.style.display = 'none';
-        if (tilesContainer) tilesContainer.style.display = 'grid';
-        if (pdfViewer) pdfViewer.src = '';
-    }
-}
 // ============================================
 // 3. PDF ANNOTATIONS & HIGHLIGHTING
 // ============================================
@@ -567,7 +521,7 @@ function addPdfAnnotation(pdfUrl, annotation) {
     if (!pdfAnnotations[pdfUrl]) {
         pdfAnnotations[pdfUrl] = [];
     }
-    
+
     const newAnnotation = {
         id: Date.now().toString(),
         type: annotation.type || 'highlight',
@@ -578,7 +532,7 @@ function addPdfAnnotation(pdfUrl, annotation) {
         position: annotation.position,
         createdAt: new Date().toISOString()
     };
-    
+
     pdfAnnotations[pdfUrl].push(newAnnotation);
     savePdfAnnotations();
     return newAnnotation;
@@ -618,7 +572,7 @@ function startQuiz(deckId, mode = 'multiple-choice', timeLimit = null) {
         showNotification('Need at least 2 cards to start a quiz', 'warning');
         return;
     }
-    
+
     quizState = {
         active: true,
         deckId: deckId,
@@ -630,7 +584,7 @@ function startQuiz(deckId, mode = 'multiple-choice', timeLimit = null) {
         startTime: Date.now(),
         timeLimit: timeLimit
     };
-    
+
     showQuizModal();
     renderQuizQuestion();
 }
@@ -647,18 +601,18 @@ function shuffleArray(array) {
 function renderQuizQuestion() {
     const container = document.getElementById('quizContent');
     if (!container || !quizState.active) return;
-    
+
     const question = quizState.questions[quizState.currentIndex];
     const progress = ((quizState.currentIndex + 1) / quizState.questions.length) * 100;
-    
+
     let answersHtml = '';
-    
+
     if (quizState.mode === 'multiple-choice') {
         const questionKey = question.front + '|||' + question.back;
         const otherCards = quizState.questions.filter(q => (q.front + '|||' + q.back) !== questionKey);
         const wrongAnswers = otherCards.slice(0, 3).map(q => q.back);
         const allAnswers = shuffleArray([question.back, ...wrongAnswers]);
-        
+
         answersHtml = `
             <div class="quiz-options">
                 ${allAnswers.map((answer, i) => `
@@ -690,7 +644,7 @@ function renderQuizQuestion() {
             </div>
         `;
     }
-    
+
     container.innerHTML = `
         <div class="quiz-progress">
             <div class="quiz-progress-bar" style="width: ${progress}%"></div>
@@ -704,7 +658,7 @@ function renderQuizQuestion() {
         </div>
         ${answersHtml}
     `;
-    
+
     container.querySelectorAll('.quiz-option').forEach(btn => {
         btn.addEventListener('click', () => {
             const selectedAnswer = btn.dataset.answer;
@@ -723,21 +677,21 @@ function renderQuizQuestion() {
 function checkQuizAnswer(selectedAnswer) {
     const question = quizState.questions[quizState.currentIndex];
     const isCorrect = selectedAnswer.toLowerCase().trim() === question.back.toLowerCase().trim();
-    
+
     quizState.answers.push({
         question: question.front,
         correctAnswer: question.back,
         userAnswer: selectedAnswer,
         isCorrect: isCorrect
     });
-    
+
     if (isCorrect) {
         quizState.score++;
         showNotification('Correct! 🎉', 'success');
     } else {
         showNotification(`Wrong! The answer was: ${question.back}`, 'error');
     }
-    
+
     const options = document.querySelectorAll('.quiz-option');
     options.forEach(opt => {
         opt.disabled = true;
@@ -747,7 +701,7 @@ function checkQuizAnswer(selectedAnswer) {
             opt.classList.add('wrong');
         }
     });
-    
+
     setTimeout(() => {
         quizState.currentIndex++;
         if (quizState.currentIndex < quizState.questions.length) {
@@ -770,7 +724,7 @@ function showQuizResults() {
     if (!container) return;
     const timeTaken = Math.round((Date.now() - quizState.startTime) / 1000);
     const percentage = Math.round((quizState.score / quizState.questions.length) * 100);
-    
+
     let grade = 'F';
     let gradeClass = 'grade-f';
     if (percentage >= 90) { grade = 'A+'; gradeClass = 'grade-a'; }
@@ -778,7 +732,7 @@ function showQuizResults() {
     else if (percentage >= 70) { grade = 'B'; gradeClass = 'grade-b'; }
     else if (percentage >= 60) { grade = 'C'; gradeClass = 'grade-c'; }
     else if (percentage >= 50) { grade = 'D'; gradeClass = 'grade-d'; }
-    
+
     container.innerHTML = `
         <div class="quiz-results">
             <div class="quiz-results-header">
@@ -824,7 +778,7 @@ function showQuizResults() {
             </div>
         </div>
     `;
-    
+
     saveQuizResult(quizState.deckId, percentage, timeTaken);
 }
 
@@ -894,7 +848,7 @@ function addStudyReminder(title, time, days) {
         enabled: true,
         createdAt: new Date().toISOString()
     };
-    
+
     studyReminders.push(newReminder);
     saveReminders();
     scheduleReminder(newReminder);
@@ -921,18 +875,18 @@ function toggleReminder(id, enabled) {
 
 function scheduleReminder(reminder) {
     if (!reminder.enabled || !reminder.time) return;
-    
+
     const [hours, minutes] = reminder.time.split(':').map(Number);
     const now = new Date();
     const scheduledTime = new Date();
     scheduledTime.setHours(hours, minutes, 0, 0);
-    
+
     if (scheduledTime <= now) {
         scheduledTime.setDate(scheduledTime.getDate() + 1);
     }
-    
+
     const delay = scheduledTime - now;
-    
+
     setTimeout(() => {
         if (reminder.days.includes(new Date().getDay())) {
             showStudyNotification(reminder);
@@ -945,14 +899,14 @@ function showStudyNotification(reminder) {
     if (typeof window.playAlarmSound === 'function') {
         window.playAlarmSound();
     }
-    
+
     if ('Notification' in window && Notification.permission === 'granted') {
         new Notification('Questionary - Study Reminder', {
             body: reminder.title + (reminder.message ? '\n' + reminder.message : ''),
             icon: 'assets/logo.png'
         });
     }
-    
+
     showNotification(`⏰ ${reminder.title}`, 'info');
 }
 
@@ -969,14 +923,14 @@ function requestNotificationPermission() {
 function renderReminders() {
     const container = document.getElementById('remindersList');
     if (!container) return;
-    
+
     if (studyReminders.length === 0) {
         container.innerHTML = '<p class="empty-state"><i class="fas fa-bell-slash"></i> No reminders set. Add one to get started!</p>';
         return;
     }
-    
+
     const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-    
+
     container.innerHTML = studyReminders.map(r => `
         <div class="reminder-item ${r.enabled ? '' : 'disabled'}">
             <label class="switch">
@@ -1009,9 +963,6 @@ function initReminders() {
 
 // ============================================
 // 6. THEMES — Light / Dark + Custom Theme Builder
-// ============================================
-// ============================================
-// 6. THEMES — Light / Dark + Custom Theme Builder (Unified Engine)
 // ============================================
 var defaultCustomTheme = window.defaultCustomTheme || {
     bg: '#f7f7f8', surface: '#ffffff', fg: '#18181b', accent: '#cf6215',
@@ -1053,26 +1004,20 @@ function updateModeSwitcher() {
 
 function setTheme(themeName) {
     if (themeName !== 'light' && themeName !== 'dark') themeName = 'dark';
-    
-    // 1. Save preferences
+
     localStorage.setItem('questionary-theme', themeName);
     localStorage.setItem('theme', themeName);
-    
-    // 2. Set root attribute for CSS styles
     document.documentElement.setAttribute('data-theme', themeName);
-    
-    // 3. Clear custom inline styles if custom theme is disabled so stylesheet styles apply
+
     if (!isCustomThemeActive()) {
         clearInlineThemeVars();
     }
-    
-    // 4. Update Header Toggle Icon (Moon for light mode, Sun for dark mode)
+
     const themeIcon = document.getElementById('themeIcon');
     if (themeIcon) {
         themeIcon.className = (themeName === 'dark') ? 'fas fa-sun' : 'fas fa-moon';
     }
-    
-    // 5. Update settings modal buttons
+
     updateModeSwitcher();
 }
 
@@ -1089,7 +1034,7 @@ function toggleCustomTheme(enabled) {
     localStorage.setItem('questionary-custom-theme-active', enabled ? 'true' : 'false');
     const panel = document.getElementById('customThemePanel');
     if (panel) panel.style.display = enabled ? 'block' : 'none';
-    
+
     if (enabled) {
         applyCustomTheme();
     } else {
@@ -1109,7 +1054,7 @@ function getCustomThemeValues() {
 function applyCustomTheme() {
     const t = getCustomThemeValues();
     const root = document.documentElement;
-    
+
     root.style.setProperty('--bg', t.bg);
     root.style.setProperty('--background', t.bg);
     root.style.setProperty('--surface', t.surface);
@@ -1134,11 +1079,11 @@ function applyCustomTheme() {
     root.style.setProperty('--folder-5', t.folder5);
     root.style.setProperty('--folder-6', t.folder6);
     root.style.setProperty('--folder-7', t.folder7);
-    
+
     const header = document.querySelector('.header');
     if (header) header.style.background = t.navbar;
     root.style.setProperty('--btn-icon-color', t.btnIcon);
-    
+
     if (t.font) {
         root.style.setProperty('font-family', t.font);
         document.body.style.fontFamily = t.font;
@@ -1165,7 +1110,7 @@ function updateCustomTheme() {
     }
     const fontEl = document.getElementById('customFont');
     if (fontEl) t.font = fontEl.value;
-    
+
     if (isCustomThemeActive()) {
         localStorage.setItem('questionary-custom-theme', JSON.stringify(t));
         applyCustomTheme();
@@ -1189,7 +1134,7 @@ function saveCustomTheme() {
     }
     const fontEl = document.getElementById('customFont');
     if (fontEl) t.font = fontEl.value;
-    
+
     localStorage.setItem('questionary-custom-theme', JSON.stringify(t));
     localStorage.setItem('questionary-custom-theme-active', 'true');
     showNotification('Custom theme saved!', 'success');
@@ -1230,7 +1175,7 @@ function populateCustomThemePickers(t) {
 function initThemeOnLoad() {
     const stored = getCurrentTheme();
     setTheme(stored);
-    
+
     const toggle = document.getElementById('customThemeToggle');
     const panel = document.getElementById('customThemePanel');
     if (isCustomThemeActive()) {
@@ -1249,7 +1194,6 @@ function initThemeOnLoad() {
 function renderThemeSelector() {
     updateModeSwitcher();
 }
-
 
 // ============================================
 // 7. TAGGING SYSTEM
@@ -1286,7 +1230,7 @@ function createTag(name, color = '#cf6215') {
         name: cleanName,
         color: color
     };
-    
+
     if (!tags.find(t => t.name === tag.name)) {
         tags.push(tag);
         saveTags();
@@ -1352,12 +1296,12 @@ function countItemsWithTag(tagId) {
 function renderTagsList() {
     const container = document.getElementById('tagsList');
     if (!container) return;
-    
+
     if (tags.length === 0) {
         container.innerHTML = '<p class="empty-state">No tags created yet.</p>';
         return;
     }
-    
+
     container.innerHTML = tags.map(tag => `
         <div class="tag-item" style="--tag-color: ${tag.color}">
             <div class="tag-color" style="background: ${tag.color}"></div>
@@ -1394,7 +1338,7 @@ async function startRecording() {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         mediaRecorder = new MediaRecorder(stream);
         audioChunks = [];
-        
+
         mediaRecorder.ondataavailable = (e) => audioChunks.push(e.data);
         mediaRecorder.onstop = async () => {
             const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
@@ -1405,7 +1349,7 @@ async function startRecording() {
             reader.readAsDataURL(audioBlob);
             stream.getTracks().forEach(track => track.stop());
         };
-        
+
         mediaRecorder.start();
         recordingStartTime = Date.now();
         startRecordingTimer();
@@ -1432,7 +1376,7 @@ async function startRecordingNotes() {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         mediaRecorder = new MediaRecorder(stream);
         audioChunks = [];
-        
+
         mediaRecorder.ondataavailable = (e) => audioChunks.push(e.data);
         mediaRecorder.onstop = async () => {
             const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
@@ -1444,7 +1388,7 @@ async function startRecordingNotes() {
             reader.readAsDataURL(audioBlob);
             stream.getTracks().forEach(track => track.stop());
         };
-        
+
         mediaRecorder.start();
         recordingStartTime = Date.now();
         startRecordingTimerNotes();
@@ -1459,7 +1403,7 @@ async function startRecordingNotes() {
 function startRecordingTimerNotes() {
     const timerEl = document.getElementById('recordingTimeNotes');
     if (!timerEl) return;
-    
+
     if (recordingTimerInterval) clearInterval(recordingTimerInterval);
     recordingTimerInterval = setInterval(() => {
         const elapsed = Math.floor((Date.now() - recordingStartTime) / 1000);
@@ -1480,7 +1424,7 @@ function updateRecordingUINotes(isRecording) {
 function startRecordingTimer() {
     const timerEl = document.getElementById('recordingTime');
     if (!timerEl) return;
-    
+
     if (recordingTimerInterval) clearInterval(recordingTimerInterval);
     recordingTimerInterval = setInterval(() => {
         const elapsed = Math.floor((Date.now() - recordingStartTime) / 1000);
@@ -1510,7 +1454,7 @@ function saveVoiceNote(audioData) {
         createdAt: new Date().toISOString(),
         linkedTo: null
     };
-    
+
     voiceNotes.push(voiceNote);
     saveVoiceNotes();
     renderVoiceNotes();
@@ -1532,7 +1476,7 @@ function playVoiceNote(id) {
             currentAudio.pause();
             currentAudio.currentTime = 0;
         }
-        
+
         currentAudio = new Audio(note.audio);
         currentAudio.onended = () => {
             currentAudio = null;
@@ -1540,7 +1484,7 @@ function playVoiceNote(id) {
                 i.className = 'fas fa-play';
             });
         };
-        
+
         currentAudio.play();
         showNotification(`Playing: ${note.title}`, 'info');
     }
@@ -1565,12 +1509,12 @@ function updateRecordingUI(isRecording) {
 function renderVoiceNotes() {
     const container = document.getElementById('voiceNotesList');
     if (!container) return;
-    
+
     if (voiceNotes.length === 0) {
         container.innerHTML = '<p class="empty-state">No voice notes yet. Click Record to create one.</p>';
         return;
     }
-    
+
     container.innerHTML = voiceNotes.map(v => `
         <div class="voice-note-item" data-id="${v.id}">
             <button class="voice-play" onclick="playVoiceNote('${v.id}')">
@@ -1626,15 +1570,15 @@ function exportAllData() {
         quizHistory: JSON.parse(localStorage.getItem('questionary-quiz-history') || '[]'),
         theme: localStorage.getItem('questionary-theme') || 'light'
     };
-    
+
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
-    
+
     const a = document.createElement('a');
     a.href = url;
     a.download = `questionary-backup-${new Date().toISOString().split('T')[0]}.json`;
     a.click();
-    
+
     URL.revokeObjectURL(url);
     showNotification('Data exported successfully!', 'success');
 }
@@ -1655,7 +1599,7 @@ function importData(data) {
             if (data.voiceNotes) localStorage.setItem('questionary-voice-notes', JSON.stringify(data.voiceNotes));
             if (data.quizHistory) localStorage.setItem('questionary-quiz-history', JSON.stringify(data.quizHistory));
             if (data.theme) localStorage.setItem('questionary-theme', data.theme);
-            
+
             showNotification('Data imported successfully! Refreshing...', 'success');
             setTimeout(() => location.reload(), 1500);
         } else {
@@ -1689,18 +1633,18 @@ function toggleWidgetVisibility(widgetId, isVisible) {
 
 function reorderWidget(widgetId, direction) {
     if (!dashboardLayout.widgets) return;
-    
+
     const index = dashboardLayout.widgets.indexOf(widgetId);
     if (index === -1) return;
-    
+
     if (direction === -1 && index > 0) {
-        [dashboardLayout.widgets[index], dashboardLayout.widgets[index - 1]] = 
+        [dashboardLayout.widgets[index], dashboardLayout.widgets[index - 1]] =
         [dashboardLayout.widgets[index - 1], dashboardLayout.widgets[index]];
     } else if (direction === 1 && index < dashboardLayout.widgets.length - 1) {
-        [dashboardLayout.widgets[index], dashboardLayout.widgets[index + 1]] = 
+        [dashboardLayout.widgets[index], dashboardLayout.widgets[index + 1]] =
         [dashboardLayout.widgets[index + 1], dashboardLayout.widgets[index]];
     }
-    
+
     saveDashboardLayout();
     renderDashboardWidgets();
     applyDashboardLayout();
@@ -1710,20 +1654,20 @@ function applyDashboardLayout() {
     if (!dashboardLayout.widgets) return;
     const dashboardHeader = document.querySelector('.dashboard-header');
     if (!dashboardHeader) return;
-    
+
     const widgetMap = {
         'documents': dashboardHeader.querySelector('.stat-card:nth-child(1)'),
         'favorites': dashboardHeader.querySelector('.stat-card:nth-child(2)'),
         'recent': dashboardHeader.querySelector('.stat-card:nth-child(3)'),
         'streak': dashboardHeader.querySelector('.stat-card:nth-child(4)')
     };
-    
+
     Object.entries(widgetMap).forEach(([id, el]) => {
         if (el) {
             el.style.display = dashboardLayout.visible[id] !== false ? 'flex' : 'none';
         }
     });
-    
+
     dashboardLayout.widgets.forEach((widgetId, idx) => {
         const el = widgetMap[widgetId];
         if (el) {
@@ -1735,7 +1679,7 @@ function applyDashboardLayout() {
 function renderDashboardWidgets() {
     const container = document.getElementById('dashboardWidgets');
     if (!container) return;
-    
+
     if (!dashboardLayout.widgets || dashboardLayout.widgets.length === 0) {
         dashboardLayout = {
             widgets: ['documents', 'favorites', 'recent', 'streak'],
@@ -1743,18 +1687,18 @@ function renderDashboardWidgets() {
         };
         saveDashboardLayout();
     }
-    
+
     const widgetInfo = [
         { id: 'documents', name: 'Documents', icon: 'fa-file-alt' },
         { id: 'favorites', name: 'Favorites', icon: 'fa-star' },
         { id: 'recent', name: 'Recent', icon: 'fa-history' },
         { id: 'streak', name: 'Day Streak', icon: 'fa-fire' }
     ];
-    
+
     container.innerHTML = dashboardLayout.widgets.map((widgetId, idx) => {
         const info = widgetInfo.find(w => w.id === widgetId) || { name: widgetId, icon: 'fa-cube' };
         const isVisible = dashboardLayout.visible[widgetId] !== false;
-        
+
         return `
             <div class="widget-setting-item">
                 <i class="fas ${info.icon}"></i>
@@ -1782,20 +1726,20 @@ function renderDashboardWidgets() {
 function renderEnhancedAnalytics() {
     const container = document.getElementById('enhancedAnalytics');
     if (!container) return;
-    
+
     const stats = JSON.parse(localStorage.getItem('questionary-study-stats') || '{}');
     const quizHistory = JSON.parse(localStorage.getItem('questionary-quiz-history') || '[]');
     const sessions = JSON.parse(localStorage.getItem('questionary-sessions') || '[]');
-    
+
     const totalStudyTime = stats.totalTime || 0;
     const currentStreak = stats.streak || 0;
-    const avgQuizScore = quizHistory.length > 0 
+    const avgQuizScore = quizHistory.length > 0
         ? Math.round(quizHistory.reduce((sum, q) => sum + q.score, 0) / quizHistory.length)
         : 0;
-    
+
     const weeklyActivity = calculateWeeklyActivity(sessions);
     const subjectStats = calculateSubjectStats();
-    
+
     container.innerHTML = `
         <div class="analytics-grid">
             <div class="analytics-card">
@@ -1819,7 +1763,7 @@ function renderEnhancedAnalytics() {
                 <div class="analytics-label">Quizzes Taken</div>
             </div>
         </div>
-        
+
         <div class="analytics-section">
             <h4><i class="fas fa-chart-bar"></i> Weekly Activity</h4>
             <div class="weekly-chart">
@@ -1831,7 +1775,7 @@ function renderEnhancedAnalytics() {
                 `).join('')}
             </div>
         </div>
-        
+
         <div class="analytics-section">
             <h4><i class="fas fa-book"></i> Most Studied</h4>
             <div class="subject-stats">
@@ -1853,12 +1797,12 @@ function calculateWeeklyActivity(sessions) {
     const activity = [0, 0, 0, 0, 0, 0, 0];
     const now = new Date();
     const weekAgo = new Date(now - 7 * 24 * 60 * 60 * 1000);
-    
+
     sessions.filter(s => new Date(s.date) >= weekAgo).forEach(s => {
         const day = new Date(s.date).getDay();
         activity[day] += s.duration || 30;
     });
-    
+
     const max = Math.max(...activity, 1);
     return activity.map(a => (a / max) * 100);
 }
@@ -1866,115 +1810,53 @@ function calculateWeeklyActivity(sessions) {
 function calculateSubjectStats() {
     const recent = JSON.parse(localStorage.getItem('questionary-recent') || '[]');
     const subjectCounts = {};
-    
+
     recent.forEach(r => {
         const subject = r.path?.[r.path.length - 2] || 'General';
         subjectCounts[subject] = (subjectCounts[subject] || 0) + 1;
     });
-    
+
     const sorted = Object.entries(subjectCounts)
         .map(([name, count]) => ({ name, count }))
         .sort((a, b) => b.count - a.count);
-    
+
     const max = sorted[0]?.count || 1;
     return sorted.map(s => ({ ...s, percentage: (s.count / max) * 100 }));
 }
 
-// ================================================================
-// 12. FILE IMPORT & TAURI DEV FILE DROP HANDLING
-// WebKitGTK Safe File Drop Engine (Prevents GLib-GIO assertion crashes)
-// ================================================================
-
+// ============================================
+// 12. ELECTRON NATIVE FILE IMPORT HANDLERS
+// ============================================
 async function importFileFromAnySource(fileOrPath, folderId = null) {
     if (!fileOrPath) return;
-    
-    const validFolderId = (folderId !== null && folderId !== undefined && folderId !== 'null' && folderId !== 'undefined') ? Number(folderId) : null;
+    const validFolderId = (folderId !== null && folderId !== undefined && folderId !== 'null') ? Number(folderId) : null;
     let fileObj = null;
 
-    // Case A: File / Blob object
-    if (fileOrPath instanceof File || fileOrPath instanceof Blob || (typeof fileOrPath === 'object' && (fileOrPath.name || fileOrPath.size !== undefined))) {
+    if (fileOrPath instanceof File || fileOrPath instanceof Blob) {
         fileObj = fileOrPath;
-    } 
-    // Case B: Native file path string from Tauri
-    else if (typeof fileOrPath === 'string') {
+    } else if (typeof fileOrPath === 'string') {
         const fileName = fileOrPath.split(/[/\\]/).pop() || 'imported_file.pdf';
-        const ext = fileName.toLowerCase();
-        const mimeType = ext.endsWith('.pdf') ? 'application/pdf' :
-                         ext.endsWith('.png') ? 'image/png' :
-                         ext.endsWith('.jpg') || ext.endsWith('.jpeg') ? 'image/jpeg' :
-                         ext.endsWith('.webp') ? 'image/webp' :
-                         ext.endsWith('.gif') ? 'image/gif' :
-                         ext.endsWith('.docx') ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' :
-                         ext.endsWith('.txt') || ext.endsWith('.md') ? 'text/plain' : 'application/octet-stream';
-
-        const isTauri = !!(window.__TAURI__ || window.__TAURI_INTERNALS__);
-
-        if (isTauri) {
-            try {
-                const fs = window.__TAURI__?.fs;
-                let binaryData = null;
-                if (fs && typeof fs.readBinaryFile === 'function') {
-                    binaryData = await fs.readBinaryFile(fileOrPath);
-                } else if (fs && typeof fs.readFile === 'function') {
-                    binaryData = await fs.readFile(fileOrPath);
-                }
-                
-                if (binaryData) {
-                    fileObj = new File([binaryData], fileName, { type: mimeType });
-                }
-            } catch (fsErr) {
-                console.warn('[Tauri FS Read Failed, trying convertFileSrc]:', fsErr);
-            }
-
-            if (!fileObj) {
-                try {
-                    let convertFileSrc = null;
-                    if (window.__TAURI__?.tauri && typeof window.__TAURI__.tauri.convertFileSrc === 'function') {
-                        convertFileSrc = window.__TAURI__.tauri.convertFileSrc;
-                    } else if (window.__TAURI__?.core && typeof window.__TAURI__.core.convertFileSrc === 'function') {
-                        convertFileSrc = window.__TAURI__.core.convertFileSrc;
-                    } else if (window.__TAURI_INTERNALS__ && typeof window.__TAURI_INTERNALS__.convertFileSrc === 'function') {
-                        convertFileSrc = window.__TAURI_INTERNALS__.convertFileSrc;
-                    }
-
-                    if (convertFileSrc) {
-                        const assetUrl = convertFileSrc(fileOrPath);
-                        const res = await fetch(assetUrl);
-                        const arrayBuffer = await res.arrayBuffer();
-                        fileObj = new File([arrayBuffer], fileName, { type: mimeType });
-                    }
-                } catch (fetchErr) {
-                    console.error('[Tauri Asset Fetch Failed]:', fetchErr);
-                }
-            }
-        }
-
-        if (!fileObj && (fileOrPath.startsWith('http') || fileOrPath.startsWith('blob:') || fileOrPath.startsWith('data:'))) {
-            try {
-                const res = await fetch(fileOrPath);
-                const arrayBuffer = await res.arrayBuffer();
-                fileObj = new File([arrayBuffer], fileName, { type: mimeType });
-            } catch (e) {}
-        }
+        try {
+            const res = await fetch(fileOrPath);
+            const arrayBuffer = await res.arrayBuffer();
+            fileObj = new File([arrayBuffer], fileName);
+        } catch (e) {}
     }
 
     if (fileObj) {
         await UserLibraryDbService.importFile(fileObj, validFolderId);
-    } else {
-        console.error('[Import Error]: Could not process file:', fileOrPath);
-        throw new Error('Failed to read file');
     }
 }
 
 async function processAndImportFiles(filesOrPaths, folderId = null) {
     if (!filesOrPaths || filesOrPaths.length === 0) return;
-    
+
     if (!UserLibraryDbService.db) {
         await UserLibraryDbService.init();
     }
 
     const targetFolder = (folderId !== null && folderId !== undefined) ? folderId : UserLibraryDbService.currentFolderId;
-    
+
     showNotification(`Importing ${filesOrPaths.length} file(s)...`, 'info');
     let importedCount = 0;
 
@@ -1992,88 +1874,6 @@ async function processAndImportFiles(filesOrPaths, folderId = null) {
     if (importedCount > 0) {
         await renderLibrary();
         showNotification(`Successfully imported ${importedCount} file(s) to Library!`, 'success');
-    } else {
-        showNotification('Failed to import files. Check console for details.', 'error');
-    }
-}
-
-function setupTauriNativeDropListener() {
-    try {
-        const listenFn = window.__TAURI__?.event?.listen || window.__TAURI_INTERNALS__?.listen;
-
-        const handleDropPayload = async (payload) => {
-            let paths = [];
-            if (Array.isArray(payload)) {
-                paths = payload;
-            } else if (payload && Array.isArray(payload.paths)) {
-                paths = payload.paths;
-            }
-
-            if (paths.length > 0) {
-                const targetFolder = (window.activeDropTargetFolderId !== undefined && window.activeDropTargetFolderId !== null)
-                    ? window.activeDropTargetFolderId
-                    : UserLibraryDbService.currentFolderId;
-
-                window.activeDropTargetFolderId = null;
-                clearDragHoverStyles();
-
-                await processAndImportFiles(paths, targetFolder);
-            }
-        };
-
-        if (typeof listenFn === 'function') {
-            listenFn('tauri://file-drop', (event) => {
-                handleDropPayload(event.payload);
-            });
-            listenFn('tauri://drag-drop', (event) => {
-                handleDropPayload(event.payload);
-            });
-            listenFn('tauri://file-drop-cancelled', () => {
-                clearDragHoverStyles();
-                window.activeDropTargetFolderId = null;
-            });
-        } else if (window.__TAURI__?.webviewWindow) {
-            const appWindow = window.__TAURI__.webviewWindow.getCurrentWebviewWindow();
-            if (appWindow && typeof appWindow.onDragDropEvent === 'function') {
-                appWindow.onDragDropEvent((event) => {
-                    if (event.payload && (event.payload.type === 'drop' || event.payload.paths)) {
-                        handleDropPayload(event.payload.paths || event.payload);
-                    }
-                });
-            }
-        }
-    } catch (err) {
-        console.warn('[Tauri Native Drop Listener Warning]:', err);
-    }
-}
-
-function initDragDropImport() {
-    const isTauri = !!(window.__TAURI__ || window.__TAURI_INTERNALS__);
-
-    window.addEventListener('dragover', (e) => {
-        if (!draggedLibraryItem) {
-            e.preventDefault();
-            if (e.dataTransfer) {
-                e.dataTransfer.dropEffect = 'copy';
-            }
-        }
-    }, false);
-
-    window.addEventListener('drop', async (e) => {
-        if (draggedLibraryItem) return;
-
-        e.preventDefault();
-        clearDragHoverStyles();
-
-        if (!isTauri) {
-            if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-                await processAndImportFiles(Array.from(e.dataTransfer.files));
-            }
-        }
-    }, false);
-
-    if (isTauri) {
-        setupTauriNativeDropListener();
     }
 }
 
@@ -2084,7 +1884,7 @@ async function handleFilesSelect(files) {
 }
 
 async function importPdfFile(file) {
-    await importPdfToLibrary(file);
+    await processAndImportFiles([file]);
 }
 
 // ============================================
@@ -2115,11 +1915,11 @@ function saveAlarmSettings() {
 function setAlarmSound(soundName) {
     alarmSettings.sound = soundName;
     saveAlarmSettings();
-    
+
     document.querySelectorAll('.alarm-option').forEach(opt => {
         opt.classList.toggle('active', opt.dataset.sound === soundName);
     });
-    
+
     const customUpload = document.getElementById('customSoundUpload');
     if (customUpload) {
         customUpload.style.display = soundName === 'custom' ? 'block' : 'none';
@@ -2139,36 +1939,35 @@ async function playPatternOnce(pattern, volume) {
             if (!alarmAudioContext) {
                 alarmAudioContext = new (window.AudioContext || window.webkitAudioContext)();
             }
-            
+
             const { frequencies, durations, type } = pattern;
             let currentTime = alarmAudioContext.currentTime;
-            
+
             frequencies.forEach((freq, i) => {
                 if (freq > 0) {
                     const osc = alarmAudioContext.createOscillator();
                     const gain = alarmAudioContext.createGain();
-                    
+
                     osc.type = type;
                     osc.frequency.value = freq;
-                    
+
                     gain.gain.setValueAtTime(0, currentTime);
                     gain.gain.linearRampToValueAtTime(volume, currentTime + 0.01);
                     gain.gain.setValueAtTime(volume, currentTime + (durations[i] / 1000) - 0.02);
                     gain.gain.linearRampToValueAtTime(0, currentTime + (durations[i] / 1000));
-                    
+
                     osc.connect(gain);
                     gain.connect(alarmAudioContext.destination);
-                    
+
                     osc.start(currentTime);
                     osc.stop(currentTime + (durations[i] / 1000));
                 }
                 currentTime += durations[i] / 1000;
             });
-            
+
             const totalDuration = durations.reduce((a, b) => a + b, 0);
             setTimeout(resolve, totalDuration);
         } catch (e) {
-            console.warn('Audio Context error:', e);
             resolve();
         }
     });
@@ -2176,7 +1975,7 @@ async function playPatternOnce(pattern, volume) {
 
 function previewAlarmSound(soundName) {
     stopAlarmSound();
-    
+
     if (soundName === 'custom' && alarmSettings.customSound) {
         currentAlarmAudio = new Audio(alarmSettings.customSound);
         currentAlarmAudio.volume = alarmSettings.volume / 100;
@@ -2188,10 +1987,10 @@ function previewAlarmSound(soundName) {
 
 async function playAlarmSound() {
     stopAlarmSound();
-    
+
     const soundName = alarmSettings.sound || 'classic';
     const volume = alarmSettings.volume / 100;
-    
+
     if (soundName === 'custom' && alarmSettings.customSound) {
         currentAlarmAudio = new Audio(alarmSettings.customSound);
         currentAlarmAudio.volume = volume;
@@ -2207,25 +2006,25 @@ async function playAlarmSound() {
         };
         playLoop();
     }
-    
+
     setTimeout(() => stopAlarmSound(), 30000);
     showAlarmNotification();
 }
 
 function stopAlarmSound() {
     alarmIntervalId = null;
-    
+
     if (currentAlarmAudio) {
         currentAlarmAudio.pause();
         currentAlarmAudio.currentTime = 0;
         currentAlarmAudio = null;
     }
-    
+
     if (alarmAudioContext) {
         alarmAudioContext.close().catch(() => {});
         alarmAudioContext = null;
     }
-    
+
     const alarmNotif = document.getElementById('alarmNotification');
     if (alarmNotif) alarmNotif.remove();
 }
@@ -2233,7 +2032,7 @@ function stopAlarmSound() {
 function showAlarmNotification() {
     const existing = document.getElementById('alarmNotification');
     if (existing) existing.remove();
-    
+
     const notif = document.createElement('div');
     notif.id = 'alarmNotification';
     notif.className = 'alarm-notification';
@@ -2254,16 +2053,16 @@ function handleCustomSoundUpload(file) {
         showNotification('Please select an audio file', 'error');
         return;
     }
-    
+
     const reader = new FileReader();
     reader.onload = (e) => {
         alarmSettings.customSound = e.target.result;
         alarmSettings.customSoundName = file.name;
         saveAlarmSettings();
-        
+
         const nameEl = document.getElementById('customSoundName');
         if (nameEl) nameEl.textContent = file.name;
-        
+
         showNotification('Custom sound uploaded!', 'success');
     };
     reader.readAsDataURL(file);
@@ -2273,17 +2072,17 @@ function initAlarmUI() {
     document.querySelectorAll('.alarm-option').forEach(opt => {
         opt.classList.toggle('active', opt.dataset.sound === alarmSettings.sound);
     });
-    
+
     const volumeSlider = document.getElementById('alarmVolume');
     const volumeDisplay = document.getElementById('alarmVolumeValue');
     if (volumeSlider) volumeSlider.value = alarmSettings.volume;
     if (volumeDisplay) volumeDisplay.textContent = alarmSettings.volume + '%';
-    
+
     const customUpload = document.getElementById('customSoundUpload');
     if (customUpload) {
         customUpload.style.display = alarmSettings.sound === 'custom' ? 'block' : 'none';
     }
-    
+
     if (alarmSettings.customSoundName) {
         const nameEl = document.getElementById('customSoundName');
         if (nameEl) nameEl.textContent = alarmSettings.customSoundName;
@@ -2291,17 +2090,27 @@ function initAlarmUI() {
 }
 
 // ================================================================
-// 14. PDF & MULTI-DOC LIBRARY MANAGEMENT SYSTEM ('userlibrary.db')
-// Stores custom library metadata in 'userlibrary.db'
-// Stores PDF/Doc binary files in IndexedDB / AppData 'user_library_files/'
+// 14. DOCUMENT LIBRARY MANAGEMENT (ELECTRON + INDEXEDDB ENGINE)
 // ================================================================
-// ================================================================
-// USER LIBRARY FILE STORE & DB SERVICE (HOT-RELOAD SAFE)
-// ================================================================
-
 var UserLibraryFileStore = window.UserLibraryFileStore || {
     async saveBytes(blobId, uInt8Array) {
-        await new Promise((resolve, reject) => {
+        const storagePath = localStorage.getItem('questionary-storage-path') || '';
+
+        // Electron Native FS
+        if (window.electronAPI && storagePath && typeof window.electronAPI.saveUserLibraryFile === 'function') {
+            try {
+                await window.electronAPI.saveUserLibraryFile({
+                    blobId,
+                    storageDir: storagePath,
+                    buffer: uInt8Array
+                });
+            } catch(e) {
+                console.warn('[UserLibrary] Electron save failed, falling back to IndexedDB:', e);
+            }
+        }
+
+        // IndexedDB Backup
+        return new Promise((resolve, reject) => {
             const request = indexedDB.open('QuestionaryUserLibraryFiles', 1);
             request.onupgradeneeded = e => e.target.result.createObjectStore('files_store');
             request.onsuccess = e => {
@@ -2313,26 +2122,6 @@ var UserLibraryFileStore = window.UserLibraryFileStore || {
             };
             request.onerror = () => reject(request.error);
         });
-
-        if (window.__TAURI__ && window.__TAURI__.fs) {
-            try {
-                const fs = window.__TAURI__.fs;
-                const writeBinaryFile = fs.writeBinaryFile || fs.writeFile;
-                const mkdir = fs.mkdir || fs.createDir;
-                const exists = fs.exists;
-                const BaseDirectory = fs.BaseDirectory || 1;
-                
-                if (exists && mkdir && writeBinaryFile) {
-                    const dirExists = await exists('user_library_files', { baseDir: BaseDirectory.AppData });
-                    if (!dirExists) {
-                        await mkdir('user_library_files', { baseDir: BaseDirectory.AppData, recursive: true });
-                    }
-                    await writeBinaryFile(`user_library_files/${blobId}.bin`, uInt8Array, { baseDir: BaseDirectory.AppData });
-                }
-            } catch (e) {
-                console.warn('[UserLibraryFileStore] Tauri file save warning:', e);
-            }
-        }
     },
 
     async saveFile(blobId, fileOrBlob) {
@@ -2341,14 +2130,13 @@ var UserLibraryFileStore = window.UserLibraryFileStore || {
     },
 
     async getFileBlob(blobId) {
-        if (window.__TAURI__ && window.__TAURI__.fs) {
+        const storagePath = localStorage.getItem('questionary-storage-path') || '';
+
+        if (window.electronAPI && storagePath && typeof window.electronAPI.getUserLibraryFile === 'function') {
             try {
-                const fs = window.__TAURI__.fs;
-                const readBinaryFile = fs.readBinaryFile || fs.readFile;
-                const BaseDirectory = fs.BaseDirectory || 1;
-                const data = await readBinaryFile(`user_library_files/${blobId}.bin`, { baseDir: BaseDirectory.AppData });
-                if (data) return new Blob([data]);
-            } catch (e) {}
+                const buffer = await window.electronAPI.getUserLibraryFile({ blobId, storageDir: storagePath });
+                if (buffer) return new Blob([buffer]);
+            } catch(e) {}
         }
 
         return new Promise(resolve => {
@@ -2369,8 +2157,16 @@ var UserLibraryFileStore = window.UserLibraryFileStore || {
     },
 
     async removeFile(blobId) {
-        await new Promise(resolve => {
+        const storagePath = localStorage.getItem('questionary-storage-path') || '';
+        if (window.electronAPI && storagePath && typeof window.electronAPI.deleteUserLibraryFile === 'function') {
+            try {
+                await window.electronAPI.deleteUserLibraryFile({ blobId, storageDir: storagePath });
+            } catch(e) {}
+        }
+
+        return new Promise(resolve => {
             const request = indexedDB.open('QuestionaryUserLibraryFiles', 1);
+            request.onupgradeneeded = e => e.target.result.createObjectStore('files_store');
             request.onsuccess = e => {
                 const idb = e.target.result;
                 const tx = idb.transaction('files_store', 'readwrite');
@@ -2379,15 +2175,6 @@ var UserLibraryFileStore = window.UserLibraryFileStore || {
             };
             request.onerror = () => resolve();
         });
-
-        if (window.__TAURI__ && window.__TAURI__.fs) {
-            try {
-                const fs = window.__TAURI__.fs;
-                const removeFile = fs.removeFile || fs.remove;
-                const BaseDirectory = fs.BaseDirectory || 1;
-                await removeFile(`user_library_files/${blobId}.bin`, { baseDir: BaseDirectory.AppData });
-            } catch (e) {}
-        }
     }
 };
 window.UserLibraryFileStore = UserLibraryFileStore;
@@ -2447,7 +2234,6 @@ var UserLibraryDbService = window.UserLibraryDbService || {
             `);
 
             await this.saveDbToIndexedDB();
-            console.log('[UserLibraryDB] Initialized userlibrary.db successfully');
             return true;
         } catch (err) {
             console.error('[UserLibraryDB] Critical init error:', err);
@@ -2515,7 +2301,7 @@ var UserLibraryDbService = window.UserLibraryDbService || {
     },
 
     async getFolders(parentId = null) {
-        const validParentId = (parentId !== null && parentId !== undefined && parentId !== 'null' && parentId !== 'undefined') ? Number(parentId) : null;
+        const validParentId = (parentId !== null && parentId !== undefined && parentId !== 'null') ? Number(parentId) : null;
         const sql = validParentId === null
             ? "SELECT * FROM folders WHERE parent_id IS NULL ORDER BY name ASC"
             : "SELECT * FROM folders WHERE parent_id = ? ORDER BY name ASC";
@@ -2523,7 +2309,7 @@ var UserLibraryDbService = window.UserLibraryDbService || {
     },
 
     async createFolder(name, color = '#3b82f6', parentId = null) {
-        const validParentId = (parentId !== null && parentId !== undefined && parentId !== 'null' && parentId !== 'undefined') ? Number(parentId) : null;
+        const validParentId = (parentId !== null && parentId !== undefined && parentId !== 'null') ? Number(parentId) : null;
         await this.execute("INSERT INTO folders (name, color, parent_id) VALUES (?, ?, ?)", [name, color, validParentId]);
     },
 
@@ -2540,7 +2326,7 @@ var UserLibraryDbService = window.UserLibraryDbService || {
     },
 
     async getFiles(folderId = null) {
-        const validFolderId = (folderId !== null && folderId !== undefined && folderId !== 'null' && folderId !== 'undefined') ? Number(folderId) : null;
+        const validFolderId = (folderId !== null && folderId !== undefined && folderId !== 'null') ? Number(folderId) : null;
         const sql = validFolderId === null
             ? "SELECT * FROM files WHERE folder_id IS NULL ORDER BY name ASC"
             : "SELECT * FROM files WHERE folder_id = ? ORDER BY name ASC";
@@ -2548,22 +2334,21 @@ var UserLibraryDbService = window.UserLibraryDbService || {
     },
 
     async importFile(file, folderId = null) {
-        const validFolderId = (folderId !== null && folderId !== undefined && folderId !== 'null' && folderId !== 'undefined') ? Number(folderId) : null;
+        const validFolderId = (folderId !== null && folderId !== undefined && folderId !== 'null') ? Number(folderId) : null;
         const blobId = `doc_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
         const name = file.name || 'Imported_File';
         const fileType = getFileTypeCategory(name);
 
         let uInt8Array = await fileToUint8Array(file);
         await UserLibraryFileStore.saveBytes(blobId, uInt8Array);
-        
+
         const fileSize = uInt8Array.byteLength || 0;
         uInt8Array = null;
 
         await this.execute(
-            "INSERT INTO files (folder_id, name, file_type, blob_id, file_size) VALUES (?, ?, ?, ?, ?)", 
+            "INSERT INTO files (folder_id, name, file_type, blob_id, file_size) VALUES (?, ?, ?, ?, ?)",
             [validFolderId, name, fileType, blobId, fileSize]
         );
-        console.log(`[UserLibraryDB] Inserted file "${name}" (${fileSize} bytes, type: ${fileType}) into folder_id:`, validFolderId);
     },
 
     async deleteFile(fileId) {
@@ -2579,7 +2364,7 @@ var UserLibraryDbService = window.UserLibraryDbService || {
     },
 
     async moveItem(itemId, itemType, targetFolderId) {
-        const validTargetId = (targetFolderId !== null && targetFolderId !== undefined && targetFolderId !== 'null' && targetFolderId !== 'undefined') ? Number(targetFolderId) : null;
+        const validTargetId = (targetFolderId !== null && targetFolderId !== undefined && targetFolderId !== 'null') ? Number(targetFolderId) : null;
         if (itemType === 'folder') {
             if (itemId === validTargetId) return;
             await this.execute("UPDATE folders SET parent_id = ? WHERE id = ?", [validTargetId, itemId]);
@@ -2590,12 +2375,11 @@ var UserLibraryDbService = window.UserLibraryDbService || {
 };
 window.UserLibraryDbService = UserLibraryDbService;
 
-var libraryEditMode = window.libraryEditMode || false;
-var moveItemState = window.moveItemState || { itemId: null, itemType: null };
-var selectedFolderColor = window.selectedFolderColor || '#3b82f6';
-var selectedMoveDestinationId = window.selectedMoveDestinationId || null;
-
-var draggedLibraryItem = window.draggedLibraryItem || null;
+var libraryEditMode = false;
+var moveItemState = { itemId: null, itemType: null };
+var selectedFolderColor = '#3b82f6';
+var selectedMoveDestinationId = null;
+var draggedLibraryItem = null;
 
 function toggleLibraryEditMode() {
     libraryEditMode = !libraryEditMode;
@@ -2625,13 +2409,10 @@ async function renderLibrary() {
     const emptyState = document.getElementById('libraryEmptyState');
     if (emptyState) emptyState.style.display = isEmpty ? 'flex' : 'none';
 
-    const isTauri = !!(window.__TAURI__ || window.__TAURI_INTERNALS__);
-
     folders.forEach(folder => {
         const item = document.createElement('div');
         item.className = 'library-item library-folder';
         item.style.borderColor = folder.color || '#3b82f6';
-        item.setAttribute('draggable', 'true');
 
         item.innerHTML = `
             <div class="library-item-icon" style="color: ${folder.color || '#3b82f6'}">
@@ -2647,67 +2428,6 @@ async function renderLibrary() {
             ` : ''}
         `;
 
-        item.addEventListener('dragstart', (e) => {
-            draggedLibraryItem = { id: folder.id, type: 'folder' };
-            item.classList.add('is-dragging');
-            e.dataTransfer.setData('text/plain', JSON.stringify(draggedLibraryItem));
-            e.dataTransfer.effectAllowed = 'move';
-        });
-
-        item.addEventListener('dragend', () => {
-            clearDragHoverStyles();
-            draggedLibraryItem = null;
-        });
-
-        item.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            if (e.dataTransfer) {
-                e.dataTransfer.dropEffect = 'move';
-            }
-            item.classList.add('drag-target-hover');
-            if (!draggedLibraryItem) {
-                window.activeDropTargetFolderId = folder.id;
-            }
-        });
-
-        item.addEventListener('dragenter', (e) => {
-            e.preventDefault();
-            item.classList.add('drag-target-hover');
-        });
-
-        item.addEventListener('dragleave', (e) => {
-            e.preventDefault();
-            if (!item.contains(e.relatedTarget)) {
-                item.classList.remove('drag-target-hover');
-                if (!draggedLibraryItem && window.activeDropTargetFolderId === folder.id) {
-                    window.activeDropTargetFolderId = null;
-                }
-            }
-        });
-
-        item.addEventListener('drop', async (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            clearDragHoverStyles();
-
-            if (draggedLibraryItem) {
-                if (draggedLibraryItem.type === 'folder' && draggedLibraryItem.id === folder.id) {
-                    showNotification("Cannot move a folder into itself", "warning");
-                    return;
-                }
-                await UserLibraryDbService.moveItem(draggedLibraryItem.id, draggedLibraryItem.type, folder.id);
-                draggedLibraryItem = null;
-                await renderLibrary();
-                showNotification(`Moved into "${folder.name}"`, 'success');
-                return;
-            }
-
-            if (!isTauri && e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) {
-                await processAndImportFiles(Array.from(e.dataTransfer.files), folder.id);
-            }
-        });
-
         item.onclick = () => {
             UserLibraryDbService.currentFolderId = folder.id;
             UserLibraryDbService.pathStack.push({ id: folder.id, name: folder.name });
@@ -2720,12 +2440,11 @@ async function renderLibrary() {
     files.forEach(file => {
         const item = document.createElement('div');
         item.className = 'library-item library-pdf';
-        item.setAttribute('draggable', 'true');
-        
+
         const category = getFileTypeCategory(file.name);
         let icon = 'fa-file-alt';
         let iconColor = '#cf6215';
-        
+
         if (category === 'image') { icon = 'fa-file-image'; iconColor = '#22c55e'; }
         else if (category === 'pdf') { icon = 'fa-file-pdf'; iconColor = '#ef4444'; }
         else if (category === 'text') { icon = 'fa-file-code'; iconColor = '#0891b2'; }
@@ -2745,18 +2464,6 @@ async function renderLibrary() {
                 </div>
             ` : ''}
         `;
-
-        item.addEventListener('dragstart', (e) => {
-            draggedLibraryItem = { id: file.id, type: 'file' };
-            item.classList.add('is-dragging');
-            e.dataTransfer.setData('text/plain', JSON.stringify(draggedLibraryItem));
-            e.dataTransfer.effectAllowed = 'move';
-        });
-
-        item.addEventListener('dragend', () => {
-            clearDragHoverStyles();
-            draggedLibraryItem = null;
-        });
 
         item.onclick = async () => {
             await openAnyDocument(`blob-id:${file.blob_id}`, file.name);
@@ -2781,9 +2488,11 @@ function renderLibraryBreadcrumb() {
     const rootBtn = document.createElement('button');
     rootBtn.className = 'breadcrumb-item';
     rootBtn.innerHTML = '<i class="fas fa-home"></i> Library';
-    rootBtn.onclick = () => navigateToLibraryRoot();
-
-    attachBreadcrumbDropHandler(rootBtn, null, 'Root Library');
+    rootBtn.onclick = () => {
+        UserLibraryDbService.currentFolderId = null;
+        UserLibraryDbService.pathStack = [];
+        renderLibrary();
+    };
     breadcrumb.appendChild(rootBtn);
 
     UserLibraryDbService.pathStack.forEach((crumb, index) => {
@@ -2795,53 +2504,14 @@ function renderLibraryBreadcrumb() {
         const crumbBtn = document.createElement('button');
         crumbBtn.className = `breadcrumb-item ${index === UserLibraryDbService.pathStack.length - 1 ? 'active' : ''}`;
         crumbBtn.textContent = crumb.name;
-        crumbBtn.onclick = () => navigateToLibraryStackIndex(index);
-
-        attachBreadcrumbDropHandler(crumbBtn, crumb.id, crumb.name);
+        crumbBtn.onclick = () => {
+            UserLibraryDbService.pathStack = UserLibraryDbService.pathStack.slice(0, index + 1);
+            const current = UserLibraryDbService.pathStack[UserLibraryDbService.pathStack.length - 1];
+            UserLibraryDbService.currentFolderId = current ? current.id : null;
+            renderLibrary();
+        };
         breadcrumb.appendChild(crumbBtn);
     });
-}
-
-function attachBreadcrumbDropHandler(element, targetFolderId, label) {
-    element.addEventListener('dragover', (e) => {
-        if (draggedLibraryItem) {
-            e.preventDefault();
-            e.dataTransfer.dropEffect = 'move';
-            element.classList.add('drag-target-hover');
-        }
-    });
-
-    element.addEventListener('dragleave', (e) => {
-        if (!element.contains(e.relatedTarget)) {
-            element.classList.remove('drag-target-hover');
-        }
-    });
-
-    element.addEventListener('drop', async (e) => {
-        if (draggedLibraryItem) {
-            e.preventDefault();
-            e.stopPropagation();
-            clearDragHoverStyles();
-
-            await UserLibraryDbService.moveItem(draggedLibraryItem.id, draggedLibraryItem.type, targetFolderId);
-            draggedLibraryItem = null;
-            await renderLibrary();
-            showNotification(`Moved to ${label}`, 'success');
-        }
-    });
-}
-
-function navigateToLibraryRoot() {
-    UserLibraryDbService.currentFolderId = null;
-    UserLibraryDbService.pathStack = [];
-    renderLibrary();
-}
-
-function navigateToLibraryStackIndex(index) {
-    UserLibraryDbService.pathStack = UserLibraryDbService.pathStack.slice(0, index + 1);
-    const current = UserLibraryDbService.pathStack[UserLibraryDbService.pathStack.length - 1];
-    UserLibraryDbService.currentFolderId = current ? current.id : null;
-    renderLibrary();
 }
 
 function openCreateLibraryFolderModal() {
@@ -2895,7 +2565,7 @@ async function renameLibraryFile(fileId, oldName) {
 }
 
 async function deleteLibraryFolder(folderId, name) {
-    const ok = await showConfirm(`Delete folder "${name}" and all its contents?`, { title: 'Delete Folder', type: 'danger' });
+    const ok = await showConfirm(`Delete folder "${name}" and all contents?`, { title: 'Delete Folder', type: 'danger' });
     if (ok) {
         await UserLibraryDbService.deleteFolder(folderId);
         await renderLibrary();
@@ -2904,7 +2574,7 @@ async function deleteLibraryFolder(folderId, name) {
 }
 
 async function deleteLibraryFile(fileId, name) {
-    const ok = await showConfirm(`Delete file "${name}" from Library?`, { title: 'Delete File', type: 'danger' });
+    const ok = await showConfirm(`Delete "${name}" from Library?`, { title: 'Delete File', type: 'danger' });
     if (ok) {
         await UserLibraryDbService.deleteFile(fileId);
         await renderLibrary();
@@ -2919,7 +2589,7 @@ async function openMoveLibraryItemModal(itemId, itemType) {
     if (!modal || !container) return;
 
     const allFolders = await UserLibraryDbService.query("SELECT * FROM folders ORDER BY name ASC");
-    
+
     container.innerHTML = `
         <div class="move-destination ${UserLibraryDbService.currentFolderId === null ? 'selected' : ''}" onclick="selectMoveDestination(null, this)">
             <i class="fas fa-home"></i> Root Library
@@ -2953,14 +2623,32 @@ async function confirmMoveItem() {
     }
 }
 
-function openPdfFilePicker() {
+async function openPdfFilePicker() {
+    if (window.electronAPI && typeof window.electronAPI.selectFilesToImport === 'function') {
+        const selected = await window.electronAPI.selectFilesToImport();
+        if (selected && selected.length > 0) {
+            for (const fileItem of selected) {
+                const blob = new Blob([fileItem.buffer]);
+                const fileObj = new File([blob], fileItem.name);
+                await UserLibraryDbService.importFile(fileObj, UserLibraryDbService.currentFolderId);
+            }
+            await renderLibrary();
+            showNotification(`Imported ${selected.length} document(s) successfully!`, 'success');
+            return;
+        }
+    }
+
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = '.pdf,.png,.jpg,.jpeg,.webp,.gif,.svg,.txt,.md,.markdown,.json,.csv,.docx';
     input.multiple = true;
     input.onchange = async (e) => {
         if (e.target.files.length) {
-            await processAndImportFiles(Array.from(e.target.files));
+            for (const file of e.target.files) {
+                await UserLibraryDbService.importFile(file, UserLibraryDbService.currentFolderId);
+            }
+            await renderLibrary();
+            showNotification(`Imported ${e.target.files.length} document(s)!`, 'success');
         }
     };
     input.click();
@@ -2973,24 +2661,29 @@ async function importPdfToLibrary(file) {
 
 function handleLibraryDragOver(e) {
     e.preventDefault();
+    document.getElementById('libraryDropZone')?.classList.add('drag-over');
 }
 
 function handleLibraryDragLeave(e) {
     e.preventDefault();
+    document.getElementById('libraryDropZone')?.classList.remove('drag-over');
 }
 
 async function handleLibraryDrop(e) {
     e.preventDefault();
-    const isTauri = !!(window.__TAURI__ || window.__TAURI_INTERNALS__);
-    if (!isTauri && e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) {
-        await processAndImportFiles(Array.from(e.dataTransfer.files));
+    document.getElementById('libraryDropZone')?.classList.remove('drag-over');
+    if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) {
+        for (const file of e.dataTransfer.files) {
+            await UserLibraryDbService.importFile(file, UserLibraryDbService.currentFolderId);
+        }
+        await renderLibrary();
+        showNotification(`Imported ${e.dataTransfer.files.length} file(s)!`, 'success');
     }
 }
 
 function initLibraryDragDrop() {
     const dropZone = document.getElementById('libraryDropZone');
     const settingsDropZone = document.getElementById('dropZone');
-    const isTauri = !!(window.__TAURI__ || window.__TAURI_INTERNALS__);
 
     [dropZone, settingsDropZone].forEach(el => {
         if (!el) return;
@@ -3023,14 +2716,18 @@ function initLibraryDragDrop() {
                 }
             }
         }, false);
-        
+
         el.addEventListener('drop', async (e) => {
             if (!draggedLibraryItem) {
                 e.preventDefault();
                 e.stopPropagation();
                 clearDragHoverStyles();
-                if (!isTauri && e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) {
-                    await processAndImportFiles(Array.from(e.dataTransfer.files));
+                if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) {
+                    for (const file of e.dataTransfer.files) {
+                        await UserLibraryDbService.importFile(file, UserLibraryDbService.currentFolderId);
+                    }
+                    await renderLibrary();
+                    showNotification(`Imported ${e.dataTransfer.files.length} file(s)!`, 'success');
                 }
             }
         }, false);
@@ -3044,15 +2741,15 @@ var currentTaggingItem = window.currentTaggingItem || null;
 
 function openTagItemModal(itemId, itemName, itemType) {
     currentTaggingItem = { id: itemId, name: itemName, type: itemType };
-    
+
     const modal = document.getElementById('tagItemModal');
     const nameEl = document.getElementById('tagItemName');
-    
+
     if (nameEl) nameEl.textContent = `Tagging: ${itemName}`;
-    
+
     renderAvailableTags();
     renderCurrentItemTags();
-    
+
     if (modal) modal.classList.add('active');
 }
 
@@ -3065,20 +2762,20 @@ function closeTagItemModal() {
 function renderAvailableTags() {
     const container = document.getElementById('availableTagsList');
     if (!container) return;
-    
+
     if (tags.length === 0) {
         container.innerHTML = '<p class="empty-state">No tags available. Create some tags first!</p>';
         return;
     }
-    
+
     const itemId = currentTaggingItem?.id;
     const currentTags = itemId ? (itemTags[itemId] || []) : [];
-    
+
     container.innerHTML = tags.map(tag => {
         const isApplied = currentTags.includes(tag.id);
         return `
-            <button class="tag-chip ${isApplied ? 'applied' : ''}" 
-                    style="--tag-color: ${tag.color}" 
+            <button class="tag-chip ${isApplied ? 'applied' : ''}"
+                    style="--tag-color: ${tag.color}"
                     onclick="toggleTagOnItem('${tag.id}')">
                 <span class="tag-dot" style="background: ${tag.color}"></span>
                 ${escapeHtml(tag.name)}
@@ -3091,14 +2788,14 @@ function renderAvailableTags() {
 function renderCurrentItemTags() {
     const container = document.getElementById('currentItemTags');
     if (!container || !currentTaggingItem) return;
-    
+
     const currentTags = itemTags[currentTaggingItem.id] || [];
-    
+
     if (currentTags.length === 0) {
         container.innerHTML = '<p class="empty-state">No tags applied</p>';
         return;
     }
-    
+
     container.innerHTML = currentTags.map(tagId => {
         const tag = tags.find(t => t.id === tagId);
         if (!tag) return '';
@@ -3114,17 +2811,17 @@ function renderCurrentItemTags() {
 
 function toggleTagOnItem(tagId) {
     if (!currentTaggingItem) return;
-    
+
     const itemId = currentTaggingItem.id;
     if (!itemTags[itemId]) itemTags[itemId] = [];
-    
+
     const idx = itemTags[itemId].indexOf(tagId);
     if (idx === -1) {
         itemTags[itemId].push(tagId);
     } else {
         itemTags[itemId].splice(idx, 1);
     }
-    
+
     saveTags();
     renderAvailableTags();
     renderCurrentItemTags();
@@ -3134,12 +2831,12 @@ function toggleTagOnItem(tagId) {
 function renderTagsMain() {
     const container = document.getElementById('tagsListMain');
     if (!container) return;
-    
+
     if (tags.length === 0) {
         container.innerHTML = '<p class="empty-state"><i class="fas fa-tags"></i> No tags created yet. Create your first tag!</p>';
         return;
     }
-    
+
     container.innerHTML = tags.map(tag => `
         <div class="tag-card" style="--tag-color: ${tag.color}">
             <div class="tag-card-header">
@@ -3162,27 +2859,27 @@ function renderTagsMain() {
 function renderTaggedItems(tagId = null) {
     const container = document.getElementById('taggedItemsList');
     if (!container) return;
-    
+
     const items = [];
-    
+
     Object.entries(itemTags).forEach(([itemId, tagIds]) => {
         if (tagIds.length === 0) return;
         if (!tagId || tagIds.includes(tagId)) {
             items.push({ id: itemId, tags: tagIds });
         }
     });
-    
+
     if (items.length === 0) {
         container.innerHTML = '<p class="empty-state"><i class="fas fa-folder-open"></i> No tagged items yet.</p>';
         return;
     }
-    
+
     container.innerHTML = items.map(item => {
         const itemTagBadges = item.tags.map(tid => {
             const tag = tags.find(t => t.id === tid);
             return tag ? `<span class="tag-mini" style="background: ${tag.color}">${escapeHtml(tag.name)}</span>` : '';
         }).join('');
-        
+
         const isFolder = item.id.startsWith('folder_');
         const isDoc = item.id.startsWith('doc_');
         let displayName = item.id;
@@ -3194,7 +2891,7 @@ function renderTaggedItems(tagId = null) {
             displayName = item.id.replace('doc_', '').split('/').pop();
             icon = 'fa-file-pdf';
         }
-        
+
         return `
             <div class="tagged-item" data-item-id="${escapeHtml(item.id)}" onclick="navigateToTaggedItem('${escapeHtml(item.id)}')">
                 <span class="tagged-item-id"><i class="fas ${icon}" style="margin-right: 6px; opacity: 0.5;"></i>${escapeHtml(displayName)}</span>
@@ -3231,17 +2928,7 @@ function navigateToTaggedItem(itemId) {
             if (typeof window.showView === 'function') window.showView('home');
             window.navigateToPath(segments);
             setTimeout(() => {
-                let level = window.documents || {};
-                for (const seg of segments) {
-                    if (level && typeof level === 'object') level = level[seg];
-                    else { level = null; break; }
-                }
-                const value = level ? level[fileName] : null;
-                if (value && typeof value === 'string') {
-                    openAnyDocument(value, fileName);
-                } else {
-                    showNotification('Could not open file — it may have been moved or deleted.', 'warning');
-                }
+                openAnyDocument(`documents/${pathStr}`, fileName);
             }, 100);
         }
     } else {
@@ -3271,14 +2958,14 @@ function getPdfPosition(pdfUrl) {
 function restorePdfPosition(pdfUrl) {
     const position = getPdfPosition(pdfUrl);
     if (!position) return;
-    
+
     const iframe = document.getElementById('pdfViewer');
     if (iframe && iframe.contentWindow) {
         setTimeout(() => {
-            iframe.contentWindow.postMessage({ 
-                type: 'restorePosition', 
+            iframe.contentWindow.postMessage({
+                type: 'restorePosition',
                 scrollTop: position.scrollTop,
-                page: position.page 
+                page: position.page
             }, '*');
         }, 1000);
         showNotification(`Restored to page ${position.page}`, 'info');
@@ -3303,12 +2990,12 @@ window.addEventListener('message', (event) => {
 function renderVoiceNotesGrid() {
     const container = document.getElementById('voiceNotesGrid');
     if (!container) return;
-    
+
     if (voiceNotes.length === 0) {
         container.innerHTML = '<p class="empty-state"><i class="fas fa-microphone-slash"></i> No voice notes yet. Record your first one!</p>';
         return;
     }
-    
+
     container.innerHTML = voiceNotes.map(note => `
         <div class="voice-note-card" data-id="${note.id}">
             <div class="voice-note-header">
@@ -3338,7 +3025,9 @@ function renderSettings() {
     renderTagsList();
     renderVoiceNotes();
     renderDashboardWidgets();
-    if (window.DownloadManager) window.DownloadManager.renderSettingsStorageTab();
+    if (window.DownloadManager && typeof window.DownloadManager.renderSettingsStorageTab === 'function') {
+        window.DownloadManager.renderSettingsStorageTab();
+    }
     if (typeof window.renderKeybindsSettings === 'function') window.renderKeybindsSettings();
     if (typeof window.initStudyRoomMediaSettings === 'function') window.initStudyRoomMediaSettings();
 }
@@ -3348,7 +3037,7 @@ function initSettingsUI() {
     if (exportBtn) {
         exportBtn.addEventListener('click', exportAllData);
     }
-    
+
     const importInput = document.getElementById('importDataInput');
     if (importInput) {
         importInput.addEventListener('change', (e) => {
@@ -3367,7 +3056,7 @@ function initSettingsUI() {
             }
         });
     }
-    
+
     document.addEventListener('click', (e) => {
         const themeOption = e.target.closest('.theme-option');
         if (themeOption && themeOption.dataset.theme) {
@@ -3375,119 +3064,119 @@ function initSettingsUI() {
             setTheme(themeOption.dataset.theme);
             return;
         }
-        
+
         if (e.target.closest('#recordBtn')) {
             e.preventDefault();
             toggleRecording();
             return;
         }
-        
+
         if (e.target.closest('#createTagBtn')) {
             e.preventDefault();
             openTagModal();
             return;
         }
-        
+
         if (e.target.closest('#saveTagBtn')) {
             e.preventDefault();
             saveTag();
             return;
         }
-        
+
         if (e.target.closest('#cancelTagBtn') || e.target.closest('#closeTagModal')) {
             closeTagModal();
             return;
         }
-        
+
         if (e.target.closest('#addReminderBtn')) {
             e.preventDefault();
             openReminderModal();
             return;
         }
-        
+
         if (e.target.closest('#saveReminderBtn')) {
             e.preventDefault();
             saveReminderFromModal();
             return;
         }
-        
+
         if (e.target.closest('#cancelReminderBtn') || e.target.closest('#closeReminderModal')) {
             closeReminderModal();
             return;
         }
-        
+
         if (e.target.closest('#closeQuizModal')) {
             closeQuizModal();
             return;
         }
-        
+
         if (e.target.closest('.play-voice-note')) {
             const btn = e.target.closest('.play-voice-note');
             const id = btn.dataset.id;
             if (id) playVoiceNote(id);
             return;
         }
-        
+
         if (e.target.closest('.delete-voice-note')) {
             const btn = e.target.closest('.delete-voice-note');
             const id = btn.dataset.id;
             if (id) deleteVoiceNote(id);
             return;
         }
-        
+
         if (e.target.closest('#addBookmarkBtn')) {
             e.preventDefault();
             openBookmarkModal();
             return;
         }
-        
+
         if (e.target.closest('#toggleBookmarksBtn')) {
             e.preventDefault();
             toggleBookmarksPanel();
             return;
         }
-        
+
         if (e.target.closest('#backToDocumentsBtn')) {
             e.preventDefault();
             closePdfViewer();
             return;
         }
-        
+
         if (e.target.closest('#saveBookmarkBtn')) {
             e.preventDefault();
             saveBookmarkFromModal();
             return;
         }
-        
+
         if (e.target.closest('#cancelBookmarkBtn') || e.target.closest('#closeBookmarkModal')) {
             closeBookmarkModal();
             return;
         }
-        
+
         if (e.target.closest('#closeTagItemModal') || e.target.closest('#closeTagItemModalBtn')) {
             closeTagItemModal();
             return;
         }
-        
+
         if (e.target.closest('#createTagBtnMain')) {
             e.preventDefault();
             openTagModal();
             return;
         }
-        
+
         if (e.target.closest('#importPdfBtn')) {
             e.preventDefault();
             openPdfFilePicker();
             return;
         }
-        
+
         if (e.target.closest('.alarm-option')) {
             const option = e.target.closest('.alarm-option');
             const sound = option.dataset.sound;
             if (sound) setAlarmSound(sound);
             return;
         }
-        
+
         if (e.target.closest('.preview-sound')) {
             e.stopPropagation();
             const btn = e.target.closest('.preview-sound');
@@ -3495,14 +3184,14 @@ function initSettingsUI() {
             if (sound) previewAlarmSound(sound);
             return;
         }
-        
+
         if (e.target.closest('#recordBtnNotes')) {
             e.preventDefault();
             toggleRecordingNotes();
             return;
         }
     });
-    
+
     const customAlarmInput = document.getElementById('customAlarmInput');
     if (customAlarmInput) {
         customAlarmInput.addEventListener('change', (e) => {
@@ -3510,7 +3199,7 @@ function initSettingsUI() {
             if (file) handleCustomSoundUpload(file);
         });
     }
-    
+
     const volumeSlider = document.getElementById('alarmVolume');
     if (volumeSlider) {
         volumeSlider.addEventListener('input', (e) => {
@@ -3568,17 +3257,17 @@ function saveReminderFromModal() {
     const time = document.getElementById('reminderTime')?.value;
     const days = Array.from(document.querySelectorAll('#reminderDays input:checked'))
                       .map(cb => parseInt(cb.value, 10));
-    
+
     if (!title || !time) {
         showNotification('Please fill in title and time', 'warning');
         return;
     }
-    
+
     if (days.length === 0) {
         showNotification('Please select at least one day', 'warning');
         return;
     }
-    
+
     addStudyReminder(title, time, days);
     closeReminderModal();
 }
@@ -3586,39 +3275,25 @@ function saveReminderFromModal() {
 async function initEnhancedFeatures() {
     console.log('[Features] Initializing enhanced features...');
     await UserLibraryDbService.init();
-    
+
     initReminders();
     initDragDropImport();
     initLibraryDragDrop();
     initThemeOnLoad();
     initAlarmUI();
     initSettingsUI();
-    
+
     if (dashboardLayout.widgets) {
         applyDashboardLayout();
     }
-    
+
     renderVoiceNotesGrid();
     renderTagsMain();
     renderTaggedItems();
     renderLibrary();
-    
+
     console.log('[Features] Enhanced features initialized successfully');
 }
-
-// Backward Compatibility Aliases
-function renderImportedPdfs() { renderLibrary(); }
-function openLibraryFolder(index) { navigateToLibraryStackIndex(index); }
-function goBackInLibrary() { navigateToLibraryRoot(); }
-function navigateToLibraryPath() { navigateToLibraryRoot(); }
-function moveLibraryFolderToDocuments() {}
-function openLibraryPdf() {}
-function movePdfToFolder() {}
-function handleFolderDragOver(e) { e.preventDefault(); }
-function handleFolderDragLeave() {}
-function handleFolderDrop(e) { e.preventDefault(); }
-function handlePdfDragStart() {}
-function handlePdfDragEnd() {}
 
 // Global Exports
 window.UserLibraryDbService = UserLibraryDbService;
@@ -3719,11 +3394,6 @@ window.initAlarmUI = initAlarmUI;
 
 window.renderLibrary = renderLibrary;
 window.toggleLibraryEditMode = toggleLibraryEditMode;
-window.openLibraryFolder = openLibraryFolder;
-window.goBackInLibrary = goBackInLibrary;
-window.navigateToLibraryRoot = navigateToLibraryRoot;
-window.navigateToLibraryStackIndex = navigateToLibraryStackIndex;
-window.navigateToLibraryPath = navigateToLibraryPath;
 window.openCreateLibraryFolderModal = openCreateLibraryFolderModal;
 window.closeLibraryFolderModal = closeLibraryFolderModal;
 window.selectLibraryFolderColor = selectLibraryFolderColor;
@@ -3741,15 +3411,6 @@ window.importPdfToLibrary = importPdfToLibrary;
 window.handleLibraryDragOver = handleLibraryDragOver;
 window.handleLibraryDragLeave = handleLibraryDragLeave;
 window.handleLibraryDrop = handleLibraryDrop;
-window.renderImportedPdfs = renderImportedPdfs;
-window.moveLibraryFolderToDocuments = moveLibraryFolderToDocuments;
-window.openLibraryPdf = openLibraryPdf;
-window.movePdfToFolder = movePdfToFolder;
-window.handleFolderDragOver = handleFolderDragOver;
-window.handleFolderDragLeave = handleFolderDragLeave;
-window.handleFolderDrop = handleFolderDrop;
-window.handlePdfDragStart = handlePdfDragStart;
-window.handlePdfDragEnd = handlePdfDragEnd;
 
 window.savePdfPosition = savePdfPosition;
 window.getPdfPosition = getPdfPosition;
