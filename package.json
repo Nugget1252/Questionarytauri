@@ -12,9 +12,14 @@
     "build:deb": "electron-builder --linux deb",
     "build:win": "electron-builder --win",
     "build:mac": "electron-builder --mac",
-    "build:all": "electron-builder -wml"
+    "build:all": "electron-builder -wml",
+    "android:sync": "cap sync android",
+    "android:build": "cap sync android && cd android && ./gradlew assembleRelease"
   },
   "dependencies": {
+    "@capacitor/android": "^6.0.0",
+    "@capacitor/cli": "^6.0.0",
+    "@capacitor/core": "^6.0.0",
     "sql.js": "^1.8.0"
   },
   "devDependencies": {
