@@ -17,7 +17,7 @@ jobs:
             build-cmd: 'npx electron-builder --win'
             artifact-path: 'dist/*.exe'
 
-          - platform: macos-13
+          - platform: macos-14
             build-cmd: 'npx electron-builder --mac'
             artifact-path: |
               dist/*.dmg
