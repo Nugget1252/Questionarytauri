@@ -68,14 +68,29 @@ app.whenReady().then(() => {
     // Decode percent-encoded spaces and special characters
     let decoded = decodeURIComponent(request.url.replace(/^local-pdf:\/\//, ''));
 
-    // Automatically eliminate duplicate 'documents/documents/' if present in URL
-    decoded = decoded.replace(/\/documents\/documents\//g, '/documents/');
-
     // Ensure leading slash remains intact on Linux and macOS
     if (process.platform !== 'win32' && !decoded.startsWith('/')) {
       decoded = '/' + decoded;
     }
 
+    // 1. Direct file existence check
+    if (fs.existsSync(decoded)) {
+      return net.fetch(`file://${decoded}`);
+    }
+
+    // 2. Check nested documents/documents path
+    const nestedPath = decoded.replace(/\/documents\//, '/documents/documents/');
+    if (fs.existsSync(nestedPath)) {
+      return net.fetch(`file://${nestedPath}`);
+    }
+
+    // 3. Check single documents path if URL had double
+    const singlePath = decoded.replace(/\/documents\/documents\//, '/documents/');
+    if (fs.existsSync(singlePath)) {
+      return net.fetch(`file://${singlePath}`);
+    }
+
+    // Default fallback attempt
     return net.fetch(`file://${decoded}`);
   });
 
@@ -240,14 +255,14 @@ ipcMain.handle('delete-user-library-file', async (event, { blobId, storageDir })
 });
 
 // ================================================================
-// DUPLICATE-FREE ZIP EXTRACTION (Zero external dependencies)
+// NATIVE ZIP EXTRACTION (Zero external dependencies)
 // ================================================================
 
 function extractZipBuffer(zipBuffer, targetDir) {
   let offset = 0;
   while (offset < zipBuffer.length - 4) {
     const sig = zipBuffer.readUInt32LE(offset);
-    if (sig !== 0x04034b50) break; // Local file header signature
+    if (sig !== 0x04034b50) break;
 
     const compMethod = zipBuffer.readUInt16LE(offset + 8);
     const compSize = zipBuffer.readUInt32LE(offset + 18);
@@ -259,9 +274,7 @@ function extractZipBuffer(zipBuffer, targetDir) {
     const dataStart = offset + 30 + nameLen + extraLen;
     const rawData = zipBuffer.subarray(dataStart, dataStart + compSize);
 
-    // Normalize slashes
     fileName = fileName.replace(/\\/g, '/');
-
     const outPath = path.join(targetDir, fileName);
 
     if (fileName.endsWith('/')) {
@@ -271,40 +284,14 @@ function extractZipBuffer(zipBuffer, targetDir) {
       if (!fs.existsSync(parentDir)) fs.mkdirSync(parentDir, { recursive: true });
 
       if (compMethod === 0) {
-        // Stored (Uncompressed)
         fs.writeFileSync(outPath, rawData);
       } else if (compMethod === 8) {
-        // Deflated (Standard ZIP compression)
         const decompressed = zlib.inflateRawSync(rawData);
         fs.writeFileSync(outPath, decompressed);
       }
     }
 
     offset = dataStart + compSize;
-  }
-
-  // Automatic post-extraction fix: If a nested documents/documents folder exists, flatten it immediately
-  const nestedFolder = path.join(targetDir, 'documents', 'documents');
-  const targetDocs = path.join(targetDir, 'documents');
-
-  if (fs.existsSync(nestedFolder)) {
-    console.log('[Extract] Detected nested documents/documents folder. Flattening...');
-    function moveContents(src, dest) {
-      const entries = fs.readdirSync(src, { withFileTypes: true });
-      for (const entry of entries) {
-        const srcPath = path.join(src, entry.name);
-        const destPath = path.join(dest, entry.name);
-        if (entry.isDirectory()) {
-          if (!fs.existsSync(destPath)) fs.mkdirSync(destPath, { recursive: true });
-          moveContents(srcPath, destPath);
-        } else {
-          fs.copyFileSync(srcPath, destPath);
-          fs.unlinkSync(srcPath);
-        }
-      }
-    }
-    moveContents(nestedFolder, targetDocs);
-    fs.rmSync(nestedFolder, { recursive: true, force: true });
   }
 }
 
@@ -313,7 +300,6 @@ function downloadWithRedirect(url, chunks, onProgress) {
   return new Promise((resolve, reject) => {
     const client = url.startsWith('https') ? https : http;
     const req = client.get(url, { headers: { 'User-Agent': 'Questionary-App' } }, (res) => {
-      // Follow HTTP 301, 302, 307, 308 redirects (GitHub Releases redirect to AWS S3 & Google Drive)
       if ([301, 302, 307, 308].includes(res.statusCode)) {
         if (!res.headers.location) {
           return reject(new Error('Redirect missing location header'));
@@ -420,7 +406,7 @@ ipcMain.handle('download-full-pack', async (event, { quality, storageDir, repoOw
     return { success: false, error: lastError ? lastError.message : 'All download mirrors failed.' };
   }
 
-  // Extract the zip archive in memory to destination
+  // Extract zip buffer in memory to destination
   mainWindow.webContents.send('download-progress', {
     currentFile: 'Extracting documents...',
     percent: 99,

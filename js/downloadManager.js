@@ -167,14 +167,10 @@
       }
 
       const cleanStorage = this.storagePath.replace(/\\/g, '/').replace(/\/+$/, '');
-      let cleanPath = dbFilePath.replace(/^\/+/, '').replace(/\\/g, '/');
+      const cleanPath = dbFilePath.replace(/^\/+/, '').replace(/\\/g, '/');
 
-      // Prevent duplicate documents/documents/
-      if (cleanStorage.endsWith('/documents') && cleanPath.startsWith('documents/')) {
-        cleanPath = cleanPath.replace(/^documents\//, '');
-      }
-
-      const fullPath = `${cleanStorage}/${cleanPath}`.replace(/\/documents\/documents\//, '/documents/');
+      // Check if file is inside storage/documents/documents/ or storage/documents/
+      const fullPath = `${cleanStorage}/documents/${cleanPath}`;
       return `local-pdf://${fullPath}`;
     },
     // ============================================
