@@ -450,12 +450,21 @@ html, body {
     let docUndoStacks = {};
     let activeDocId = '';
 
-    const params = new URLSearchParams(window.location.search);
-    let fileUrl = params.get('file');
-    if (!fileUrl && window.location.hash) {
-        const hashParams = new URLSearchParams(window.location.hash.substring(1));
-        fileUrl = hashParams.get('file');
+    // ================================================================
+    // URL RESOLVER (SUPPORTS LOCAL-PDF://, ABSOLUTE URLS & HASHES)
+    // ================================================================
+    function extractFileUrl() {
+        const urlParams = new URLSearchParams(window.location.search);
+        let rawFile = urlParams.get('file');
+        if (!rawFile && window.location.hash) {
+            const hashParams = new URLSearchParams(window.location.hash.substring(1));
+            rawFile = hashParams.get('file');
+        }
+        if (!rawFile) return null;
+        return decodeURIComponent(rawFile);
     }
+
+    let fileUrl = extractFileUrl();
 
     function generateDocId(url) {
         if (!url) return 'doc_default';
@@ -504,6 +513,7 @@ html, body {
     });
 
     async function loadDocument(url) {
+        if (!url) return;
         try {
             loadingProgress.style.width = '20%';
             loadingMessage.style.display = 'block';
@@ -518,7 +528,12 @@ html, body {
             docPageSnapshots = {};
             docUndoStacks = {};
 
-            const loadingTask = pdfjsLib.getDocument({ url: url, cMapPacked: true });
+            const loadingTask = pdfjsLib.getDocument({
+                url: url,
+                cMapUrl: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/',
+                cMapPacked: true
+            });
+
             loadingTask.onProgress = function(p) {
                 if (p.total > 0) loadingProgress.style.width = Math.min(75, (p.loaded / p.total) * 100) + '%';
             };
@@ -1389,7 +1404,7 @@ html, body {
     });
 
     /* ================================================================
-       TAURI-SAFE EXTERNAL PDF OPENER (SINGLE INVOCATION)
+       EXTERNAL PDF OPENER (ELECTRON / TAURI / WEB SAFE)
        ================================================================ */
     document.getElementById('openExternalPdf').addEventListener('click', async (e) => {
         e.preventDefault();
@@ -1397,13 +1412,11 @@ html, body {
         if (!fileUrl) return;
         const targetUrl = decodeURIComponent(fileUrl);
 
-        // 1. If embedded in Questionary parent window, delegate exclusively to parent
         if (window.parent && window.parent !== window) {
             window.parent.postMessage({ type: 'openInNewWindow', url: targetUrl, path: targetUrl }, '*');
             return;
         }
 
-        // 2. Standalone Tauri Window
         if (window.__TAURI__ && window.__TAURI__.core && typeof window.__TAURI__.core.invoke === 'function') {
             try {
                 await window.__TAURI__.core.invoke('plugin:opener|open_url', { url: targetUrl });
@@ -1416,7 +1429,6 @@ html, body {
             }
         }
 
-        // 3. Standalone Browser Fallback
         window.open(targetUrl, '_blank', 'noopener,noreferrer');
     });
 
@@ -1531,9 +1543,10 @@ html, body {
     });
 
     updateToolUI();
-    if (fileUrl) loadDocument(decodeURIComponent(fileUrl));
+    if (fileUrl) {
+        loadDocument(fileUrl);
+    }
 })();
 </script>
 </body>
-
 </html>
