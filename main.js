@@ -5,6 +5,23 @@ const https = require('https');
 const http = require('http');
 const zlib = require('zlib');
 
+// ================================================================
+// REGISTER PRIVILEGED PROTOCOLS (MUST BE CALLED BEFORE app.whenReady)
+// ================================================================
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: 'local-pdf',
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      corsEnabled: true,
+      bypassCSP: true,
+      stream: true
+    }
+  }
+]);
+
 let mainWindow;
 
 // Disable Default Application Menu bar completely
@@ -44,12 +61,15 @@ function createWindow() {
 }
 
 // ================================================================
-// REGISTER SAFE PROTOCOL FOR LOCAL DOWNLOADED PDFS
+// REGISTER SAFE PROTOCOL HANDLER FOR LOCAL DOWNLOADED PDFS
 // ================================================================
 app.whenReady().then(() => {
   protocol.handle('local-pdf', (request) => {
     // Decode percent-encoded spaces and special characters
     let decoded = decodeURIComponent(request.url.replace(/^local-pdf:\/\//, ''));
+
+    // Automatically eliminate duplicate 'documents/documents/' if present in path
+    decoded = decoded.replace(/\/documents\/documents\//g, '/documents/');
 
     // Ensure leading slash remains intact on Linux and macOS
     if (process.platform !== 'win32' && !decoded.startsWith('/')) {

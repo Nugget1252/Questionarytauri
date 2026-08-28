@@ -160,19 +160,23 @@
     // ============================================
     // PATH RESOLUTION FOR PDF VIEWER & TILES
     // ============================================
-  resolveDocumentUrl(dbFilePath) {
+    resolveDocumentUrl(dbFilePath) {
       if (!dbFilePath || dbFilePath === '#' || dbFilePath === '') return dbFilePath;
       if (dbFilePath.startsWith('blob:') || dbFilePath.startsWith('data:') || dbFilePath.startsWith('http') || dbFilePath.startsWith('local-pdf:')) {
         return dbFilePath;
       }
 
-      // Normalize path slashes
-      const cleanRel = dbFilePath.replace(/^\/+/, '').replace(/\\/g, '/');
       const cleanStorage = this.storagePath.replace(/\\/g, '/').replace(/\/+$/, '');
-      
-      return `local-pdf://${cleanStorage}/${cleanRel}`;
-    },
+      let cleanPath = dbFilePath.replace(/^\/+/, '').replace(/\\/g, '/');
 
+      // Prevent duplicate documents/documents/
+      if (cleanStorage.endsWith('/documents') && cleanPath.startsWith('documents/')) {
+        cleanPath = cleanPath.replace(/^documents\//, '');
+      }
+
+      const fullPath = `${cleanStorage}/${cleanPath}`.replace(/\/documents\/documents\//, '/documents/');
+      return `local-pdf://${fullPath}`;
+    },
     // ============================================
     // SETTINGS STORAGE MANAGER TAB
     // ============================================

@@ -15,8 +15,8 @@
     /* ---------- Configuration ---------- */
     const REPO_OWNER = 'Nugget1252';
     const REPO_NAME = 'Questionarytauri';
-    const PRIMARY_BRANCH = 'beta';
-    const FALLBACK_BRANCH = 'main';
+    const PRIMARY_BRANCH = 'Electron';
+    const FALLBACK_BRANCH = 'beta';
 
     const STORAGE_KEY_FILES = 'questionary_hot_files';
     const STORAGE_KEY_COMMIT = 'questionary_hot_commit_sha';
