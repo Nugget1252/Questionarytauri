@@ -1157,18 +1157,18 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
       // Compute clean display title
       let filename = customName;
       if (!filename) {
-        if (url.startsWith('blob:') || url.startsWith('data:')) {
+        if (url.startsWith('blob:') || url.startsWith('data:') || url.startsWith('blob-id:')) {
           filename = 'Document';
         } else {
           filename = url.split('/').pop().replace('.pdf', '').replace(/%20/g, ' ');
         }
       }
 
-      // Convert any relative document path to the local storage path
+      // Convert document paths ONLY if it's a relative path and NOT a blob / blob-id / data / local-pdf URL
       let targetUrl = url;
-      if (window.DownloadManager && !url.startsWith('blob:') && !url.startsWith('data:') && !url.startsWith('http') && !url.startsWith('local-pdf:')) {
+      if (window.DownloadManager && !url.startsWith('blob:') && !url.startsWith('blob-id:') && !url.startsWith('data:') && !url.startsWith('http') && !url.startsWith('local-pdf:')) {
         targetUrl = window.DownloadManager.resolveDocumentUrl(url);
-      } else if (!url.startsWith('blob:') && !url.startsWith('data:') && !url.startsWith('http') && !url.startsWith('local-pdf:')) {
+      } else if (!url.startsWith('blob:') && !url.startsWith('blob-id:') && !url.startsWith('data:') && !url.startsWith('http') && !url.startsWith('local-pdf:')) {
         targetUrl = new URL(url, window.location.href).href;
       }
 

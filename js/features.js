@@ -466,22 +466,30 @@ function downloadDocxContent() {
     URL.revokeObjectURL(url);
 }
 
-// Master Document Opener
 async function openAnyDocument(urlOrBlob, fileName) {
     const category = getFileTypeCategory(fileName);
     let target = urlOrBlob;
 
+    // 1. Resolve User Library Blob IDs FIRST
+    if (typeof target === 'string' && target.startsWith('blob-id:')) {
+        const blobId = target.replace('blob-id:', '');
+        const blob = await UserLibraryFileStore.getFileBlob(blobId);
+        if (blob) {
+            target = blob;
+        } else {
+            showNotification('Could not load imported document from storage', 'error');
+            return;
+        }
+    }
+
+    // 2. Resolve regular database document paths via DownloadManager (only if not a blob/data/http URL)
     if (window.DownloadManager && typeof target === 'string' && !target.startsWith('blob:') && !target.startsWith('data:') && !target.startsWith('http') && !target.startsWith('local-pdf:')) {
         target = window.DownloadManager.resolveDocumentUrl(target);
     }
 
     if (category === 'image') {
         let src = target;
-        if (typeof target === 'string' && target.startsWith('blob-id:')) {
-            const blobId = target.replace('blob-id:', '');
-            const blob = await UserLibraryFileStore.getFileBlob(blobId);
-            if (blob) src = URL.createObjectURL(blob);
-        } else if (target instanceof Blob) {
+        if (target instanceof Blob) {
             src = URL.createObjectURL(target);
         }
         if (typeof window.showImage === 'function') window.showImage(src, fileName);
@@ -490,14 +498,9 @@ async function openAnyDocument(urlOrBlob, fileName) {
     } else if (category === 'docx') {
         await showDocxFile(target, fileName);
     } else {
+        // PDF handler
         let pdfSrc = target;
-        if (typeof target === 'string' && target.startsWith('blob-id:')) {
-            const blobId = target.replace('blob-id:', '');
-            const blob = await UserLibraryFileStore.getFileBlob(blobId);
-            if (blob) {
-                pdfSrc = URL.createObjectURL(blob);
-            }
-        } else if (target instanceof Blob) {
+        if (target instanceof Blob) {
             pdfSrc = URL.createObjectURL(target);
         }
 
