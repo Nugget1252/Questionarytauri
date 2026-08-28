@@ -17,8 +17,8 @@ jobs:
             build-cmd: 'npx electron-builder --win'
             artifact-path: 'dist/*.exe'
 
-          - platform: macos-latest
-            build-cmd: 'npx electron-builder --mac dmg zip'
+          - platform: macos-13
+            build-cmd: 'npx electron-builder --mac'
             artifact-path: |
               dist/*.dmg
               dist/*.zip
@@ -55,12 +55,14 @@ jobs:
         run: xvfb-run --auto-servernum --server-args="-screen 0 1280x960x24" ${{ matrix.build-cmd }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_IDENTITY_AUTO_DISCOVERY: false
 
       - name: Build Electron Binaries (Windows / macOS)
         if: matrix.platform != 'ubuntu-22.04'
         run: ${{ matrix.build-cmd }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_IDENTITY_AUTO_DISCOVERY: false
 
       - name: Upload Desktop Artifacts to Release
         uses: softprops/action-gh-release@v2
@@ -130,8 +132,7 @@ jobs:
         run: |
           mkdir -p release-apks
           VERSION="${GITHUB_REF_NAME#v}"
-          
-          # Generate CI keystore
+
           keytool -genkey -v -keystore release.jks -keyalg RSA -keysize 2048 -validity 10000 \
             -alias android-release -storepass android -keypass android \
             -dname "CN=Questionary, OU=CI, O=Questionary, L=CI, S=CI, C=US"

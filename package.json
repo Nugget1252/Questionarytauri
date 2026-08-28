@@ -1,6 +1,6 @@
 {
   "name": "questionary",
-  "version": "1.0.0",
+  "version": "0.9.8",
   "description": "Questionary Desktop Study App",
   "main": "main.js",
   "author": "Questionary",
@@ -12,9 +12,7 @@
     "build:deb": "electron-builder --linux deb",
     "build:win": "electron-builder --win",
     "build:mac": "electron-builder --mac",
-    "build:all": "electron-builder -wml",
-    "android:sync": "cap sync android",
-    "android:build": "cap sync android && cd android && ./gradlew assembleRelease"
+    "build:all": "electron-builder -wml"
   },
   "dependencies": {
     "@capacitor/android": "^6.0.0",
@@ -81,9 +79,19 @@
       "icon": "build/icon.png"
     },
     "mac": {
-      "target": ["dmg", "zip"],
+      "target": [
+        { "target": "dmg", "arch": ["x64", "arm64"] },
+        { "target": "zip", "arch": ["x64", "arm64"] }
+      ],
       "icon": "build/icon.png",
-      "category": "public.app-category.education"
+      "category": "public.app-category.education",
+      "identity": null,
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false
+    },
+    "dmg": {
+      "writeUpdateInfo": false,
+      "sign": false
     },
     "nsis": {
       "oneClick": false,
