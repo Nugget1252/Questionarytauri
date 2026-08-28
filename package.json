@@ -1,9 +1,9 @@
 {
   "name": "questionary",
-  "version": "0.9.9",
+  "version": "0.9.8",
   "description": "Questionary Desktop Study App",
   "main": "main.js",
-  "author": "Nugget",
+  "author": "Questionary",
   "scripts": {
     "start": "electron .",
     "build:linux": "electron-builder --linux AppImage deb rpm",
@@ -24,6 +24,7 @@
   "build": {
     "appId": "com.questionary.app",
     "productName": "Questionary",
+    "executableName": "questionary",
     "asar": true,
     "files": [
       "index.html",
@@ -44,7 +45,11 @@
       "target": ["AppImage", "deb", "rpm"],
       "category": "Education",
       "maintainer": "Questionary <support@questionary.app>",
-      "icon": "assets/icons"
+      "icon": "assets/icons",
+      "desktop": {
+        "StartupWMClass": "questionary",
+        "Icon": "questionary"
+      }
     },
     "deb": {
       "priority": "optional",
