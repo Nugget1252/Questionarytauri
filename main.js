@@ -1,13 +1,14 @@
-const { app, BrowserWindow, ipcMain, dialog, protocol, net } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, protocol, net, Menu } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const https = require('https');
 const http = require('http');
-const { pipeline } = require('stream');
+const zlib = require('zlib');
 
 let mainWindow;
-let activeDownloads = new Map(); // fileId -> { req, fileStream, aborted }
-let isPaused = false;
+
+// Disable Default Application Menu bar completely
+Menu.setApplicationMenu(null);
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -15,23 +16,47 @@ function createWindow() {
     height: 800,
     minWidth: 900,
     minHeight: 600,
+    autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
       contextIsolation: true,
-      webSecurity: true
+      webSecurity: true,
+      devTools: false // Disables DevTools / Inspect Element
     },
     icon: path.join(__dirname, 'assets/logo.png')
   });
 
+  mainWindow.setMenuBarVisibility(false);
   mainWindow.loadFile('index.html');
+
+  // Block Keyboard Shortcuts for Inspect Element & View Source (F12, Ctrl+Shift+I, Ctrl+U)
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    const isDevKey =
+      input.key === 'F12' ||
+      (input.control && input.shift && ['I', 'i', 'C', 'c', 'J', 'j'].includes(input.key)) ||
+      (input.control && (input.key === 'U' || input.key === 'u'));
+
+    if (isDevKey) {
+      event.preventDefault();
+    }
+  });
 }
 
-// Register custom safe protocol for serving local PDFs
+// ================================================================
+// REGISTER SAFE PROTOCOL FOR LOCAL DOWNLOADED PDFS
+// ================================================================
 app.whenReady().then(() => {
   protocol.handle('local-pdf', (request) => {
-    const filePath = decodeURIComponent(request.url.replace('local-pdf://', ''));
-    return net.fetch(`file://${filePath}`);
+    // Decode percent-encoded spaces and special characters
+    let decoded = decodeURIComponent(request.url.replace(/^local-pdf:\/\//, ''));
+
+    // Ensure leading slash remains intact on Linux and macOS
+    if (process.platform !== 'win32' && !decoded.startsWith('/')) {
+      decoded = '/' + decoded;
+    }
+
+    return net.fetch(`file://${decoded}`);
   });
 
   createWindow();
@@ -42,7 +67,7 @@ app.on('window-all-closed', () => {
 });
 
 // ================================================================
-// IPC HANDLERS: STORAGE & DOWNLOAD MANAGER
+// STORAGE & LOCAL FILE SYSTEM IPC
 // ================================================================
 
 ipcMain.handle('get-default-storage-path', () => {
@@ -71,7 +96,7 @@ ipcMain.handle('get-storage-stats', async (event, storageDir) => {
       const fullPath = path.join(dir, entry.name);
       if (entry.isDirectory()) {
         scanDir(fullPath);
-      } else if (entry.isFile() && !entry.name.endsWith('.part')) {
+      } else if (entry.isFile()) {
         totalBytes += fs.statSync(fullPath).size;
         fileCount++;
       }
@@ -80,6 +105,17 @@ ipcMain.handle('get-storage-stats', async (event, storageDir) => {
 
   scanDir(storageDir);
   return { totalBytes, fileCount };
+});
+
+ipcMain.handle('check-documents-exist', async (event, storageDir) => {
+  const docsFolder = path.join(storageDir, 'documents');
+  if (!fs.existsSync(docsFolder)) return false;
+  try {
+    const files = fs.readdirSync(docsFolder);
+    return files.length > 0;
+  } catch (e) {
+    return false;
+  }
 });
 
 ipcMain.handle('check-local-files', async (event, storageDir) => {
@@ -93,7 +129,7 @@ ipcMain.handle('check-local-files', async (event, storageDir) => {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) {
         scan(full, rel);
-      } else if (entry.isFile() && !entry.name.endsWith('.part')) {
+      } else if (entry.isFile()) {
         existingFiles.push(rel.replace(/\\/g, '/'));
       }
     }
@@ -138,112 +174,179 @@ ipcMain.handle('move-storage-folder', async (event, { oldDir, newDir }) => {
   return true;
 });
 
-// Resilient Background File Downloader with Resume Capability
-ipcMain.handle('start-downloads', async (event, { queue, storageDir }) => {
-  isPaused = false;
-  let completed = 0;
-  const total = queue.length;
-  let totalBytesDownloaded = 0;
-  let lastSpeedCalcTime = Date.now();
-  let bytesSinceLastCalc = 0;
-  let currentSpeed = '0 KB/s';
+// ================================================================
+// PURE NATIVE ZIP EXTRACTION (Zero external dependencies)
+// ================================================================
 
-  for (const item of queue) {
-    if (isPaused) break;
+function extractZipBuffer(zipBuffer, targetDir) {
+  let offset = 0;
+  while (offset < zipBuffer.length - 4) {
+    const sig = zipBuffer.readUInt32LE(offset);
+    if (sig !== 0x04034b50) break; // Local file header signature
 
-    const destPath = path.join(storageDir, item.relativePath);
-    const destDir = path.dirname(destPath);
-    const partPath = destPath + '.part';
+    const compMethod = zipBuffer.readUInt16LE(offset + 8);
+    const compSize = zipBuffer.readUInt32LE(offset + 18);
+    const uncompSize = zipBuffer.readUInt32LE(offset + 22);
+    const nameLen = zipBuffer.readUInt16LE(offset + 26);
+    const extraLen = zipBuffer.readUInt16LE(offset + 28);
 
-    if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true });
+    const fileName = zipBuffer.toString('utf8', offset + 30, offset + 30 + nameLen);
+    const dataStart = offset + 30 + nameLen + extraLen;
+    const rawData = zipBuffer.subarray(dataStart, dataStart + compSize);
 
-    // Skip if already completely downloaded
-    if (fs.existsSync(destPath)) {
-      completed++;
-      mainWindow.webContents.send('download-progress', {
-        completedFiles: completed,
-        totalFiles: total,
-        currentFile: item.name,
-        percent: Math.round((completed / total) * 100),
-        speed: currentSpeed
-      });
-      continue;
+    const outPath = path.join(targetDir, fileName);
+
+    if (fileName.endsWith('/')) {
+      if (!fs.existsSync(outPath)) fs.mkdirSync(outPath, { recursive: true });
+    } else {
+      const parentDir = path.dirname(outPath);
+      if (!fs.existsSync(parentDir)) fs.mkdirSync(parentDir, { recursive: true });
+
+      if (compMethod === 0) {
+        // Stored (Uncompressed)
+        fs.writeFileSync(outPath, rawData);
+      } else if (compMethod === 8) {
+        // Deflated (Standard ZIP compression)
+        const decompressed = zlib.inflateRawSync(rawData);
+        fs.writeFileSync(outPath, decompressed);
+      }
     }
 
-    let downloadedBytes = 0;
-    if (fs.existsSync(partPath)) {
-      downloadedBytes = fs.statSync(partPath).size;
-    }
+    offset = dataStart + compSize;
+  }
+}
 
-    await new Promise((resolve) => {
-      const client = item.remoteUrl.startsWith('https') ? https : http;
-      const headers = downloadedBytes > 0 ? { Range: `bytes=${downloadedBytes}-` } : {};
+// Redirect-aware streaming downloader
+function downloadWithRedirect(url, chunks, onProgress) {
+  return new Promise((resolve, reject) => {
+    const client = url.startsWith('https') ? https : http;
+    const req = client.get(url, { headers: { 'User-Agent': 'Questionary-App' } }, (res) => {
+      // Follow HTTP 301, 302, 307, 308 redirects (GitHub Releases redirect to AWS S3 & Google Drive)
+      if ([301, 302, 307, 308].includes(res.statusCode)) {
+        if (!res.headers.location) {
+          return reject(new Error('Redirect missing location header'));
+        }
+        return downloadWithRedirect(res.headers.location, chunks, onProgress).then(resolve).catch(reject);
+      }
 
-      const req = client.get(item.remoteUrl, { headers }, (res) => {
-        // 200 = fresh start, 206 = partial content resume
-        if (res.statusCode !== 200 && res.statusCode !== 206) {
-          resolve();
-          return;
+      if (res.statusCode !== 200) {
+        return reject(new Error(`Download failed with status ${res.statusCode}`));
+      }
+
+      const totalBytes = parseInt(res.headers['content-length'], 10) || 0;
+      let downloaded = 0;
+      let lastTime = Date.now();
+      let bytesSince = 0;
+      let speed = '0 KB/s';
+
+      res.on('data', (chunk) => {
+        chunks.push(chunk);
+        downloaded += chunk.length;
+        bytesSince += chunk.length;
+
+        const now = Date.now();
+        if (now - lastTime >= 800) {
+          const speedKB = (bytesSince / 1024) / ((now - lastTime) / 1000);
+          speed = speedKB > 1024 ? `${(speedKB / 1024).toFixed(1)} MB/s` : `${Math.round(speedKB)} KB/s`;
+          bytesSince = 0;
+          lastTime = now;
         }
 
-        const fileStream = fs.createWriteStream(partPath, { flags: downloadedBytes > 0 ? 'a' : 'w' });
-        activeDownloads.set(item.id, { req, fileStream });
+        if (totalBytes > 0 && onProgress) {
+          onProgress({ percent: Math.min(98, Math.round((downloaded / totalBytes) * 100)), speed });
+        }
+      });
 
-        res.on('data', (chunk) => {
-          bytesSinceLastCalc += chunk.length;
-          totalBytesDownloaded += chunk.length;
+      res.on('end', resolve);
+      res.on('error', reject);
+    });
 
-          const now = Date.now();
-          if (now - lastSpeedCalcTime >= 1000) {
-            const speedKBps = (bytesSinceLastCalc / 1024) / ((now - lastSpeedCalcTime) / 1000);
-            currentSpeed = speedKBps > 1024 ? `${(speedKBps / 1024).toFixed(1)} MB/s` : `${Math.round(speedKBps)} KB/s`;
-            bytesSinceLastCalc = 0;
-            lastSpeedCalcTime = now;
-          }
+    req.on('error', reject);
+  });
+}
 
-          mainWindow.webContents.send('download-progress', {
-            completedFiles: completed,
-            totalFiles: total,
-            currentFile: item.name,
-            percent: Math.round(((completed + (downloadedBytes / (res.headers['content-length'] || 1))) / total) * 100),
-            speed: currentSpeed
-          });
-        });
+// ================================================================
+// DUAL-MIRROR DOWNLOAD HANDLER (GitHub Releases + Google Drive Fallback)
+// ================================================================
 
-        res.pipe(fileStream);
+const GDRIVE_MIRRORS = {
+  sd: 'https://drive.usercontent.google.com/download?id=1Jrjw9B8UZOQ0iKCbJy0AEJsZ7Bxb3-xD&export=download&authuser=0&confirm=t',
+  hd: 'https://drive.usercontent.google.com/download?id=1eswlUDGcWwLpCcNGosYnVgQhWKdYGt-J&export=download&authuser=0&confirm=t'
+};
 
-        fileStream.on('finish', () => {
-          fileStream.close(() => {
-            if (fs.existsSync(partPath)) {
-              fs.renameSync(partPath, destPath);
-            }
-            completed++;
-            activeDownloads.delete(item.id);
-            resolve();
-          });
-        });
+ipcMain.handle('download-full-pack', async (event, { quality, storageDir, repoOwner, repoName, releaseTag }) => {
+  const owner = repoOwner || 'Nugget1252';
+  const repo = repoName || 'Questionarytauri';
+  const tag = releaseTag || 'documents';
+  const zipFilename = quality === 'hd' ? 'documents-hd.zip' : 'documents-sd.zip';
 
-        fileStream.on('error', () => {
-          activeDownloads.delete(item.id);
-          resolve();
+  // Primary Mirror: GitHub Releases CDN
+  const githubUrl = `https://github.com/${owner}/${repo}/releases/download/${tag}/${zipFilename}`;
+  // Secondary Mirror: Google Drive
+  const gdriveUrl = quality === 'hd' ? GDRIVE_MIRRORS.hd : GDRIVE_MIRRORS.sd;
+
+  if (!fs.existsSync(storageDir)) {
+    fs.mkdirSync(storageDir, { recursive: true });
+  }
+
+  const mirrors = [
+    { name: 'GitHub Releases CDN', url: githubUrl },
+    { name: 'Google Drive Mirror', url: gdriveUrl }
+  ];
+
+  let downloadedBuffer = null;
+  let lastError = null;
+
+  for (const mirror of mirrors) {
+    if (!mirror.url || mirror.url.includes('YOUR_GDRIVE_FILE_ID')) continue;
+
+    mainWindow.webContents.send('download-progress', {
+      currentFile: `Connecting to ${mirror.name}...`,
+      percent: 0,
+      speed: ''
+    });
+
+    const chunks = [];
+    try {
+      await downloadWithRedirect(mirror.url, chunks, (prog) => {
+        mainWindow.webContents.send('download-progress', {
+          currentFile: `Downloading ${quality.toUpperCase()} Pack via ${mirror.name}`,
+          percent: prog.percent,
+          speed: prog.speed
         });
       });
 
-      req.on('error', () => resolve());
+      downloadedBuffer = Buffer.concat(chunks);
+      break; // Download succeeded!
+    } catch (err) {
+      console.warn(`[Mirror Warning] ${mirror.name} failed:`, err.message);
+      lastError = err;
+    }
+  }
+
+  if (!downloadedBuffer) {
+    return { success: false, error: lastError ? lastError.message : 'All download mirrors failed.' };
+  }
+
+  // Extract the zip archive in memory to destination
+  mainWindow.webContents.send('download-progress', {
+    currentFile: 'Extracting documents...',
+    percent: 99,
+    speed: 'Extracting...'
+  });
+
+  try {
+    extractZipBuffer(downloadedBuffer, storageDir);
+    fs.writeFileSync(path.join(storageDir, '.quality'), quality, 'utf8');
+
+    mainWindow.webContents.send('download-progress', {
+      currentFile: 'Complete!',
+      percent: 100,
+      speed: ''
     });
-  }
 
-  return { success: true, completed, total };
-});
-
-ipcMain.handle('pause-downloads', () => {
-  isPaused = true;
-  for (const [id, download] of activeDownloads.entries()) {
-    try {
-      download.req.destroy();
-      download.fileStream.close();
-    } catch (e) {}
+    return { success: true };
+  } catch (extractErr) {
+    return { success: false, error: 'Extraction failed: ' + extractErr.message };
   }
-  activeDownloads.clear();
-  return true;
 });

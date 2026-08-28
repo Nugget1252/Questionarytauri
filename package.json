@@ -3,7 +3,7 @@
   "version": "0.9.8",
   "description": "Questionary Desktop Study App",
   "main": "main.js",
-  "author": "Your Organization",
+  "author": "Questionary",
   "scripts": {
     "start": "electron .",
     "build:linux": "electron-builder --linux",
@@ -23,33 +23,27 @@
   "build": {
     "appId": "com.questionary.app",
     "productName": "Questionary",
+    "asar": true,
     "files": [
-      "**/*",
-      "!dist/**",
-      "!src-tauri/**",
-      "!.git/**",
-      "!.github/**",
-      "!*.md",
-      "!*.log"
+      "index.html",
+      "pdfviewer.html",
+      "main.js",
+      "preload.js",
+      "questionary.db",
+      "package.json",
+      "assets/**/*",
+      "css/**/*",
+      "js/**/*",
+      "node_modules/sql.js/**/*"
     ],
     "directories": {
       "output": "dist"
     },
     "linux": {
-      "target": ["AppImage", "rpm", "deb"],
-      "icon": "assets/logo.png",
+      "target": ["AppImage"],
       "category": "Education",
-      "maintainer": "Your Name <you@example.com>",
-      "synopsis": "Questionary Desktop Study & Practice Companion"
-    },
-    "win": {
-      "target": ["nsis", "portable"],
-      "icon": "assets/logo.png"
-    },
-    "mac": {
-      "target": ["dmg", "zip"],
-      "icon": "assets/logo.png",
-      "category": "public.app-category.education"
+      "maintainer": "Questionary <support@questionary.app>",
+      "icon": "assets/icons"
     }
   }
 }

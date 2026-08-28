@@ -347,7 +347,7 @@
             }
         }
     </style>
-
+    
     <script>
       window.RTCPeerConnection = window.RTCPeerConnection || window.webkitRTCPeerConnection || window.mozRTCPeerConnection;
       window.RTCSessionDescription = window.RTCSessionDescription || window.webkitRTCSessionDescription;
@@ -404,9 +404,9 @@
 </div>
 
 <div id="app" style="display:none;">
-
+    
     <div class="sidebar-overlay" id="sidebarOverlay"></div>
-
+    
     <header class="header">
         <div class="header-left" id="headerLeft">
             <button class="hamburger-menu" id="hamburgerMenu" title="Toggle Menu" aria-label="Open Menu">
@@ -446,7 +446,7 @@
                 <i class="fas fa-search search-icon"></i>
                 <input type="text" class="search-input" id="globalSearch" placeholder="Search..." autocomplete="off">
             </div>
-
+            
             <div class="header-actions-row">
                 <button class="update-check-btn" id="checkUpdatesBtn" title="Check for App Updates (Right-click to Force Re-sync)">
                     <i class="fas fa-sync-alt"></i>
@@ -473,15 +473,15 @@
                             <span class="dropdown-role">Student</span>
                         </div>
                     </div>
-
+                    
                     <div class="user-dropdown-item" id="openSettingsBtn">
                         <i class="fas fa-cog"></i>
                         <span>All Settings</span>
                         <i class="fas fa-chevron-right" style="margin-left:auto; font-size:0.55rem; color:var(--fg3);"></i>
                     </div>
-
+                    
                     <div class="user-dropdown-divider"></div>
-
+                    
                     <div class="dropdown-group">
                         <div class="dropdown-group-label">Layout</div>
                         <div class="user-dropdown-item toggle-item">
@@ -501,9 +501,9 @@
                             </div>
                         </div>
                     </div>
-
+                    
                     <div class="user-dropdown-divider"></div>
-
+                    
                     <div class="dropdown-group">
                         <div class="dropdown-group-label">Study Features</div>
                         <div class="user-dropdown-item toggle-item">
@@ -523,9 +523,9 @@
                             </div>
                         </div>
                     </div>
-
+                    
                     <div class="user-dropdown-divider"></div>
-
+                    
                     <div class="dropdown-group">
                         <div class="dropdown-group-label">Display</div>
                         <div class="user-dropdown-item toggle-item">
@@ -545,9 +545,9 @@
                             </div>
                         </div>
                     </div>
-
+                    
                     <div class="user-dropdown-divider"></div>
-
+                    
                     <div class="dropdown-group">
                         <div class="dropdown-group-label">Data</div>
                         <div class="dropdown-btn-row">
@@ -557,9 +557,9 @@
                         <button class="dropdown-btn" id="resetCodeCacheBtn" style="margin-top: 6px;"><i class="fas fa-sync-alt"></i> Reset Code Cache</button>
                         <button class="dropdown-btn dropdown-btn-danger" id="clearDataBtn"><i class="fas fa-trash-alt"></i> Clear Local Data</button>
                     </div>
-
+                    
                     <div class="user-dropdown-divider"></div>
-
+                    
                     <button class="dropdown-btn dropdown-btn-logout" id="logoutBtn">
                         <i class="fas fa-sign-out-alt"></i> Logout
                     </button>
@@ -582,7 +582,7 @@
     </div>
 
     <div class="container" id="main-content">
-
+        
         <div class="dashboard-header" id="dashboardHeader">
             <div class="stat-card">
                 <div class="stat-icon documents"><i class="fas fa-file-alt"></i></div>
@@ -637,7 +637,7 @@
                 </div>
             </div>
             <div id="tilesContainer" class="tiles-grid"></div>
-
+            
             <!-- PDF Viewer -->
             <div id="pdfViewerContainer" style="display:none;">
                 <div class="pdf-toolbar">
@@ -744,7 +744,7 @@
                     </div>
                 </div>
             </div>
-
+            
             <div class="analytics-grid">
                 <div class="analytics-card">
                     <h3><i class="fas fa-calendar-day"></i> Activity (Last 7 Days)</h3>
@@ -755,7 +755,7 @@
                     <div id="subjectChart" class="chart-container"></div>
                 </div>
             </div>
-
+            
             <div class="analytics-card" style="margin-top: 1.5rem;">
                 <h3><i class="fas fa-history"></i> Recent Activity</h3>
                 <div id="recentActivityList" class="recent-activity-list"></div>
@@ -800,7 +800,7 @@
                 <button id="createNoteBtn" type="button" class="btn-sm"><i class="fas fa-plus"></i> New Note</button>
             </div>
             <div id="notesGrid" class="notes-grid"></div>
-
+            
             <div class="voice-notes-section">
                 <div class="section-header">
                     <h3 class="section-title"><i class="fas fa-microphone"></i> Voice Notes</h3>
@@ -823,7 +823,7 @@
             </div>
             <div id="homeTagsList" style="display: flex; flex-wrap: wrap; gap: 10px;"></div>
         </div>
-
+        
         <div id="homeTaggedItemsSection" class="home-section-card" style="display:none;">
             <div style="margin-bottom: 12px;">
                 <span class="section-label"><i class="fas fa-folder-open"></i> Tagged Items</span>
@@ -852,7 +852,7 @@
                     <i class="fas fa-edit"></i> Edit
                 </button>
             </div>
-
+            
             <div id="libraryEditControls" style="display:none; margin-bottom: 1rem; padding: 1rem; background: var(--surface); border: 1px solid var(--border); border-radius: 0.5rem;">
                 <div style="display: flex; gap: 0.5rem; margin-bottom: 0.75rem;">
                     <button type="button" class="btn-sm" onclick="openCreateLibraryFolderModal()">
@@ -867,15 +867,15 @@
                     <p>Drag and drop PDF, Images, Word (.docx), or Text/MD files here</p>
                 </div>
             </div>
-
+            
             <div id="libraryBreadcrumb" class="library-breadcrumb" style="display:none;">
                 <button class="breadcrumb-item" onclick="navigateToLibraryRoot()">
                     <i class="fas fa-home"></i> Library
                 </button>
             </div>
-
+            
             <div id="libraryContents" class="library-grid"></div>
-
+            
             <div id="libraryEmptyState" class="library-empty-state" style="display:none;">
                 <i class="fas fa-folder-open"></i>
                 <p>No files yet. Click Edit to create folders or import documents.</p>
@@ -884,7 +884,7 @@
 
         <section id="progressSection" class="tiles-section">
             <h2 class="section-title"><i class="fas fa-chart-line"></i> Progress</h2>
-
+            
             <div class="progress-overview">
                 <div class="progress-ring-container">
                     <div class="progress-ring">
@@ -898,7 +898,7 @@
                         </div>
                     </div>
                 </div>
-
+                
                 <div class="progress-stats">
                     <div class="progress-stat-item">
                         <div class="progress-stat-icon"><i class="fas fa-clock"></i></div>
@@ -930,13 +930,13 @@
                     </div>
                 </div>
             </div>
-
+            
             <div class="progress-filters">
                 <button class="progress-filter active" data-filter="all">All</button>
                 <button class="progress-filter" data-filter="in-progress">In Progress</button>
                 <button class="progress-filter" data-filter="completed">Completed</button>
             </div>
-
+            
             <div class="progress-list" id="progressList">
                 <p class="empty-state"><i class="fas fa-chart-line"></i> No progress tracked yet. Open documents to track your progress.</p>
             </div>
@@ -957,7 +957,7 @@
 
         <section id="settingsSection" class="tiles-section" style="display:none;">
             <h2 class="section-title"><i class="fas fa-cog"></i> Settings</h2>
-
+            
             <div class="settings-card">
                 <h3 class="settings-card-title"><i class="fas fa-hdd"></i> PDF Storage & Download Manager</h3>
                 <div id="settingsStoragePanel"></div>
@@ -1290,56 +1290,63 @@
 
     <!-- Modals (with Mobile Bottom Sheet Handle) -->
     <div class="modal-overlay" id="setupWizardModal">
-        <div class="modal modal-lg">
+        <div class="modal setup-wizard-card">
             <div class="modal-sheet-handle"></div>
-            <div class="modal-header">
-                <h3><i class="fas fa-sliders-h"></i> Welcome to Questionary Setup</h3>
+            <div class="modal-header wizard-header">
+                <div class="wizard-icon-badge">
+                    <i class="fas fa-sliders-h"></i>
+                </div>
+                <div>
+                    <h3>Welcome to Questionary</h3>
+                    <p class="wizard-subtitle">Choose your document quality and storage location to get started.</p>
+                </div>
             </div>
-            <div class="modal-body">
-                <p class="settings-hint">Configure your download preferences and select subject materials to get started.</p>
 
+            <div class="modal-body wizard-body">
                 <div class="form-group">
-                    <label class="form-label">Quality Profile</label>
-                    <div class="quality-radio-group">
-                        <label class="quality-radio-card active">
-                            <input type="radio" name="wizardQuality" value="sd" checked>
-                            <strong>Standard (SD)</strong>
-                            <small>Lightweight & faster downloads</small>
+                    <label class="form-label">Document Quality Profile</label>
+                    <div class="quality-grid">
+                        <label class="quality-card active" id="wizardCardSD" onclick="window.DownloadManager.selectWizardQuality('sd')">
+                            <input type="radio" name="wizardQuality" value="sd" checked style="display:none;">
+                            <div class="quality-card-header">
+                                <div class="quality-card-icon sd"><i class="fas fa-bolt"></i></div>
+                                <div class="quality-radio-circle"><i class="fas fa-check"></i></div>
+                            </div>
+                            <strong class="quality-title">Standard Definition (SD)</strong>
+                            <span class="quality-desc">Compressed files for lightning-fast downloads and minimal storage footprint.</span>
+                            <div class="quality-badge">~60 MB Total</div>
                         </label>
-                        <label class="quality-radio-card">
-                            <input type="radio" name="wizardQuality" value="hd">
-                            <strong>High-Definition (HD)</strong>
-                            <small>Vector-sharp text & diagram clarity</small>
+
+                        <label class="quality-card" id="wizardCardHD" onclick="window.DownloadManager.selectWizardQuality('hd')">
+                            <input type="radio" name="wizardQuality" value="hd" style="display:none;">
+                            <div class="quality-card-header">
+                                <div class="quality-card-icon hd"><i class="fas fa-gem"></i></div>
+                                <div class="quality-radio-circle"><i class="fas fa-check"></i></div>
+                            </div>
+                            <strong class="quality-title">High Definition (HD)</strong>
+                            <span class="quality-desc">Crisp vector text and crystal-clear high-res diagram illustrations.</span>
+                            <div class="quality-badge hd">~140 MB Total</div>
                         </label>
                     </div>
                 </div>
 
-                <div class="form-group">
-                    <label class="form-label">Storage Location</label>
-                    <div style="display: flex; gap: 8px;">
-                        <input type="text" id="wizardStoragePath" class="form-input" readonly>
-                        <button type="button" class="btn btn-secondary" onclick="window.DownloadManager.handleBrowseFolder('wizardStoragePath')">
+                <div class="form-group" style="margin-top: 1.25rem;">
+                    <label class="form-label">Storage Directory</label>
+                    <div class="storage-picker-row">
+                        <div class="storage-input-wrapper">
+                            <i class="fas fa-hdd storage-leading-icon"></i>
+                            <input type="text" id="wizardStoragePath" class="form-input wizard-storage-input" readonly spellcheck="false">
+                        </div>
+                        <button type="button" class="btn btn-secondary wizard-browse-btn" onclick="window.DownloadManager.handleBrowseFolder('wizardStoragePath')">
                             <i class="fas fa-folder-open"></i> Browse
                         </button>
                     </div>
-                </div>
-
-                <div class="form-group">
-                    <label class="form-label">Select Classes & Subjects</label>
-                    <div class="wizard-subjects-grid">
-                        <label class="checkbox-label"><input type="checkbox" class="wizard-subject-cb" data-grade="class11" data-subject="physics" checked> Class 11 Physics</label>
-                        <label class="checkbox-label"><input type="checkbox" class="wizard-subject-cb" data-grade="class11" data-subject="chemistry" checked> Class 11 Chemistry</label>
-                        <label class="checkbox-label"><input type="checkbox" class="wizard-subject-cb" data-grade="class11" data-subject="math" checked> Class 11 Mathematics</label>
-                        <label class="checkbox-label"><input type="checkbox" class="wizard-subject-cb" data-grade="class11" data-subject="biology"> Class 11 Biology</label>
-                        <label class="checkbox-label"><input type="checkbox" class="wizard-subject-cb" data-grade="class12" data-subject="physics" checked> Class 12 Physics</label>
-                        <label class="checkbox-label"><input type="checkbox" class="wizard-subject-cb" data-grade="class12" data-subject="chemistry" checked> Class 12 Chemistry</label>
-                        <label class="checkbox-label"><input type="checkbox" class="wizard-subject-cb" data-grade="class12" data-subject="math" checked> Class 12 Mathematics</label>
-                        <label class="checkbox-label"><input type="checkbox" class="wizard-subject-cb" data-grade="class12" data-subject="biology"> Class 12 Biology</label>
-                    </div>
+                    <span class="storage-hint-text">Downloaded papers and updates will be stored in this folder.</span>
                 </div>
             </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-primary" onclick="window.DownloadManager.saveAndStartInitialDownload()">
+
+            <div class="modal-footer wizard-footer">
+                <button type="button" class="btn btn-primary wizard-submit-btn" onclick="window.DownloadManager.saveAndStartInitialDownload()">
                     <i class="fas fa-cloud-download-alt"></i> Complete Setup & Download
                 </button>
             </div>
@@ -1647,7 +1654,7 @@
             </div>
         </div>
     </div>
-
+    
     <div class="download-progress-bar" id="downloadProgressBar" style="display: none;">
         <div class="download-progress-info">
             <i class="fas fa-download"></i>
@@ -1668,11 +1675,11 @@
             <div class="content-progress-fill" id="contentProgressFill"></div>
         </div>
     </div>
-
+    
     <button class="quick-links-toggle" id="quickLinksToggle" title="Quick Links">
         <i class="fas fa-link"></i>
     </button>
-
+    
     <div class="quick-links-panel" id="quickLinksPanel">
         <div class="quick-links-header">
             <h3><i class="fas fa-link"></i> Quick Links</h3>
@@ -1685,7 +1692,7 @@
             <i class="fas fa-plus"></i> Add Current Location
         </button>
     </div>
-
+    
     <div class="timer-panel" id="timerPanel" style="display:none;">
         <div class="timer-header" id="timerDragHandle">
             <div class="timer-title">
@@ -1731,7 +1738,7 @@
         </div>
         <div class="timer-resize-handle" id="timerResizeHandle"></div>
     </div>
-
+    
     <button class="timer-reopen-btn" id="timerReopenBtn" style="display:none;" title="Reopen Timer">
         <i class="fas fa-stopwatch"></i>
     </button>

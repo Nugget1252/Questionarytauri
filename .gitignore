@@ -24,3 +24,7 @@ dist-ssr
 *.sw?
 scripts/credentials.json
 scripts/token.pickle
+*.zip
+documents-sd.zip
+documents-hd.zip
+dist/

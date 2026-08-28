@@ -1163,15 +1163,21 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
         }
       }
 
+      // Resolve locally downloaded Electron path if available
+      let finalUrl = url;
+      if (window.DownloadManager && !url.startsWith('blob:') && !url.startsWith('data:')) {
+        finalUrl = window.DownloadManager.resolveDocumentUrl(url);
+      }
+
       if (typeof window.setCurrentPDF === 'function') {
-        window.setCurrentPDF(url, filename);
+        window.setCurrentPDF(finalUrl, filename);
       }
 
       if (pdfViewer) {
-        // Resolve absolute URL for local files or keep raw blob: URL
-        const targetUrl = (url.startsWith('blob:') || url.startsWith('data:') || url.startsWith('http'))
-            ? url
-            : new URL(url, window.location.href).href;
+        // Resolve absolute URL for local files, custom Electron protocol, or keep raw blob: URL
+        const targetUrl = (finalUrl.startsWith('blob:') || finalUrl.startsWith('data:') || finalUrl.startsWith('http') || finalUrl.startsWith('local-pdf:'))
+        ? finalUrl
+        : new URL(finalUrl, window.location.href).href;
 
         const viewerUrl = 'pdfviewer.html?file=' + encodeURIComponent(targetUrl);
 
@@ -1199,9 +1205,9 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
         const pdfNameEl = document.getElementById('currentPdfName');
         if (pdfNameEl) pdfNameEl.textContent = filename;
 
-        if (typeof renderPdfBookmarks === 'function') renderPdfBookmarks(url);
-        if (typeof window.setCurrentPdfForBookmarks === 'function') window.setCurrentPdfForBookmarks(url);
-        else window.currentPdfUrlForBookmarks = url;
+        if (typeof renderPdfBookmarks === 'function') renderPdfBookmarks(finalUrl);
+        if (typeof window.setCurrentPdfForBookmarks === 'function') window.setCurrentPdfForBookmarks(finalUrl);
+        else window.currentPdfUrlForBookmarks = finalUrl;
       }
 
       const timerPanel = document.getElementById('timerPanel');

@@ -15,8 +15,7 @@ jobs:
         include:
           - platform: windows-latest
             build-cmd: 'npm run build:win'
-            artifact-path: |
-              dist/*.exe
+            artifact-path: 'dist/*.exe'
 
           - platform: macos-latest
             build-cmd: 'npm run build:mac'
@@ -47,7 +46,7 @@ jobs:
         if: matrix.platform == 'ubuntu-22.04'
         run: |
           sudo apt-get update
-          sudo apt-get install -y rpm fakeroot xvfb libarchive-tools
+          sudo apt-get install -y rpm fakeroot xvfb zip libarchive-tools
 
       - name: Install Node Dependencies
         run: npm ci
@@ -64,11 +63,27 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload Desktop Artifacts to GitHub Release
+      # Only pack document zips once on the Ubuntu runner to avoid duplication
+      - name: Package Document ZIP Packs
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          # Package SD
+          zip -r documents-sd.zip documents/
+
+          # Package HD (ensuring the internal folder is named 'documents')
+          mkdir -p temp_hd_stage/documents
+          cp -r documentshd/* temp_hd_stage/documents/
+          cd temp_hd_stage && zip -r ../documents-hd.zip documents/ && cd ..
+          rm -rf temp_hd_stage
+
+      - name: Upload Desktop Artifacts & Doc Packs to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          files: ${{ matrix.artifact-path }}
+          files: |
+            ${{ matrix.artifact-path }}
+            ${{ matrix.platform == 'ubuntu-22.04' && 'documents-sd.zip' || '' }}
+            ${{ matrix.platform == 'ubuntu-22.04' && 'documents-hd.zip' || '' }}
           draft: false
           prerelease: false
           generate_release_notes: true
