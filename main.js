@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, protocol, net, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, protocol, net, Menu, nativeImage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const https = require('https');
@@ -27,22 +27,46 @@ let mainWindow;
 // Disable Default Application Menu bar completely
 Menu.setApplicationMenu(null);
 
+// Resolve Application Icon with Fallbacks for Linux / Windows / macOS
+function getAppIcon() {
+  const possiblePaths = [
+    path.join(__dirname, 'assets/icons/512x512.png'),
+    path.join(__dirname, 'assets/icons/256x256.png'),
+    path.join(__dirname, 'assets/logo.png'),
+    path.join(__dirname, 'assets/icons/64x64.png')
+  ];
+
+  for (const iconPath of possiblePaths) {
+    if (fs.existsSync(iconPath)) {
+      return nativeImage.createFromPath(iconPath);
+    }
+  }
+  return null;
+}
+
 function createWindow() {
+  const icon = getAppIcon();
+
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
     minWidth: 900,
     minHeight: 600,
     autoHideMenuBar: true,
+    icon: icon || undefined,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
       contextIsolation: true,
       webSecurity: true,
       devTools: false // Disables DevTools / Inspect Element
-    },
-    icon: path.join(__dirname, 'assets/logo.png')
+    }
   });
+
+  // Explicitly set icon for Linux desktop compositors / taskbars
+  if (process.platform === 'linux' && icon) {
+    mainWindow.setIcon(icon);
+  }
 
   mainWindow.setMenuBarVisibility(false);
   mainWindow.loadFile('index.html');
