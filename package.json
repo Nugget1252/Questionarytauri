@@ -1,9 +1,9 @@
 {
   "name": "questionary",
-  "version": "0.9.8",
+  "version": "0.9.9",
   "description": "Questionary Desktop Study App",
   "main": "main.js",
-  "author": "Questionary",
+  "author": "Nugget",
   "scripts": {
     "start": "electron .",
     "build:linux": "electron-builder --linux AppImage deb rpm",
