@@ -68,7 +68,7 @@ app.whenReady().then(() => {
     // Decode percent-encoded spaces and special characters
     let decoded = decodeURIComponent(request.url.replace(/^local-pdf:\/\//, ''));
 
-    // Automatically eliminate duplicate 'documents/documents/' if present in path
+    // Automatically eliminate duplicate 'documents/documents/' if present in URL
     decoded = decoded.replace(/\/documents\/documents\//g, '/documents/');
 
     // Ensure leading slash remains intact on Linux and macOS
@@ -240,7 +240,7 @@ ipcMain.handle('delete-user-library-file', async (event, { blobId, storageDir })
 });
 
 // ================================================================
-// PURE NATIVE ZIP EXTRACTION (Zero external dependencies)
+// DUPLICATE-FREE ZIP EXTRACTION (Zero external dependencies)
 // ================================================================
 
 function extractZipBuffer(zipBuffer, targetDir) {
@@ -255,9 +255,12 @@ function extractZipBuffer(zipBuffer, targetDir) {
     const nameLen = zipBuffer.readUInt16LE(offset + 26);
     const extraLen = zipBuffer.readUInt16LE(offset + 28);
 
-    const fileName = zipBuffer.toString('utf8', offset + 30, offset + 30 + nameLen);
+    let fileName = zipBuffer.toString('utf8', offset + 30, offset + 30 + nameLen);
     const dataStart = offset + 30 + nameLen + extraLen;
     const rawData = zipBuffer.subarray(dataStart, dataStart + compSize);
+
+    // Normalize slashes
+    fileName = fileName.replace(/\\/g, '/');
 
     const outPath = path.join(targetDir, fileName);
 
@@ -278,6 +281,30 @@ function extractZipBuffer(zipBuffer, targetDir) {
     }
 
     offset = dataStart + compSize;
+  }
+
+  // Automatic post-extraction fix: If a nested documents/documents folder exists, flatten it immediately
+  const nestedFolder = path.join(targetDir, 'documents', 'documents');
+  const targetDocs = path.join(targetDir, 'documents');
+
+  if (fs.existsSync(nestedFolder)) {
+    console.log('[Extract] Detected nested documents/documents folder. Flattening...');
+    function moveContents(src, dest) {
+      const entries = fs.readdirSync(src, { withFileTypes: true });
+      for (const entry of entries) {
+        const srcPath = path.join(src, entry.name);
+        const destPath = path.join(dest, entry.name);
+        if (entry.isDirectory()) {
+          if (!fs.existsSync(destPath)) fs.mkdirSync(destPath, { recursive: true });
+          moveContents(srcPath, destPath);
+        } else {
+          fs.copyFileSync(srcPath, destPath);
+          fs.unlinkSync(srcPath);
+        }
+      }
+    }
+    moveContents(nestedFolder, targetDocs);
+    fs.rmSync(nestedFolder, { recursive: true, force: true });
   }
 }
 
