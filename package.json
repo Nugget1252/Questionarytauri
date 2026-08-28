@@ -1,17 +1,18 @@
 {
   "name": "questionary",
-  "version": "0.9.9",
+  "version": "0.9.8",
   "description": "Questionary Desktop Study App",
   "main": "main.js",
   "author": "Questionary",
   "scripts": {
     "start": "electron .",
-    "build:linux": "electron-builder --linux",
+    "build:linux": "electron-builder --linux AppImage deb rpm",
     "build:appimage": "electron-builder --linux AppImage",
     "build:rpm": "electron-builder --linux rpm",
     "build:deb": "electron-builder --linux deb",
     "build:win": "electron-builder --win",
-    "build:mac": "electron-builder --mac"
+    "build:mac": "electron-builder --mac",
+    "build:all": "electron-builder -wml"
   },
   "dependencies": {
     "sql.js": "^1.8.0"
@@ -40,10 +41,43 @@
       "output": "dist"
     },
     "linux": {
-      "target": ["AppImage"],
+      "target": ["AppImage", "deb", "rpm"],
       "category": "Education",
       "maintainer": "Questionary <support@questionary.app>",
       "icon": "assets/icons"
+    },
+    "deb": {
+      "priority": "optional",
+      "packageCategory": "education"
+    },
+    "rpm": {
+      "fpm": [
+        "--rpm-compression", "none",
+        "--rpm-auto-add-directories",
+        "--rpm-rpmbuild-define", "_build_id_links none",
+        "--rpm-rpmbuild-define", "debug_package %{nil}",
+        "--rpm-rpmbuild-define", "__spec_install_post %{nil}",
+        "--rpm-rpmbuild-define", "__os_install_post %{nil}"
+      ]
+    },
+    "win": {
+      "target": [
+        { "target": "nsis", "arch": ["x64"] },
+        { "target": "portable", "arch": ["x64"] }
+      ],
+      "icon": "assets/icons/512x512.png"
+    },
+    "mac": {
+      "target": ["dmg", "zip"],
+      "icon": "assets/icons/512x512.png",
+      "category": "public.app-category.education"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Questionary"
     }
   }
 }
