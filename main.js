@@ -6,6 +6,15 @@ const http = require('http');
 const zlib = require('zlib');
 
 // ================================================================
+// LINUX WAYLAND & KDE PLASMA / GNOME COMPOSITOR IDENTIFIERS
+// ================================================================
+app.name = 'questionary';
+if (process.platform === 'linux') {
+  app.setDesktopName('questionary.desktop');
+  app.commandLine.appendSwitch('enable-features', 'WaylandWindowDecorations');
+}
+
+// ================================================================
 // REGISTER PRIVILEGED PROTOCOLS (MUST BE CALLED BEFORE app.whenReady)
 // ================================================================
 protocol.registerSchemesAsPrivileged([
@@ -31,9 +40,10 @@ Menu.setApplicationMenu(null);
 function getAppIcon() {
   const possiblePaths = [
     path.join(__dirname, 'assets/icons/512x512.png'),
+    path.join(__dirname, 'build/icon.png'),
     path.join(__dirname, 'assets/icons/256x256.png'),
-    path.join(__dirname, 'assets/logo.png'),
-    path.join(__dirname, 'assets/icons/64x64.png')
+    path.join(__dirname, 'assets/icon.png'),
+    path.join(__dirname, 'assets/logo.png')
   ];
 
   for (const iconPath of possiblePaths) {
@@ -52,6 +62,7 @@ function createWindow() {
     height: 800,
     minWidth: 900,
     minHeight: 600,
+    title: 'Questionary',
     autoHideMenuBar: true,
     icon: icon || undefined,
     webPreferences: {
@@ -63,7 +74,7 @@ function createWindow() {
     }
   });
 
-  // Explicitly set icon for Linux desktop compositors / taskbars
+  // Explicitly set icon for Linux desktop compositors / KDE Plasma / GNOME taskbar
   if (process.platform === 'linux' && icon) {
     mainWindow.setIcon(icon);
   }
@@ -102,7 +113,7 @@ app.whenReady().then(() => {
       return net.fetch(`file://${decoded}`);
     }
 
-    // 2. Check nested documents/documents path
+    // 2. Check nested documents/documents path fallback
     const nestedPath = decoded.replace(/\/documents\//, '/documents/documents/');
     if (fs.existsSync(nestedPath)) {
       return net.fetch(`file://${nestedPath}`);

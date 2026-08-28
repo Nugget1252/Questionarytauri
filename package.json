@@ -26,6 +26,10 @@
     "productName": "Questionary",
     "executableName": "questionary",
     "asar": true,
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
     "files": [
       "index.html",
       "pdfviewer.html",
@@ -38,17 +42,16 @@
       "js/**/*",
       "node_modules/sql.js/**/*"
     ],
-    "directories": {
-      "output": "dist"
-    },
+    "icon": "build/icon.png",
     "linux": {
       "target": ["AppImage", "deb", "rpm"],
       "category": "Education",
       "maintainer": "Questionary <support@questionary.app>",
-      "icon": "assets/icons",
+      "icon": "build/icons",
       "desktop": {
+        "Name": "Questionary",
         "StartupWMClass": "questionary",
-        "Icon": "questionary"
+        "Comment": "Questionary Desktop Study App"
       }
     },
     "deb": {
@@ -70,11 +73,11 @@
         { "target": "nsis", "arch": ["x64"] },
         { "target": "portable", "arch": ["x64"] }
       ],
-      "icon": "assets/icons/512x512.png"
+      "icon": "build/icon.png"
     },
     "mac": {
       "target": ["dmg", "zip"],
-      "icon": "assets/icons/512x512.png",
+      "icon": "build/icon.png",
       "category": "public.app-category.education"
     },
     "nsis": {
