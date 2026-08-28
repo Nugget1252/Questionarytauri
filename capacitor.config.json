@@ -1,0 +1,6 @@
+{
+  "appId": "com.questionary.app",
+  "appName": "Questionary",
+  "webDir": ".",
+  "bundledWebRuntime": false
+}
