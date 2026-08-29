@@ -1124,7 +1124,7 @@
       <div class="sr-lobby">
         <div class="sr-lobby-header">
           <h2 class="section-title"><i class="fas fa-users-class"></i>Study Room</h2>
-          <span class="sr-exp-badge">Mesh Active</span>
+          <span class="sr-exp-badge">experimental</span>
           <div class="sr-lobby-icon"><i class="fas fa-graduation-cap"></i></div>
           <p class="sr-lobby-subtitle">Collaborate live with multi-user video, screen sharing, infinite vector whiteboard, synchronized timers & audio ambience.</p>
         </div>
