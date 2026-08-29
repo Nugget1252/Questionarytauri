@@ -1,3 +1,5 @@
+
+
 (function (window, document) {
   'use strict';
 
@@ -17,7 +19,7 @@
                           window.mozRTCIceCandidate ||
                           null;
 
-  console.log('[StudyRoom] Booting Master Study Room Engine v25.0 (Electron Desktop ScreenCapture Enabled)...');
+  console.log('[StudyRoom] Booting Master Study Room Engine v26.0 (Live ScreenShare Stream Sync)...');
 
   /* =========================================================================
    * 1. CONSTANTS, CODECS & ICE SERVERS
@@ -264,7 +266,6 @@
   let localAudioStream = null;
   let localVideoStream = null;
   let localScreenStream = null;
-  let dummySilentTrack = null;
   let micActive = false;
   let camActive = false;
   let pttActive = false;
@@ -361,8 +362,9 @@
     } catch (e) {}
   }
 
-  function createSilentAudioTrack() {
-    if (dummySilentTrack && dummySilentTrack.readyState === 'live') return dummySilentTrack;
+  // Generates carrier fallback stream with both audio and video dummy tracks
+  function createCarrierStream() {
+    const stream = new MediaStream();
     try {
       const AudioCtx = window.AudioContext || window.webkitAudioContext;
       const ctx = new AudioCtx();
@@ -376,11 +378,22 @@
       osc.connect(gain);
       gain.connect(dst);
       osc.start();
-      dummySilentTrack = dst.stream.getAudioTracks()[0];
-      return dummySilentTrack;
-    } catch (e) {
-      return null;
-    }
+      stream.addTrack(dst.stream.getAudioTracks()[0]);
+
+      // Add dummy black 2x2 video canvas track to pre-negotiate SDP video m-line
+      const c = document.createElement('canvas');
+      c.width = 2; c.height = 2;
+      const cCtx = c.getContext('2d');
+      cCtx.fillStyle = '#000000';
+      cCtx.fillRect(0, 0, 2, 2);
+      const vStream = c.captureStream(5);
+      if (vStream.getVideoTracks().length > 0) {
+        const vTrack = vStream.getVideoTracks()[0];
+        vTrack.enabled = false;
+        stream.addTrack(vTrack);
+      }
+    } catch (e) {}
+    return stream;
   }
 
   /* =========================================================================
@@ -432,15 +445,6 @@
             setSpotlight(data.screenShareOwnerId, data.screenShareOwnerName);
           }
           updateParticipantsUI();
-        }
-        break;
-
-      case 'track-swapped':
-        if (peers[fromId]) {
-          const stream = remoteStreams.get(fromId);
-          if (stream) {
-            renderRemoteMedia(fromId, stream);
-          }
         }
         break;
 
@@ -593,7 +597,7 @@
   }
 
   /* =========================================================================
-   * 6. PEERJS DATA & FULL-MESH MEDIA ENGINE
+   * 6. PEERJS DATA & REAL-TIME MEDIA CALL ENGINE
    * ========================================================================= */
   function setupPeerDataConnection(conn) {
     conn.on('open', () => {
@@ -642,9 +646,8 @@
         } catch (e) {}
       }
 
-      if (myId > conn.peer) {
-        callPeerMedia(conn.peer);
-      }
+      // Initiate media call to peer
+      callPeerMedia(conn.peer);
     });
 
     conn.on('data', (rawPayload) => {
@@ -692,50 +695,70 @@
       metadata: { nickname, room: roomAddress }
     });
     setupPeerDataConnection(conn);
-    callPeerMedia(targetPeerId);
   }
 
   function getActiveCombinedStream() {
     const combined = new MediaStream();
     let hasAudio = false;
+    let hasVideo = false;
 
     if (localAudioStream && micActive) {
       localAudioStream.getAudioTracks().forEach(t => {
         if (t.readyState === 'live') {
           t.enabled = true;
-          if (!combined.getTracks().includes(t)) combined.addTrack(t);
+          combined.addTrack(t);
           hasAudio = true;
         }
       });
     }
 
-    if (!hasAudio) {
-      const silent = createSilentAudioTrack();
-      if (silent && !combined.getTracks().includes(silent)) combined.addTrack(silent);
-    }
-
     if (localScreenStream) {
       localScreenStream.getVideoTracks().forEach(t => {
-        if (t.readyState === 'live' && !combined.getTracks().includes(t)) combined.addTrack(t);
+        if (t.readyState === 'live') {
+          t.enabled = true;
+          combined.addTrack(t);
+          hasVideo = true;
+        }
       });
     } else if (localVideoStream && camActive) {
       localVideoStream.getVideoTracks().forEach(t => {
-        if (t.readyState === 'live' && !combined.getTracks().includes(t)) combined.addTrack(t);
+        if (t.readyState === 'live') {
+          t.enabled = true;
+          combined.addTrack(t);
+          hasVideo = true;
+        }
       });
+    }
+
+    // Fill missing tracks with pre-warmed carrier tracks
+    if (!hasAudio || !hasVideo) {
+      const carrier = createCarrierStream();
+      if (!hasAudio && carrier.getAudioTracks().length > 0) {
+        combined.addTrack(carrier.getAudioTracks()[0]);
+      }
+      if (!hasVideo && carrier.getVideoTracks().length > 0) {
+        combined.addTrack(carrier.getVideoTracks()[0]);
+      }
     }
 
     return combined;
   }
 
   function callPeerMedia(remotePeerId) {
-    if (!peerInstance || peerMediaCalls.has(remotePeerId)) return;
+    if (!peerInstance) return;
     const stream = getActiveCombinedStream();
 
     try {
+      // Close previous call if open to force full WebRTC track renegotiation
+      if (peerMediaCalls.has(remotePeerId)) {
+        try { peerMediaCalls.get(remotePeerId).close(); } catch (e) {}
+        peerMediaCalls.delete(remotePeerId);
+      }
+
       const call = peerInstance.call(remotePeerId, stream);
       setupPeerCall(call);
     } catch (e) {
-      console.warn('[PeerJS] Media call note:', e);
+      console.warn('[PeerJS] Media call error:', e);
     }
   }
 
@@ -760,33 +783,9 @@
   }
 
   function broadcastMediaToAllPeers() {
-    const activeStream = getActiveCombinedStream();
-    const audioTrack = activeStream.getAudioTracks()[0] || null;
-    const videoTrack = activeStream.getVideoTracks()[0] || null;
-
-    peerMediaCalls.forEach((call) => {
-      if (call && call.peerConnection) {
-        const senders = call.peerConnection.getSenders();
-        let videoSender = senders.find(s => s.track && s.track.kind === 'video');
-
-        senders.forEach((sender) => {
-          if (sender.track && sender.track.kind === 'audio' && audioTrack) {
-            audioTrack.enabled = true;
-            sender.replaceTrack(audioTrack).catch(() => {});
-          } else if (sender.track && sender.track.kind === 'video' && videoTrack) {
-            sender.replaceTrack(videoTrack).catch(() => {});
-          }
-        });
-
-        if (!videoSender && videoTrack) {
-          try {
-            call.peerConnection.addTrack(videoTrack, activeStream);
-          } catch (e) {}
-        }
-      }
+    peerDataConns.forEach((_, peerId) => {
+      callPeerMedia(peerId);
     });
-
-    broadcastData({ type: 'track-swapped' });
   }
 
   /* =========================================================================
@@ -834,7 +833,7 @@
     }
   }
 
-  // Universal Screen Share Controller (Supports Electron, Tauri, and Browser)
+  // Universal Screen Share Controller (Supports Electron DesktopCapturer & Web)
   async function toggleScreenShare() {
     const btn = document.getElementById('srToggleScreenShare');
     if (localScreenStream) {
@@ -843,40 +842,31 @@
     }
 
     try {
-      // 1. Check for Electron Desktop Capturer Bridge if present
-      if (window.electronAPI?.getDesktopSources || window.require) {
+      // 1. Electron Desktop Capturer Check
+      if (window.electronAPI?.getDesktopSources) {
         try {
-          let desktopCapturer = null;
-          if (window.electronAPI?.getDesktopSources) {
-            desktopCapturer = window.electronAPI.getDesktopSources;
-          } else if (window.require) {
-            desktopCapturer = window.require('electron').desktopCapturer?.getSources;
-          }
-
-          if (desktopCapturer) {
-            const sources = await desktopCapturer({ types: ['screen', 'window'] });
-            if (sources && sources.length > 0) {
-              localScreenStream = await navigator.mediaDevices.getUserMedia({
-                audio: false,
-                video: {
-                  mandatory: {
-                    chromeMediaSource: 'desktop',
-                    chromeMediaSourceId: sources[0].id,
-                    minWidth: 1280,
-                    maxWidth: 1920,
-                    minHeight: 720,
-                    maxHeight: 1080
-                  }
+          const sources = await window.electronAPI.getDesktopSources({ types: ['screen', 'window'] });
+          if (sources && sources.length > 0) {
+            localScreenStream = await navigator.mediaDevices.getUserMedia({
+              audio: false,
+              video: {
+                mandatory: {
+                  chromeMediaSource: 'desktop',
+                  chromeMediaSourceId: sources[0].id,
+                  minWidth: 1280,
+                  maxWidth: 1920,
+                  minHeight: 720,
+                  maxHeight: 1080
                 }
-              });
-            }
+              }
+            });
           }
         } catch (e) {
-          console.warn('[ElectronScreenCapture] Fallback to standard getDisplayMedia', e);
+          console.warn('[ElectronScreenCapture] Fallback to standard getDisplayMedia:', e);
         }
       }
 
-      // 2. Standard getDisplayMedia pipeline
+      // 2. Standard Browser Fallback
       if (!localScreenStream) {
         localScreenStream = await navigator.mediaDevices.getDisplayMedia({
           video: { cursor: 'always' },
@@ -893,11 +883,12 @@
       setSpotlight('self');
       if (!isSoloMode) broadcastData({ type: 'screen-share-status', active: true, nickname });
 
+      // Force full-mesh stream renegotiation to peers
       broadcastMediaToAllPeers();
       notify('Screen sharing active.', 'success');
     } catch (err) {
       console.error('[ScreenShare Error]', err);
-      notify('Screen share failed or cancelled. In Electron, ensure session.defaultSession.setDisplayMediaRequestHandler is set.', 'error');
+      notify('Screen share cancelled or failed.', 'error');
     }
   }
 
@@ -955,7 +946,9 @@
     }
     if (!tile) return;
 
-    const hasVideo = stream.getVideoTracks().length > 0;
+    // Filter out dummy black carrier tracks so we only treat REAL video as active
+    const realVideoTracks = stream.getVideoTracks().filter(t => t.enabled && t.readyState === 'live');
+    const hasVideo = realVideoTracks.length > 0;
     const off = tile.querySelector('.sr-video-off');
 
     let audio = tile.querySelector('.sr-remote-audio');
@@ -987,6 +980,7 @@
       }
       safePlayMedia(camVideo);
 
+      // If this peer is the active screenshare owner, display stream in the Spotlight stage
       if (screenShareOwnerId === userId) {
         const spotVideo = document.getElementById('srSpotlightVideo');
         if (spotVideo) {
