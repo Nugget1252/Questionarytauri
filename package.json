@@ -8,11 +8,13 @@
     "start": "electron .",
     "build:linux": "electron-builder --linux AppImage deb rpm",
     "build:appimage": "electron-builder --linux AppImage",
-    "build:rpm": "electron-builder --linux rpm",
+    "build:rpm": "electron-builder --linux --dir && node build-rpm.js",
     "build:deb": "electron-builder --linux deb",
     "build:win": "electron-builder --win",
     "build:mac": "electron-builder --mac",
-    "build:all": "electron-builder -wml"
+    "build:all": "electron-builder -wml",
+    "android:sync": "cap sync android",
+    "android:build": "cap sync android && cd android && ./gradlew assembleRelease"
   },
   "dependencies": {
     "@capacitor/android": "^6.0.0",
@@ -22,7 +24,8 @@
   },
   "devDependencies": {
     "electron": "^29.1.0",
-    "electron-builder": "^24.13.3"
+    "electron-builder": "^24.13.3",
+    "electron-installer-redhat": "^4.0.0"
   },
   "build": {
     "appId": "com.questionary.app",
@@ -47,7 +50,11 @@
     ],
     "icon": "build/icon.png",
     "linux": {
-      "target": ["AppImage", "deb", "rpm"],
+      "target": [
+        "AppImage",
+        "deb",
+        "rpm"
+      ],
       "category": "Education",
       "maintainer": "Questionary <support@questionary.app>",
       "icon": "build/icons",
@@ -63,23 +70,41 @@
     },
     "rpm": {
       "fpm": [
-        "--rpm-compression", "xz",
+        "--rpm-compression",
+        "xz",
         "--rpm-auto-add-directories",
-        "--rpm-rpmbuild-define", "_build_id_links none",
-        "--rpm-rpmbuild-define", "debug_package %{nil}",
-        "--rpm-rpmbuild-define", "__spec_install_post %{nil}",
-        "--rpm-rpmbuild-define", "__os_install_post %{nil}"
+        "--rpm-rpmbuild-define",
+        "_build_id_links none",
+        "--rpm-rpmbuild-define",
+        "debug_package %{nil}",
+        "--rpm-rpmbuild-define",
+        "__spec_install_post %{nil}",
+        "--rpm-rpmbuild-define",
+        "__os_install_post %{nil}"
       ]
     },
     "win": {
       "target": [
-        { "target": "nsis", "arch": ["x64"] },
-        { "target": "portable", "arch": ["x64"] }
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
       ],
       "icon": "build/icon.png"
     },
     "mac": {
-      "target": ["dmg", "zip"],
+      "target": [
+        "dmg",
+        "zip"
+      ],
       "icon": "build/icon.png",
       "category": "public.app-category.education",
       "identity": null

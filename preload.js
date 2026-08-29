@@ -1,5 +1,44 @@
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webFrame } = require('electron');
 
+// ================================================================
+// BROWSER ZOOM STATE RESTORATION
+// ================================================================
+try {
+  const savedZoom = parseFloat(localStorage.getItem('questionary-browser-zoom') || '1.0');
+  if (!isNaN(savedZoom) && savedZoom >= 0.5 && savedZoom <= 2.0) {
+    webFrame.setZoomFactor(savedZoom);
+  }
+} catch (e) {}
+
+// ================================================================
+// EXPOSE NATIVE ZOOM CONTROLS
+// ================================================================
+contextBridge.exposeInMainWorld('zoomAPI', {
+  getZoom: () => webFrame.getZoomFactor(),
+  setZoom: (factor) => {
+    const clamped = Math.min(2.0, Math.max(0.5, factor));
+    webFrame.setZoomFactor(clamped);
+    try { localStorage.setItem('questionary-browser-zoom', clamped.toString()); } catch(e) {}
+  },
+  zoomIn: () => {
+    const next = Math.min(2.0, webFrame.getZoomFactor() + 0.08);
+    webFrame.setZoomFactor(next);
+    try { localStorage.setItem('questionary-browser-zoom', next.toString()); } catch(e) {}
+  },
+  zoomOut: () => {
+    const next = Math.max(0.5, webFrame.getZoomFactor() - 0.08);
+    webFrame.setZoomFactor(next);
+    try { localStorage.setItem('questionary-browser-zoom', next.toString()); } catch(e) {}
+  },
+  resetZoom: () => {
+    webFrame.setZoomFactor(1.0);
+    try { localStorage.setItem('questionary-browser-zoom', '1.0'); } catch(e) {}
+  }
+});
+
+// ================================================================
+// EXPOSE ELECTRON STORAGE & DOWNLOAD APIS
+// ================================================================
 contextBridge.exposeInMainWorld('electronAPI', {
   getDefaultStoragePath: () => ipcRenderer.invoke('get-default-storage-path'),
   selectStorageFolder: () => ipcRenderer.invoke('select-storage-folder'),

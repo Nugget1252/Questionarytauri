@@ -74,6 +74,9 @@ function createWindow() {
     }
   });
 
+  // Enable native pinch-to-zoom limits
+  mainWindow.webContents.setVisualZoomLevelLimits(1, 3);
+
   // Explicitly set icon for Linux desktop compositors / KDE Plasma / GNOME taskbar
   if (process.platform === 'linux' && icon) {
     mainWindow.setIcon(icon);
@@ -82,8 +85,30 @@ function createWindow() {
   mainWindow.setMenuBarVisibility(false);
   mainWindow.loadFile('index.html');
 
-  // Block Keyboard Shortcuts for Inspect Element & View Source (F12, Ctrl+Shift+I, Ctrl+U)
+  // Handle Zoom shortcuts (Ctrl + +, Ctrl + -, Ctrl + 0) and block Inspect Element shortcuts
   mainWindow.webContents.on('before-input-event', (event, input) => {
+    // Zoom in: Ctrl + '+' or Ctrl + '='
+    if (input.control && (input.key === '=' || input.key === '+')) {
+      const current = mainWindow.webContents.getZoomFactor();
+      mainWindow.webContents.setZoomFactor(Math.min(2.0, current + 0.08));
+      event.preventDefault();
+      return;
+    }
+    // Zoom out: Ctrl + '-'
+    else if (input.control && (input.key === '-' || input.key === '_')) {
+      const current = mainWindow.webContents.getZoomFactor();
+      mainWindow.webContents.setZoomFactor(Math.max(0.5, current - 0.08));
+      event.preventDefault();
+      return;
+    }
+    // Reset: Ctrl + 0
+    else if (input.control && input.key === '0') {
+      mainWindow.webContents.setZoomFactor(1.0);
+      event.preventDefault();
+      return;
+    }
+
+    // Block Inspect Element / View Source shortcuts (F12, Ctrl+Shift+I, Ctrl+U)
     const isDevKey =
       input.key === 'F12' ||
       (input.control && input.shift && ['I', 'i', 'C', 'c', 'J', 'j'].includes(input.key)) ||
