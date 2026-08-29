@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, protocol, net, Menu, nativeImage } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, protocol, net, Menu, nativeImage, desktopCapturer, session } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const https = require('https');
@@ -13,6 +13,9 @@ if (process.platform === 'linux') {
   app.setDesktopName('questionary.desktop');
   app.commandLine.appendSwitch('enable-features', 'WaylandWindowDecorations');
 }
+
+// Enable WebRTC desktop capturers (Wayland / Linux / Windows / macOS safe)
+app.commandLine.appendSwitch('enable-webrtc-pipewire-capturer');
 
 // ================================================================
 // REGISTER PRIVILEGED PROTOCOLS (MUST BE CALLED BEFORE app.whenReady)
@@ -121,36 +124,47 @@ function createWindow() {
 }
 
 // ================================================================
-// REGISTER SAFE PROTOCOL HANDLER FOR LOCAL DOWNLOADED PDFS
+// REGISTER DISPLAY MEDIA HANDLER & PROTOCOLS
 // ================================================================
 app.whenReady().then(() => {
+  // 1. Hook Electron's Display Media Handler so navigator.mediaDevices.getDisplayMedia() works!
+  session.defaultSession.setDisplayMediaRequestHandler(async (request, callback) => {
+    try {
+      const sources = await desktopCapturer.getSources({ types: ['screen', 'window'] });
+      if (sources && sources.length > 0) {
+        // Automatically grant access to the primary desktop screen / window
+        callback({ video: sources[0], audio: 'loopback' });
+      } else {
+        callback(null);
+      }
+    } catch (err) {
+      console.error('[Electron ScreenCapture Error]:', err);
+      callback(null);
+    }
+  });
+
+  // 2. Local PDF Custom Protocol Handler
   protocol.handle('local-pdf', (request) => {
-    // Decode percent-encoded spaces and special characters
     let decoded = decodeURIComponent(request.url.replace(/^local-pdf:\/\//, ''));
 
-    // Ensure leading slash remains intact on Linux and macOS
     if (process.platform !== 'win32' && !decoded.startsWith('/')) {
       decoded = '/' + decoded;
     }
 
-    // 1. Direct file existence check
     if (fs.existsSync(decoded)) {
       return net.fetch(`file://${decoded}`);
     }
 
-    // 2. Check nested documents/documents path fallback
     const nestedPath = decoded.replace(/\/documents\//, '/documents/documents/');
     if (fs.existsSync(nestedPath)) {
       return net.fetch(`file://${nestedPath}`);
     }
 
-    // 3. Check single documents path if URL had double
     const singlePath = decoded.replace(/\/documents\/documents\//, '/documents/');
     if (fs.existsSync(singlePath)) {
       return net.fetch(`file://${singlePath}`);
     }
 
-    // Default fallback attempt
     return net.fetch(`file://${decoded}`);
   });
 
@@ -159,6 +173,18 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
+});
+
+// ================================================================
+// DESKTOP CAPTURER IPC HANDLER
+// ================================================================
+ipcMain.handle('get-desktop-sources', async () => {
+  try {
+    const sources = await desktopCapturer.getSources({ types: ['screen', 'window'] });
+    return sources.map(s => ({ id: s.id, name: s.name }));
+  } catch (e) {
+    return [];
+  }
 });
 
 // ================================================================
@@ -418,9 +444,7 @@ ipcMain.handle('download-full-pack', async (event, { quality, storageDir, repoOw
   const tag = releaseTag || 'documents';
   const zipFilename = quality === 'hd' ? 'documents-hd.zip' : 'documents-sd.zip';
 
-  // Primary Mirror: GitHub Releases CDN
   const githubUrl = `https://github.com/${owner}/${repo}/releases/download/${tag}/${zipFilename}`;
-  // Secondary Mirror: Google Drive
   const gdriveUrl = quality === 'hd' ? GDRIVE_MIRRORS.hd : GDRIVE_MIRRORS.sd;
 
   if (!fs.existsSync(storageDir)) {
@@ -455,7 +479,7 @@ ipcMain.handle('download-full-pack', async (event, { quality, storageDir, repoOw
       });
 
       downloadedBuffer = Buffer.concat(chunks);
-      break; // Download succeeded!
+      break;
     } catch (err) {
       console.warn(`[Mirror Warning] ${mirror.name} failed:`, err.message);
       lastError = err;
@@ -466,7 +490,6 @@ ipcMain.handle('download-full-pack', async (event, { quality, storageDir, repoOw
     return { success: false, error: lastError ? lastError.message : 'All download mirrors failed.' };
   }
 
-  // Extract zip buffer in memory to destination
   mainWindow.webContents.send('download-progress', {
     currentFile: 'Extracting documents...',
     percent: 99,

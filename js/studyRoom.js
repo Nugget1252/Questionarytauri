@@ -1,4 +1,3 @@
-
 (function (window, document) {
   'use strict';
 
@@ -18,7 +17,7 @@
                           window.mozRTCIceCandidate ||
                           null;
 
-  console.log('[StudyRoom] Booting Master Study Room Engine v23.0 (Zero-Defect Release)...');
+  console.log('[StudyRoom] Booting Master Study Room Engine v25.0 (Electron Desktop ScreenCapture Enabled)...');
 
   /* =========================================================================
    * 1. CONSTANTS, CODECS & ICE SERVERS
@@ -621,7 +620,7 @@
       if (isHost) {
         const peerList = Object.entries(peers).map(([id, p]) => ({ id, nickname: p.nickname, goal: p.goal, seconds: p.seconds }));
         peerList.push({ id: myId, nickname, goal: studyGoal, seconds: timerSeconds });
-
+        
         broadcastData({
           type: 'room-mesh-sync',
           peerList,
@@ -768,6 +767,8 @@
     peerMediaCalls.forEach((call) => {
       if (call && call.peerConnection) {
         const senders = call.peerConnection.getSenders();
+        let videoSender = senders.find(s => s.track && s.track.kind === 'video');
+
         senders.forEach((sender) => {
           if (sender.track && sender.track.kind === 'audio' && audioTrack) {
             audioTrack.enabled = true;
@@ -776,6 +777,12 @@
             sender.replaceTrack(videoTrack).catch(() => {});
           }
         });
+
+        if (!videoSender && videoTrack) {
+          try {
+            call.peerConnection.addTrack(videoTrack, activeStream);
+          } catch (e) {}
+        }
       }
     });
 
@@ -783,7 +790,7 @@
   }
 
   /* =========================================================================
-   * 7. HARDWARE CONTROLLERS & AUDIO ANALYSIS
+   * 7. HARDWARE CONTROLLERS & AUDIO ANALYSIS (ELECTRON + WEB SAFE)
    * ========================================================================= */
   async function toggleMicrophone() {
     try {
@@ -827,17 +834,55 @@
     }
   }
 
+  // Universal Screen Share Controller (Supports Electron, Tauri, and Browser)
   async function toggleScreenShare() {
     const btn = document.getElementById('srToggleScreenShare');
     if (localScreenStream) {
       stopScreenShare();
       return;
     }
+
     try {
-      localScreenStream = await navigator.mediaDevices.getDisplayMedia({
-        video: true,
-        audio: false
-      });
+      // 1. Check for Electron Desktop Capturer Bridge if present
+      if (window.electronAPI?.getDesktopSources || window.require) {
+        try {
+          let desktopCapturer = null;
+          if (window.electronAPI?.getDesktopSources) {
+            desktopCapturer = window.electronAPI.getDesktopSources;
+          } else if (window.require) {
+            desktopCapturer = window.require('electron').desktopCapturer?.getSources;
+          }
+
+          if (desktopCapturer) {
+            const sources = await desktopCapturer({ types: ['screen', 'window'] });
+            if (sources && sources.length > 0) {
+              localScreenStream = await navigator.mediaDevices.getUserMedia({
+                audio: false,
+                video: {
+                  mandatory: {
+                    chromeMediaSource: 'desktop',
+                    chromeMediaSourceId: sources[0].id,
+                    minWidth: 1280,
+                    maxWidth: 1920,
+                    minHeight: 720,
+                    maxHeight: 1080
+                  }
+                }
+              });
+            }
+          }
+        } catch (e) {
+          console.warn('[ElectronScreenCapture] Fallback to standard getDisplayMedia', e);
+        }
+      }
+
+      // 2. Standard getDisplayMedia pipeline
+      if (!localScreenStream) {
+        localScreenStream = await navigator.mediaDevices.getDisplayMedia({
+          video: { cursor: 'always' },
+          audio: false
+        });
+      }
 
       const vTrack = localScreenStream.getVideoTracks()[0];
       if (vTrack) {
@@ -851,7 +896,8 @@
       broadcastMediaToAllPeers();
       notify('Screen sharing active.', 'success');
     } catch (err) {
-      notify('Screen share cancelled.', 'info');
+      console.error('[ScreenShare Error]', err);
+      notify('Screen share failed or cancelled. In Electron, ensure session.defaultSession.setDisplayMediaRequestHandler is set.', 'error');
     }
   }
 

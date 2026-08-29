@@ -37,9 +37,13 @@ contextBridge.exposeInMainWorld('zoomAPI', {
 });
 
 // ================================================================
-// EXPOSE ELECTRON STORAGE & DOWNLOAD APIS
+// EXPOSE ELECTRON STORAGE, DOWNLOAD & SCREEN-SHARE APIS
 // ================================================================
 contextBridge.exposeInMainWorld('electronAPI', {
+  // Screen Sharing Desktop Capturer Bridge
+  getDesktopSources: (options) => ipcRenderer.invoke('get-desktop-sources', options),
+
+  // Storage & Files
   getDefaultStoragePath: () => ipcRenderer.invoke('get-default-storage-path'),
   selectStorageFolder: () => ipcRenderer.invoke('select-storage-folder'),
   getStorageStats: (storageDir) => ipcRenderer.invoke('get-storage-stats', storageDir),
