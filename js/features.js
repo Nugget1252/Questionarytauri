@@ -1,13 +1,10 @@
-
 // ============================================
 // QUESTIONARY ENHANCED FEATURES MODULE
 // Complete Local-First Desktop & Web Engine
 // ============================================
 
-// Global Drop Target Tracker for Native Drop Events
 window.activeDropTargetFolderId = null;
 
-// Utility & Helper Functions
 function escapeHtml(text) {
     if (!text) return '';
     const div = document.createElement('div');
@@ -54,7 +51,6 @@ function showPrompt(message, opts = {}) {
     return Promise.resolve(window.prompt(message, opts.defaultValue || ''));
 }
 
-// Convert any Blob / File object to Uint8Array safely across all WebViews
 function fileToUint8Array(file) {
     return new Promise((resolve, reject) => {
         if (file instanceof Uint8Array) {
@@ -85,7 +81,6 @@ function clearDragHoverStyles() {
     });
 }
 
-// Injected styles for In-App Drag and Drop & Multi-Document Reader
 (function injectLibraryDragStyles() {
     if (document.getElementById('library-drag-styles')) return;
     const style = document.createElement('style');
@@ -106,13 +101,31 @@ function clearDragHoverStyles() {
             border-color: var(--accent, #cf6215) !important;
             background: rgba(207, 98, 21, 0.1) !important;
         }
+        .image-viewer-body {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--surface, #1e1f22);
+            padding: 1rem;
+            border-radius: 12px;
+            border: 1px solid var(--line, #2e3035);
+            max-height: calc(100vh - 160px);
+            overflow: auto;
+        }
+        .image-viewer-body img {
+            max-width: 100%;
+            max-height: calc(100vh - 200px);
+            object-fit: contain;
+            border-radius: 8px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.35);
+        }
         .doc-viewer-body {
             background: var(--surface, #ffffff);
             color: var(--fg, #18181b);
             padding: 2rem;
             border-radius: 12px;
             border: 1px solid var(--line, #e4e4e7);
-            max-height: calc(100vh - 200px);
+            max-height: calc(100vh - 160px);
             overflow-y: auto;
             font-size: 0.95rem;
             line-height: 1.6;
@@ -137,7 +150,6 @@ function clearDragHoverStyles() {
     (document.head || document.documentElement).appendChild(style);
 })();
 
-// Helper to determine file category
 function getFileTypeCategory(fileName) {
     if (!fileName) return 'other';
     const ext = fileName.toLowerCase().split('.').pop();
@@ -148,9 +160,7 @@ function getFileTypeCategory(fileName) {
     return 'other';
 }
 
-// ============================================
-// 1. PDF BOOKMARKS & PAGE TRACKING
-// ============================================
+/* 1. PDF Bookmarks & Page Tracking */
 var pdfBookmarks = window.pdfBookmarks || JSON.parse(localStorage.getItem('questionary-pdf-bookmarks') || '{}');
 window.pdfBookmarks = pdfBookmarks;
 var currentPdfUrl = window.currentPdfUrl || null;
@@ -313,9 +323,7 @@ function closePdfViewer() {
     }
 }
 
-// ============================================
-// 2. TEXT, MARKDOWN, DOCX & IMAGE VIEWERS
-// ============================================
+/* 2. Text, Markdown, Docx & Image Viewers */
 var _currentTextRaw = window._currentTextRaw || '';
 var _currentTextName = window._currentTextName || '';
 var _currentDocxBlob = window._currentDocxBlob || null;
@@ -510,7 +518,6 @@ async function openAnyDocument(urlOrBlob, fileName) {
     const category = getFileTypeCategory(fileName);
     let target = urlOrBlob;
 
-    // 1. Resolve User Library Blob IDs FIRST
     if (typeof target === 'string' && target.startsWith('blob-id:')) {
         const blobId = target.replace('blob-id:', '');
         const blob = await UserLibraryFileStore.getFileBlob(blobId);
@@ -522,7 +529,6 @@ async function openAnyDocument(urlOrBlob, fileName) {
         }
     }
 
-    // 2. Resolve regular database document paths via DownloadManager (only if not a blob/data/http URL)
     if (window.DownloadManager && typeof target === 'string' && !target.startsWith('blob:') && !target.startsWith('data:') && !target.startsWith('http') && !target.startsWith('local-pdf:')) {
         target = window.DownloadManager.resolveDocumentUrl(target);
     }
@@ -538,7 +544,6 @@ async function openAnyDocument(urlOrBlob, fileName) {
     } else if (category === 'docx') {
         await showDocxFile(target, fileName);
     } else {
-        // PDF handler
         let pdfSrc = target;
         if (target instanceof Blob) {
             pdfSrc = URL.createObjectURL(target);
@@ -550,51 +555,7 @@ async function openAnyDocument(urlOrBlob, fileName) {
     }
 }
 
-// ============================================
-// 3. PDF ANNOTATIONS & HIGHLIGHTING
-// ============================================
-var pdfAnnotations = window.pdfAnnotations || JSON.parse(localStorage.getItem('questionary-pdf-annotations') || '{}');
-window.pdfAnnotations = pdfAnnotations;
-
-function savePdfAnnotations() {
-    localStorage.setItem('questionary-pdf-annotations', JSON.stringify(pdfAnnotations));
-}
-
-function addPdfAnnotation(pdfUrl, annotation) {
-    if (!pdfAnnotations[pdfUrl]) {
-        pdfAnnotations[pdfUrl] = [];
-    }
-
-    const newAnnotation = {
-        id: Date.now().toString(),
-        type: annotation.type || 'highlight',
-        color: annotation.color || '#ffeb3b',
-        text: annotation.text || '',
-        note: annotation.note || '',
-        page: annotation.page,
-        position: annotation.position,
-        createdAt: new Date().toISOString()
-    };
-
-    pdfAnnotations[pdfUrl].push(newAnnotation);
-    savePdfAnnotations();
-    return newAnnotation;
-}
-
-function getPdfAnnotations(pdfUrl) {
-    return pdfAnnotations[pdfUrl] || [];
-}
-
-function deletePdfAnnotation(pdfUrl, annotationId) {
-    if (pdfAnnotations[pdfUrl]) {
-        pdfAnnotations[pdfUrl] = pdfAnnotations[pdfUrl].filter(a => a.id !== annotationId);
-        savePdfAnnotations();
-    }
-}
-
-// ============================================
-// 4. QUIZ MODE FROM FLASHCARDS
-// ============================================
+/* 3. Quiz Mode */
 var quizState = window.quizState || {
     active: false,
     deckId: null,
@@ -672,17 +633,6 @@ function renderQuizQuestion() {
                 <input type="text" id="quizAnswerInput" class="quiz-answer-input" placeholder="Type your answer..." autofocus>
                 <button class="btn btn-primary" onclick="submitTypedAnswer()">
                     <i class="fas fa-check"></i> Submit
-                </button>
-            </div>
-        `;
-    } else if (quizState.mode === 'true-false') {
-        answersHtml = `
-            <div class="quiz-options quiz-true-false">
-                <button class="quiz-option" data-answer="true">
-                    <i class="fas fa-check"></i> True
-                </button>
-                <button class="quiz-option" data-answer="false">
-                    <i class="fas fa-times"></i> False
                 </button>
             </div>
         `;
@@ -871,9 +821,7 @@ function closeQuizModal() {
     quizState.active = false;
 }
 
-// ============================================
-// 5. STUDY REMINDERS WITH NOTIFICATIONS
-// ============================================
+/* 4. Study Reminders */
 var studyReminders = window.studyReminders || JSON.parse(localStorage.getItem('questionary-reminders') || '[]');
 window.studyReminders = studyReminders;
 
@@ -1004,9 +952,7 @@ function initReminders() {
     });
 }
 
-// ============================================
-// 6. THEMES — Light / Dark + Custom Theme Builder
-// ============================================
+/* 5. Theme Management */
 var defaultCustomTheme = window.defaultCustomTheme || {
     bg: '#f7f7f8', surface: '#ffffff', fg: '#18181b', accent: '#cf6215',
     navbar: '#ffffff', btnIcon: '#cf6215', line: '#e4e4e7',
@@ -1062,15 +1008,19 @@ function setTheme(themeName) {
     }
 
     updateModeSwitcher();
+
+    // Broadcast theme to iframe if loaded
+    const iframe = document.getElementById('pdfViewer');
+    if (iframe && iframe.contentWindow) {
+        iframe.contentWindow.postMessage({ type: 'setTheme', theme: themeName }, '*');
+    }
 }
 
 function toggleTheme() {
     const currentTheme = getCurrentTheme();
     const newTheme = (currentTheme === 'dark') ? 'light' : 'dark';
     setTheme(newTheme);
-    if (typeof showNotification === 'function') {
-        showNotification(`Switched to ${newTheme === 'dark' ? 'Dark' : 'Light'} mode`, 'info');
-    }
+    showNotification(`Switched to ${newTheme === 'dark' ? 'Dark' : 'Light'} mode`, 'info');
 }
 
 function toggleCustomTheme(enabled) {
@@ -1234,13 +1184,7 @@ function initThemeOnLoad() {
     }
 }
 
-function renderThemeSelector() {
-    updateModeSwitcher();
-}
-
-// ============================================
-// 7. TAGGING SYSTEM
-// ============================================
+/* 6. Tagging System */
 var tags = window.tags || JSON.parse(localStorage.getItem('questionary-tags') || '[]');
 window.tags = tags;
 var itemTags = window.itemTags || JSON.parse(localStorage.getItem('questionary-item-tags') || '{}');
@@ -1326,12 +1270,6 @@ function getItemTags(itemId) {
     return tagIds.map(id => tags.find(t => t.id === id)).filter(Boolean);
 }
 
-function getItemsByTag(tagId) {
-    return Object.entries(itemTags)
-        .filter(([_, tagIds]) => tagIds.includes(tagId))
-        .map(([itemId]) => itemId);
-}
-
 function countItemsWithTag(tagId) {
     return Object.values(itemTags).filter(t => t.includes(tagId)).length;
 }
@@ -1357,13 +1295,7 @@ function renderTagsList() {
     `).join('');
 }
 
-function renderTagsManager() {
-    renderTagsList();
-}
-
-// ============================================
-// 8. VOICE NOTES RECORDER
-// ============================================
+/* 7. Voice Notes */
 var mediaRecorder = window.mediaRecorder || null;
 var audioChunks = window.audioChunks || [];
 var voiceNotes = window.voiceNotes || JSON.parse(localStorage.getItem('questionary-voice-notes') || '[]');
@@ -1460,6 +1392,7 @@ function updateRecordingUINotes(isRecording) {
     const btn = document.getElementById('recordBtnNotes');
     if (btn) {
         btn.classList.toggle('recording', isRecording);
+
         btn.innerHTML = isRecording ? '<i class="fas fa-stop"></i><span>Stop</span>' : '<i class="fas fa-microphone"></i><span>Record</span>';
     }
 }
@@ -1592,9 +1525,7 @@ function toggleRecordingNotes() {
     }
 }
 
-// ============================================
-// 9. EXPORT/IMPORT DATA
-// ============================================
+/* 8. Export & Import */
 function exportAllData() {
     const data = {
         version: '1.0',
@@ -1611,7 +1542,7 @@ function exportAllData() {
         pdfBookmarks: JSON.parse(localStorage.getItem('questionary-pdf-bookmarks') || '{}'),
         voiceNotes: JSON.parse(localStorage.getItem('questionary-voice-notes') || '[]'),
         quizHistory: JSON.parse(localStorage.getItem('questionary-quiz-history') || '[]'),
-        theme: localStorage.getItem('questionary-theme') || 'light'
+        theme: localStorage.getItem('questionary-theme') || 'dark'
     };
 
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -1654,9 +1585,7 @@ function importData(data) {
     }
 }
 
-// ============================================
-// 10. CUSTOMIZABLE DASHBOARD
-// ============================================
+/* 9. Customizable Dashboard */
 var dashboardLayout = window.dashboardLayout || JSON.parse(localStorage.getItem('questionary-dashboard-layout') || '{"widgets":["documents","favorites","recent","streak"],"visible":{"documents":true,"favorites":true,"recent":true,"streak":true}}');
 window.dashboardLayout = dashboardLayout;
 
@@ -1763,113 +1692,7 @@ function renderDashboardWidgets() {
     }).join('');
 }
 
-// ============================================
-// 11. ENHANCED ANALYTICS
-// ============================================
-function renderEnhancedAnalytics() {
-    const container = document.getElementById('enhancedAnalytics');
-    if (!container) return;
-
-    const stats = JSON.parse(localStorage.getItem('questionary-study-stats') || '{}');
-    const quizHistory = JSON.parse(localStorage.getItem('questionary-quiz-history') || '[]');
-    const sessions = JSON.parse(localStorage.getItem('questionary-sessions') || '[]');
-
-    const totalStudyTime = stats.totalTime || 0;
-    const currentStreak = stats.streak || 0;
-    const avgQuizScore = quizHistory.length > 0
-        ? Math.round(quizHistory.reduce((sum, q) => sum + q.score, 0) / quizHistory.length)
-        : 0;
-
-    const weeklyActivity = calculateWeeklyActivity(sessions);
-    const subjectStats = calculateSubjectStats();
-
-    container.innerHTML = `
-        <div class="analytics-grid">
-            <div class="analytics-card">
-                <i class="fas fa-clock"></i>
-                <div class="analytics-value">${Math.round(totalStudyTime / 60)}h</div>
-                <div class="analytics-label">Total Study Time</div>
-            </div>
-            <div class="analytics-card">
-                <i class="fas fa-fire"></i>
-                <div class="analytics-value">${currentStreak}</div>
-                <div class="analytics-label">Day Streak</div>
-            </div>
-            <div class="analytics-card">
-                <i class="fas fa-trophy"></i>
-                <div class="analytics-value">${avgQuizScore}%</div>
-                <div class="analytics-label">Avg Quiz Score</div>
-            </div>
-            <div class="analytics-card">
-                <i class="fas fa-layer-group"></i>
-                <div class="analytics-value">${quizHistory.length}</div>
-                <div class="analytics-label">Quizzes Taken</div>
-            </div>
-        </div>
-
-        <div class="analytics-section">
-            <h4><i class="fas fa-chart-bar"></i> Weekly Activity</h4>
-            <div class="weekly-chart">
-                ${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day, i) => `
-                    <div class="chart-bar">
-                        <div class="bar-fill" style="height: ${weeklyActivity[i] || 0}%"></div>
-                        <span class="bar-label">${day}</span>
-                    </div>
-                `).join('')}
-            </div>
-        </div>
-
-        <div class="analytics-section">
-            <h4><i class="fas fa-book"></i> Most Studied</h4>
-            <div class="subject-stats">
-                ${subjectStats.slice(0, 5).map(s => `
-                    <div class="subject-stat-item">
-                        <span class="subject-name">${escapeHtml(s.name)}</span>
-                        <div class="subject-bar">
-                            <div class="subject-bar-fill" style="width: ${s.percentage}%"></div>
-                        </div>
-                        <span class="subject-count">${s.count}</span>
-                    </div>
-                `).join('') || '<p class="empty-state">No study data yet</p>'}
-            </div>
-        </div>
-    `;
-}
-
-function calculateWeeklyActivity(sessions) {
-    const activity = [0, 0, 0, 0, 0, 0, 0];
-    const now = new Date();
-    const weekAgo = new Date(now - 7 * 24 * 60 * 60 * 1000);
-
-    sessions.filter(s => new Date(s.date) >= weekAgo).forEach(s => {
-        const day = new Date(s.date).getDay();
-        activity[day] += s.duration || 30;
-    });
-
-    const max = Math.max(...activity, 1);
-    return activity.map(a => (a / max) * 100);
-}
-
-function calculateSubjectStats() {
-    const recent = JSON.parse(localStorage.getItem('questionary-recent') || '[]');
-    const subjectCounts = {};
-
-    recent.forEach(r => {
-        const subject = r.path?.[r.path.length - 2] || 'General';
-        subjectCounts[subject] = (subjectCounts[subject] || 0) + 1;
-    });
-
-    const sorted = Object.entries(subjectCounts)
-        .map(([name, count]) => ({ name, count }))
-        .sort((a, b) => b.count - a.count);
-
-    const max = sorted[0]?.count || 1;
-    return sorted.map(s => ({ ...s, percentage: (s.count / max) * 100 }));
-}
-
-// ============================================
-// 12. ELECTRON NATIVE FILE IMPORT HANDLERS
-// ============================================
+/* 10. File Import Handlers */
 async function importFileFromAnySource(fileOrPath, folderId = null) {
     if (!fileOrPath) return;
     const validFolderId = (folderId !== null && folderId !== undefined && folderId !== 'null') ? Number(folderId) : null;
@@ -1930,9 +1753,7 @@ async function importPdfFile(file) {
     await processAndImportFiles([file]);
 }
 
-// ============================================
-// 13. ALARM SOUND SYSTEM (Web Audio API)
-// ============================================
+/* 11. Alarm System */
 var alarmSettings = window.alarmSettings || JSON.parse(localStorage.getItem('questionary-alarm-settings') || '{}');
 window.alarmSettings = alarmSettings;
 if (!alarmSettings.sound) alarmSettings.sound = 'classic';
@@ -2132,14 +1953,11 @@ function initAlarmUI() {
     }
 }
 
-// ================================================================
-// 14. DOCUMENT LIBRARY MANAGEMENT (ELECTRON + INDEXEDDB ENGINE)
-// ================================================================
+/* 12. Library Database & Storage Service */
 var UserLibraryFileStore = window.UserLibraryFileStore || {
     async saveBytes(blobId, uInt8Array) {
         const storagePath = localStorage.getItem('questionary-storage-path') || '';
 
-        // Electron Native FS
         if (window.electronAPI && storagePath && typeof window.electronAPI.saveUserLibraryFile === 'function') {
             try {
                 await window.electronAPI.saveUserLibraryFile({
@@ -2152,7 +1970,6 @@ var UserLibraryFileStore = window.UserLibraryFileStore || {
             }
         }
 
-        // IndexedDB Backup
         return new Promise((resolve, reject) => {
             const request = indexedDB.open('QuestionaryUserLibraryFiles', 1);
             request.onupgradeneeded = e => e.target.result.createObjectStore('files_store');
@@ -2422,7 +2239,6 @@ var libraryEditMode = false;
 var moveItemState = { itemId: null, itemType: null };
 var selectedFolderColor = '#3b82f6';
 var selectedMoveDestinationId = null;
-var draggedLibraryItem = null;
 
 function toggleLibraryEditMode() {
     libraryEditMode = !libraryEditMode;
@@ -2732,54 +2548,44 @@ function initLibraryDragDrop() {
         if (!el) return;
 
         el.addEventListener('dragenter', (e) => {
-            if (!draggedLibraryItem) {
-                e.preventDefault();
-                e.stopPropagation();
-                el.classList.add('drag-over');
-            }
+            e.preventDefault();
+            e.stopPropagation();
+            el.classList.add('drag-over');
         }, false);
 
         el.addEventListener('dragover', (e) => {
-            if (!draggedLibraryItem) {
-                e.preventDefault();
-                e.stopPropagation();
-                if (e.dataTransfer) {
-                    e.dataTransfer.dropEffect = 'copy';
-                }
-                el.classList.add('drag-over');
+            e.preventDefault();
+            e.stopPropagation();
+            if (e.dataTransfer) {
+                e.dataTransfer.dropEffect = 'copy';
             }
+            el.classList.add('drag-over');
         }, false);
 
         el.addEventListener('dragleave', (e) => {
-            if (!draggedLibraryItem) {
-                e.preventDefault();
-                e.stopPropagation();
-                if (!el.contains(e.relatedTarget)) {
-                    el.classList.remove('drag-over');
-                }
+            e.preventDefault();
+            e.stopPropagation();
+            if (!el.contains(e.relatedTarget)) {
+                el.classList.remove('drag-over');
             }
         }, false);
 
         el.addEventListener('drop', async (e) => {
-            if (!draggedLibraryItem) {
-                e.preventDefault();
-                e.stopPropagation();
-                clearDragHoverStyles();
-                if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) {
-                    for (const file of e.dataTransfer.files) {
-                        await UserLibraryDbService.importFile(file, UserLibraryDbService.currentFolderId);
-                    }
-                    await renderLibrary();
-                    showNotification(`Imported ${e.dataTransfer.files.length} file(s)!`, 'success');
+            e.preventDefault();
+            e.stopPropagation();
+            clearDragHoverStyles();
+            if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) {
+                for (const file of e.dataTransfer.files) {
+                    await UserLibraryDbService.importFile(file, UserLibraryDbService.currentFolderId);
                 }
+                await renderLibrary();
+                showNotification(`Imported ${e.dataTransfer.files.length} file(s)!`, 'success');
             }
         }, false);
     });
 }
 
-// ============================================
-// 15. TAGS SECTION & TAGGING ITEMS
-// ============================================
+/* 13. Tag Interactions & Direct Opening */
 var currentTaggingItem = window.currentTaggingItem || null;
 
 function openTagItemModal(itemId, itemName, itemType) {
@@ -2976,7 +2782,6 @@ async function navigateToTaggedItem(itemId) {
             await window.navigateToPath(parentPath);
         }
 
-        // Try to resolve the real target URL from DbService
         let targetUrl = null;
         if (typeof DbService !== 'undefined' && DbService) {
             try {
@@ -3020,8 +2825,8 @@ async function navigateToTaggedItem(itemId) {
         const deckId = itemId.replace('deck_', '');
         if (typeof window.showView === 'function') window.showView('flashcards');
         setTimeout(() => {
-            if (typeof window.startStudySession === 'function') {
-                window.startStudySession(deckId);
+            if (typeof window.startStudyDeck === 'function') {
+                window.startStudyDeck(deckId);
             }
         }, 150);
     } else if (itemId.startsWith('reminder_')) {
@@ -3033,57 +2838,7 @@ async function navigateToTaggedItem(itemId) {
     }
 }
 
-// ============================================
-// 16. PDF POSITION MEMORY
-// ============================================
-var pdfPositions = window.pdfPositions || JSON.parse(localStorage.getItem('questionary-pdf-positions') || '{}');
-window.pdfPositions = pdfPositions;
-
-function savePdfPosition(pdfUrl, position) {
-    pdfPositions[pdfUrl] = {
-        scrollTop: position.scrollTop || 0,
-        page: position.page || 1,
-        savedAt: new Date().toISOString()
-    };
-    localStorage.setItem('questionary-pdf-positions', JSON.stringify(pdfPositions));
-}
-
-function getPdfPosition(pdfUrl) {
-    return pdfPositions[pdfUrl] || null;
-}
-
-function restorePdfPosition(pdfUrl) {
-    const position = getPdfPosition(pdfUrl);
-    if (!position) return;
-
-    const iframe = document.getElementById('pdfViewer');
-    if (iframe && iframe.contentWindow) {
-        setTimeout(() => {
-            iframe.contentWindow.postMessage({
-                type: 'restorePosition',
-                scrollTop: position.scrollTop,
-                page: position.page
-            }, '*');
-        }, 1000);
-        showNotification(`Restored to page ${position.page}`, 'info');
-    }
-}
-
-window.addEventListener('message', (event) => {
-    if (event.data && event.data.type === 'pdfScroll') {
-        const pdfUrl = window.currentPdfUrlForBookmarks;
-        if (pdfUrl) {
-            savePdfPosition(pdfUrl, {
-                scrollTop: event.data.scrollTop,
-                page: event.data.page
-            });
-        }
-    }
-});
-
-// ============================================
-// 17. VOICE NOTES GRID FOR NOTES SECTION
-// ============================================
+/* 14. Voice Notes Grid for Notes View */
 function renderVoiceNotesGrid() {
     const container = document.getElementById('voiceNotesGrid');
     if (!container) return;
@@ -3114,9 +2869,7 @@ function renderVoiceNotesGrid() {
     `).join('');
 }
 
-// ============================================
-// 18. INITIALIZATION & SETTINGS UI
-// ============================================
+/* 15. Settings Renderer */
 function renderSettings() {
     initThemeOnLoad();
     renderTagsList();
@@ -3374,7 +3127,6 @@ async function initEnhancedFeatures() {
     await UserLibraryDbService.init();
 
     initReminders();
-    initDragDropImport();
     initLibraryDragDrop();
     initThemeOnLoad();
     initAlarmUI();
@@ -3422,10 +3174,6 @@ window.openBookmarkModal = openBookmarkModal;
 window.closeBookmarkModal = closeBookmarkModal;
 window.saveBookmarkFromModal = saveBookmarkFromModal;
 window.toggleBookmarksPanel = toggleBookmarksPanel;
-
-window.addPdfAnnotation = addPdfAnnotation;
-window.getPdfAnnotations = getPdfAnnotations;
-window.deletePdfAnnotation = deletePdfAnnotation;
 
 window.startQuiz = startQuiz;
 window.closeQuizModal = closeQuizModal;
@@ -3480,8 +3228,6 @@ window.reorderWidget = reorderWidget;
 window.applyDashboardLayout = applyDashboardLayout;
 window.renderDashboardWidgets = renderDashboardWidgets;
 
-window.renderEnhancedAnalytics = renderEnhancedAnalytics;
-
 window.setAlarmSound = setAlarmSound;
 window.setAlarmVolume = setAlarmVolume;
 window.previewAlarmSound = previewAlarmSound;
@@ -3509,10 +3255,6 @@ window.handleLibraryDragOver = handleLibraryDragOver;
 window.handleLibraryDragLeave = handleLibraryDragLeave;
 window.handleLibraryDrop = handleLibraryDrop;
 
-window.savePdfPosition = savePdfPosition;
-window.getPdfPosition = getPdfPosition;
-window.restorePdfPosition = restorePdfPosition;
-
 window.openReminderModal = openReminderModal;
 window.closeReminderModal = closeReminderModal;
 window.saveReminderFromModal = saveReminderFromModal;
@@ -3525,3 +3267,4 @@ if (document.readyState === 'loading') {
 } else {
     initEnhancedFeatures();
 }
+
