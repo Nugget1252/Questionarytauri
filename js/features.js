@@ -1,3 +1,5 @@
+
+
 // ============================================
 // QUESTIONARY ENHANCED FEATURES MODULE
 // Complete Local-First Desktop & Web Engine
@@ -529,8 +531,10 @@ async function openAnyDocument(urlOrBlob, fileName) {
         }
     }
 
-    if (window.DownloadManager && typeof target === 'string' && !target.startsWith('blob:') && !target.startsWith('data:') && !target.startsWith('http') && !target.startsWith('local-pdf:')) {
-        target = window.DownloadManager.resolveDocumentUrl(target);
+    // Clean leading duplicated "documents/" if present before resolving
+    if (window.DownloadManager && typeof target === 'string' && !target.startsWith('blob:') && !target.startsWith('blob-id:') && !target.startsWith('data:') && !target.startsWith('http') && !target.startsWith('local-pdf:')) {
+        const cleanRelative = target.replace(/^(\.\/|\/)?(documents\/)+/i, '');
+        target = window.DownloadManager.resolveDocumentUrl(cleanRelative);
     }
 
     if (category === 'image') {
@@ -633,6 +637,17 @@ function renderQuizQuestion() {
                 <input type="text" id="quizAnswerInput" class="quiz-answer-input" placeholder="Type your answer..." autofocus>
                 <button class="btn btn-primary" onclick="submitTypedAnswer()">
                     <i class="fas fa-check"></i> Submit
+                </button>
+            </div>
+        `;
+    } else if (quizState.mode === 'true-false') {
+        answersHtml = `
+            <div class="quiz-options quiz-true-false">
+                <button class="quiz-option" data-answer="true">
+                    <i class="fas fa-check"></i> True
+                </button>
+                <button class="quiz-option" data-answer="false">
+                    <i class="fas fa-times"></i> False
                 </button>
             </div>
         `;
@@ -1009,7 +1024,6 @@ function setTheme(themeName) {
 
     updateModeSwitcher();
 
-    // Broadcast theme to iframe if loaded
     const iframe = document.getElementById('pdfViewer');
     if (iframe && iframe.contentWindow) {
         iframe.contentWindow.postMessage({ type: 'setTheme', theme: themeName }, '*');
@@ -1392,7 +1406,6 @@ function updateRecordingUINotes(isRecording) {
     const btn = document.getElementById('recordBtnNotes');
     if (btn) {
         btn.classList.toggle('recording', isRecording);
-
         btn.innerHTML = isRecording ? '<i class="fas fa-stop"></i><span>Stop</span>' : '<i class="fas fa-microphone"></i><span>Record</span>';
     }
 }
@@ -2803,8 +2816,9 @@ async function navigateToTaggedItem(itemId) {
             }
         }
 
+        // Clean relative path so documents prefix isn't repeated
         if (!targetUrl) {
-            targetUrl = `documents/${fileName.endsWith('.pdf') ? fileName : (fileName + '.pdf')}`;
+            targetUrl = fileName.endsWith('.pdf') ? fileName : (fileName + '.pdf');
         }
 
         setTimeout(async () => {

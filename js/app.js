@@ -1155,10 +1155,12 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
 
       let targetUrl = url;
       if (window.DownloadManager && !url.startsWith('blob:') && !url.startsWith('blob-id:') && !url.startsWith('data:') && !url.startsWith('http') && !url.startsWith('local-pdf:')) {
-        targetUrl = window.DownloadManager.resolveDocumentUrl(url);
+        const cleanRelative = url.replace(/^(\.\/|\/)?(documents\/)+/i, '');
+        targetUrl = window.DownloadManager.resolveDocumentUrl(cleanRelative);
       } else if (!url.startsWith('blob:') && !url.startsWith('blob-id:') && !url.startsWith('data:') && !url.startsWith('http') && !url.startsWith('local-pdf:')) {
         targetUrl = new URL(url, window.location.href).href;
       }
+
 
       if (typeof window.setCurrentPDF === 'function') {
         window.setCurrentPDF(targetUrl, filename);
@@ -4975,3 +4977,14 @@ document.addEventListener('click', (e) => {
     }
   }
 });
+
+
+      // In showPDF:
+      // Convert document paths ONLY if it's a relative path and NOT a blob / blob-id / data / local-pdf URL
+      let targetUrl = url;
+      if (window.DownloadManager && !url.startsWith('blob:') && !url.startsWith('blob-id:') && !url.startsWith('data:') && !url.startsWith('http') && !url.startsWith('local-pdf:')) {
+        const cleanRelative = url.replace(/^(\.\/|\/)?(documents\/)+/i, '');
+        targetUrl = window.DownloadManager.resolveDocumentUrl(cleanRelative);
+      } else if (!url.startsWith('blob:') && !url.startsWith('blob-id:') && !url.startsWith('data:') && !url.startsWith('http') && !url.startsWith('local-pdf:')) {
+        targetUrl = new URL(url, window.location.href).href;
+      }
