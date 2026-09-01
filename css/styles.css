@@ -1709,6 +1709,27 @@ body.pdf-view-active .container {
     padding-bottom: 8px !important;
 }
 
+body.pdf-view-active .dashboard-header,
+body.pdf-view-active .breadcrumb-container,
+body.pdf-view-active #tilesContainer,
+body.pdf-view-active #tilesSection > .section-header,
+body.pdf-view-active #importedSection,
+body.pdf-view-active #homeTagsSection,
+body.pdf-view-active #homeTaggedItemsSection,
+body.pdf-view-active #favoritesSection,
+body.pdf-view-active #recentSection,
+body.pdf-view-active #analyticsSection,
+body.pdf-view-active #plannerSection,
+body.pdf-view-active #flashcardsSection,
+body.pdf-view-active #notesSection,
+body.pdf-view-active #tagsSection,
+body.pdf-view-active #progressSection,
+body.pdf-view-active #remindersSection,
+body.pdf-view-active #studyRoomSection,
+body.pdf-view-active #settingsSection {
+    display: none !important;
+}
+
 /* Container for PDF Viewer */
 #pdfViewerContainer,
 #imageViewerContainer,

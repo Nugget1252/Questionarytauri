@@ -4,7 +4,6 @@ const fs = require('fs');
 const https = require('https');
 const http = require('http');
 const zlib = require('zlib');
-const { exec } = require('child_process');
 
 // ================================================================
 // LINUX WAYLAND & KDE PLASMA / GNOME COMPOSITOR IDENTIFIERS
@@ -44,7 +43,6 @@ Menu.setApplicationMenu(null);
 function getAppIcon() {
   const possiblePaths = [
     path.join(__dirname, 'assets/icons/512x512.png'),
-    path.join(__dirname, 'build/icons/512x512.png'),
     path.join(__dirname, 'build/icon.png'),
     path.join(__dirname, 'assets/icons/256x256.png'),
     path.join(__dirname, 'assets/icon.png'),
@@ -57,83 +55,6 @@ function getAppIcon() {
     }
   }
   return null;
-}
-
-// ================================================================
-// AUTOMATIC LINUX / FEDORA DESKTOP SHORTCUT INSTALLER
-// ================================================================
-function ensureDesktopShortcut() {
-  if (process.platform !== 'linux') return;
-
-  try {
-    const homeDir = app.getPath('home');
-    const applicationsDir = path.join(homeDir, '.local', 'share', 'applications');
-    const iconsDir = path.join(homeDir, '.local', 'share', 'icons', 'hicolor', '512x512', 'apps');
-    const desktopFilePath = path.join(applicationsDir, 'questionary.desktop');
-    const targetIconPath = path.join(iconsDir, 'questionary.png');
-
-    // Ensure directories exist
-    if (!fs.existsSync(applicationsDir)) fs.mkdirSync(applicationsDir, { recursive: true });
-    if (!fs.existsSync(iconsDir)) fs.mkdirSync(iconsDir, { recursive: true });
-
-    // Locate source icon
-    const possibleIcons = [
-      path.join(__dirname, 'assets/icons/512x512.png'),
-      path.join(__dirname, 'build/icons/512x512.png'),
-      path.join(__dirname, 'build/icon.png'),
-      path.join(__dirname, 'assets/icon.png')
-    ];
-
-    let foundIcon = null;
-    for (const p of possibleIcons) {
-      if (fs.existsSync(p)) {
-        foundIcon = p;
-        break;
-      }
-    }
-
-    // Copy icon to user's system icons directory if available
-    if (foundIcon) {
-      fs.copyFileSync(foundIcon, targetIconPath);
-    }
-
-    const execPath = process.execPath;
-    const appPath = app.getAppPath();
-
-    // Command to launch the app
-    const execCommand = app.isPackaged
-    ? `"${execPath}" %U`
-    : `"${execPath}" "${appPath}" %U`;
-
-    const iconEntry = fs.existsSync(targetIconPath) ? targetIconPath : (foundIcon || 'questionary');
-
-    // STRICT: Formatted for KDE / GNOME Education Category placement
-    const desktopEntryContent = [
-      '[Desktop Entry]',
-      'Type=Application',
-      'Name=Questionary',
-      'Comment=Questionary Desktop Study App',
-      `Exec=${execCommand}`,
-      `Icon=${iconEntry}`,
-      'Terminal=false',
-      'StartupNotify=true',
-      'StartupWMClass=questionary',
-      'Categories=Education;Science;Teaching;'
-    ].join('\n') + '\n';
-
-    // Always ensure valid content and executable permissions
-    fs.writeFileSync(desktopFilePath, desktopEntryContent, 'utf8');
-    fs.chmodSync(desktopFilePath, 0o755);
-
-    // Refresh Desktop database and icon cache for KDE Plasma / GNOME
-    exec(`update-desktop-database "${applicationsDir}" 2>/dev/null`);
-    exec(`gtk-update-icon-cache -f -t "${path.join(homeDir, '.local', 'share', 'icons', 'hicolor')}" 2>/dev/null`);
-    exec(`kbuildsycoca6 --noincremental 2>/dev/null || kbuildsycoca5 --noincremental 2>/dev/null`);
-
-    console.log('[StudyRoom] Desktop shortcut successfully installed to:', desktopFilePath);
-  } catch (err) {
-    console.error('[Desktop Entry Error]:', err);
-  }
 }
 
 function createWindow() {
@@ -149,10 +70,10 @@ function createWindow() {
     icon: icon || undefined,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
-                                 nodeIntegration: false,
-                                 contextIsolation: true,
-                                 webSecurity: true,
-                                 devTools: false // Disables DevTools / Inspect Element
+      nodeIntegration: false,
+      contextIsolation: true,
+      webSecurity: true,
+      devTools: false // Disables DevTools / Inspect Element
     }
   });
 
@@ -192,9 +113,9 @@ function createWindow() {
 
     // Block Inspect Element / View Source shortcuts (F12, Ctrl+Shift+I, Ctrl+U)
     const isDevKey =
-    input.key === 'F12' ||
-    (input.control && input.shift && ['I', 'i', 'C', 'c', 'J', 'j'].includes(input.key)) ||
-    (input.control && (input.key === 'U' || input.key === 'u'));
+      input.key === 'F12' ||
+      (input.control && input.shift && ['I', 'i', 'C', 'c', 'J', 'j'].includes(input.key)) ||
+      (input.control && (input.key === 'U' || input.key === 'u'));
 
     if (isDevKey) {
       event.preventDefault();
@@ -206,14 +127,12 @@ function createWindow() {
 // REGISTER DISPLAY MEDIA HANDLER & PROTOCOLS
 // ================================================================
 app.whenReady().then(() => {
-  // Ensure native desktop shortcut exists for Fedora / Linux
-  ensureDesktopShortcut();
-
-  // 1. Hook Electron's Display Media Handler so navigator.mediaDevices.getDisplayMedia() works
+  // 1. Hook Electron's Display Media Handler so navigator.mediaDevices.getDisplayMedia() works!
   session.defaultSession.setDisplayMediaRequestHandler(async (request, callback) => {
     try {
       const sources = await desktopCapturer.getSources({ types: ['screen', 'window'] });
       if (sources && sources.length > 0) {
+        // Automatically grant access to the primary desktop screen / window
         callback({ video: sources[0], audio: 'loopback' });
       } else {
         callback(null);
@@ -259,17 +178,11 @@ app.on('window-all-closed', () => {
 // ================================================================
 // DESKTOP CAPTURER IPC HANDLER
 // ================================================================
-ipcMain.handle('get-desktop-sources', async (event, options) => {
+ipcMain.handle('get-desktop-sources', async () => {
   try {
-    const opts = options || { types: ['screen', 'window'] };
-    const sources = await desktopCapturer.getSources(opts);
-    return sources.map(s => ({
-      id: s.id,
-      name: s.name,
-      thumbnail: s.thumbnail ? s.thumbnail.toDataURL() : null
-    }));
+    const sources = await desktopCapturer.getSources({ types: ['screen', 'window'] });
+    return sources.map(s => ({ id: s.id, name: s.name }));
   } catch (e) {
-    console.error('Failed to get desktop sources:', e);
     return [];
   }
 });
@@ -396,9 +309,9 @@ ipcMain.handle('select-files-to-import', async () => {
   if (!result.canceled && result.filePaths.length > 0) {
     return result.filePaths.map(filePath => ({
       name: path.basename(filePath),
-                                             path: filePath,
-                                             size: fs.statSync(filePath).size,
-                                             buffer: fs.readFileSync(filePath)
+      path: filePath,
+      size: fs.statSync(filePath).size,
+      buffer: fs.readFileSync(filePath)
     }));
   }
   return [];
@@ -531,9 +444,7 @@ ipcMain.handle('download-full-pack', async (event, { quality, storageDir, repoOw
   const tag = releaseTag || 'documents';
   const zipFilename = quality === 'hd' ? 'documents-hd.zip' : 'documents-sd.zip';
 
-  // Primary Mirror: GitHub Releases CDN
   const githubUrl = `https://github.com/${owner}/${repo}/releases/download/${tag}/${zipFilename}`;
-  // Secondary Mirror: Google Drive
   const gdriveUrl = quality === 'hd' ? GDRIVE_MIRRORS.hd : GDRIVE_MIRRORS.sd;
 
   if (!fs.existsSync(storageDir)) {
@@ -562,8 +473,8 @@ ipcMain.handle('download-full-pack', async (event, { quality, storageDir, repoOw
       await downloadWithRedirect(mirror.url, chunks, (prog) => {
         mainWindow.webContents.send('download-progress', {
           currentFile: `Downloading ${quality.toUpperCase()} Pack via ${mirror.name}`,
-                                    percent: prog.percent,
-                                    speed: prog.speed
+          percent: prog.percent,
+          speed: prog.speed
         });
       });
 

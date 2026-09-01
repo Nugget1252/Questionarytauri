@@ -214,7 +214,7 @@
                 </div>
                 <strong class="quality-title">Standard (SD)</strong>
                 <span class="quality-desc">Compressed files for faster downloads</span>
-                <div class="quality-badge">~60 MB Total</div>
+                <div class="quality-badge">~150 MB Total</div>
               </label>
 
               <label class="quality-card ${this.qualityProfile === 'hd' ? 'active' : ''}" onclick="window.DownloadManager.switchQuality('hd')">
@@ -225,7 +225,7 @@
                 </div>
                 <strong class="quality-title">High-Definition (HD)</strong>
                 <span class="quality-desc">Vector-crisp text & high-res diagrams</span>
-                <div class="quality-badge hd">~140 MB Total</div>
+                <div class="quality-badge hd">~500 MB Total</div>
               </label>
             </div>
           </div>

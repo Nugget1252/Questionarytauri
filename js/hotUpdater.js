@@ -21,6 +21,19 @@
     const STORAGE_KEY_FILES = 'questionary_hot_files';
     const STORAGE_KEY_COMMIT = 'questionary_hot_commit_sha';
     const STORAGE_KEY_BRANCH = 'questionary_hot_branch';
+    const STORAGE_KEY_BUILD_VER = 'questionary_bundle_build_version';
+    const BUNDLE_BUILD_VERSION = '2026.09.01_v220';
+
+    try {
+        if (localStorage.getItem(STORAGE_KEY_BUILD_VER) !== BUNDLE_BUILD_VERSION) {
+            localStorage.removeItem(STORAGE_KEY_FILES);
+            localStorage.removeItem(STORAGE_KEY_COMMIT);
+            localStorage.removeItem(STORAGE_KEY_BRANCH);
+            localStorage.removeItem('questionary-code-files');
+            localStorage.setItem(STORAGE_KEY_BUILD_VER, BUNDLE_BUILD_VERSION);
+            console.log('[HotUpdater] Fresh app build detected. Cleared stale code cache.');
+        }
+    } catch (e) {}
 
     /* Code & DB files to manage (Documents are loaded on-demand) */
     const MANAGED_FILES = [

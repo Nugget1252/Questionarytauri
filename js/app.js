@@ -1270,17 +1270,24 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
     const container = document.getElementById('imageViewerContainer');
     const img = document.getElementById('imageViewerImg');
     const nameEl = document.getElementById('currentImageName');
+    const tilesSection = document.getElementById('tilesSection');
     const tilesContainer = document.getElementById('tilesContainer');
     const sectionHeader = document.querySelector('#tilesSection .section-header');
     const dashboardHeader = document.querySelector('.dashboard-header');
     const breadcrumbContainer = document.querySelector('.breadcrumb-container');
+    const importedSection = document.getElementById('importedSection');
+
+    document.body.classList.add('pdf-view-active');
     if (img) img.src = imgSrc;
     if (nameEl) nameEl.textContent = name || 'Image';
+    if (tilesSection) tilesSection.style.display = 'block';
     if (container) container.style.display = 'block';
     if (tilesContainer) tilesContainer.style.display = 'none';
     if (sectionHeader) sectionHeader.style.display = 'none';
     if (dashboardHeader) dashboardHeader.style.display = 'none';
     if (breadcrumbContainer) breadcrumbContainer.style.display = 'none';
+    if (importedSection) importedSection.style.display = 'none';
+    if (typeof hideHomeTagsPanels === 'function') hideHomeTagsPanels();
     updateBreadcrumb();
   }
   function closeImageViewer() {
@@ -1290,6 +1297,9 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
     const sectionHeader = document.querySelector('#tilesSection .section-header');
     const dashboardHeader = document.querySelector('.dashboard-header');
     const breadcrumbContainer = document.querySelector('.breadcrumb-container');
+    const importedSection = document.getElementById('importedSection');
+
+    document.body.classList.remove('pdf-view-active');
     if (container) container.style.display = 'none';
     if (img) img.src = '';
     if (_currentImageBlobUrl && _currentImageBlobUrl.startsWith('blob:')) URL.revokeObjectURL(_currentImageBlobUrl);
@@ -1300,7 +1310,10 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
       tilesContainer.style.display = isListView ? 'flex' : 'grid';
     }
     if (sectionHeader) sectionHeader.style.display = 'flex';
-    if (dashboardHeader && path.length === 0) dashboardHeader.style.display = window.innerWidth <= 768 ? 'grid' : 'flex';
+    const isRoot = typeof path !== 'undefined' && Array.isArray(path) && path.length === 0;
+    if (dashboardHeader && isRoot) dashboardHeader.style.display = window.innerWidth <= 768 ? 'grid' : 'flex';
+    if (importedSection) importedSection.style.display = isRoot ? 'block' : 'none';
+    if (isRoot && typeof showHomeTagsPanels === 'function') showHomeTagsPanels();
   }
   function downloadCurrentImage() {
     if (!_currentImageBlobUrl) return;
@@ -2218,15 +2231,21 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
     }
 
     if (themeToggle) {
-      themeToggle.addEventListener('click', () => {
-        const currentTheme = document.documentElement.getAttribute('data-theme') || 'light';
-        const newTheme = currentTheme === 'light' ? 'dark' : 'light';
-        if (typeof window.setTheme === 'function') {
-          window.setTheme(newTheme);
+      themeToggle.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (typeof window.toggleTheme === 'function') {
+          window.toggleTheme();
         } else {
-          document.documentElement.setAttribute('data-theme', newTheme);
-          localStorage.setItem('theme', newTheme);
-          updateThemeIcon(newTheme);
+          const currentTheme = document.documentElement.getAttribute('data-theme') || 'light';
+          const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+          if (typeof window.setTheme === 'function') {
+            window.setTheme(newTheme);
+          } else {
+            document.documentElement.setAttribute('data-theme', newTheme);
+            localStorage.setItem('theme', newTheme);
+            updateThemeIcon(newTheme);
+          }
         }
       });
     }
@@ -4921,28 +4940,10 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
 }
 
 // ================================================================
-// DELEGATED THEME & ACCESSIBILITY CONTROLLER
+// DELEGATED ACCESSIBILITY CONTROLLER
 // ================================================================
 document.addEventListener('click', (e) => {
-  // 1. THEME TOGGLE BUTTON
-  const themeBtn = e.target.closest('#themeToggle');
-  if (themeBtn) {
-    e.preventDefault();
-    e.stopPropagation();
-
-    const currentTheme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
-    document.documentElement.setAttribute('data-theme', currentTheme);
-    document.body.classList.toggle('dark-theme', currentTheme === 'dark');
-    localStorage.setItem('theme', currentTheme);
-
-    const icon = document.getElementById('themeIcon') || themeBtn.querySelector('i');
-    if (icon) {
-      icon.className = currentTheme === 'dark' ? 'fas fa-sun' : 'fas fa-moon';
-    }
-    return;
-  }
-
-  // 2. ACCESSIBILITY PANEL TOGGLE BUTTON
+  // 1. ACCESSIBILITY PANEL TOGGLE BUTTON
   const a11yToggle = e.target.closest('#accessibilityToggle');
   if (a11yToggle) {
     e.preventDefault();

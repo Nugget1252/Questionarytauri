@@ -94,6 +94,7 @@
   const SoundFX = {
     ctx: null,
     ambienceNodes: {},
+    ambienceIntervals: [],
 
     init() {
       try {
@@ -105,6 +106,44 @@
           this.ctx.resume().catch(() => {});
         }
       } catch (e) {}
+    },
+
+    _createPinkNoiseBuffer(ctx, durationSec = 6) {
+      const sampleRate = ctx.sampleRate;
+      const bufferSize = sampleRate * durationSec;
+      const buffer = ctx.createBuffer(2, bufferSize, sampleRate);
+      for (let channel = 0; channel < 2; channel++) {
+        const output = buffer.getChannelData(channel);
+        let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0;
+        for (let i = 0; i < bufferSize; i++) {
+          const white = Math.random() * 2 - 1;
+          b0 = 0.99886 * b0 + white * 0.0555179;
+          b1 = 0.99332 * b1 + white * 0.0750759;
+          b2 = 0.96900 * b2 + white * 0.1538520;
+          b3 = 0.86650 * b3 + white * 0.3104856;
+          b4 = 0.55000 * b4 + white * 0.5329522;
+          b5 = -0.7616 * b5 - white * 0.0168980;
+          output[i] = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + white * 0.5362) * 0.11;
+          b6 = white * 0.115926;
+        }
+      }
+      return buffer;
+    },
+
+    _createBrownNoiseBuffer(ctx, durationSec = 6) {
+      const sampleRate = ctx.sampleRate;
+      const bufferSize = sampleRate * durationSec;
+      const buffer = ctx.createBuffer(2, bufferSize, sampleRate);
+      for (let channel = 0; channel < 2; channel++) {
+        const output = buffer.getChannelData(channel);
+        let lastOut = 0.0;
+        for (let i = 0; i < bufferSize; i++) {
+          const white = Math.random() * 2 - 1;
+          lastOut = (lastOut + (0.02 * white)) / 1.02;
+          output[i] = lastOut * 3.5;
+        }
+      }
+      return buffer;
     },
 
     playTone(freq, type = 'sine', duration = 0.15, gain = 0.1) {
@@ -157,86 +196,288 @@
       const ctx = this.ctx;
 
       try {
-        if (track === 'binaural') {
+        const masterGain = ctx.createGain();
+        masterGain.gain.setValueAtTime(Math.max(0, Math.min(1, volume)), ctx.currentTime);
+        masterGain.connect(ctx.destination);
+        this.ambienceNodes = { masterGain, sources: [] };
+
+        if (track === 'rain') {
+          // Rainfall: Multi-stage stereo pink noise with gentle resonance and randomized raindrop impacts
+          const pinkBuffer = this._createPinkNoiseBuffer(ctx, 6);
+          const pinkSource = ctx.createBufferSource();
+          pinkSource.buffer = pinkBuffer;
+          pinkSource.loop = true;
+
+          const rainLowpass = ctx.createBiquadFilter();
+          rainLowpass.type = 'lowpass';
+          rainLowpass.frequency.value = 1100;
+
+          const rainHighpass = ctx.createBiquadFilter();
+          rainHighpass.type = 'highpass';
+          rainHighpass.frequency.value = 250;
+
+          const rainGain = ctx.createGain();
+          rainGain.gain.value = 0.75;
+
+          pinkSource.connect(rainLowpass);
+          rainLowpass.connect(rainHighpass);
+          rainHighpass.connect(rainGain);
+          rainGain.connect(masterGain);
+          pinkSource.start();
+          this.ambienceNodes.sources.push(pinkSource);
+
+          // Procedural gentle raindrop clicks on surfaces
+          const spawnDrop = () => {
+            if (!this.ambienceNodes.masterGain) return;
+            try {
+              const osc = ctx.createOscillator();
+              const g = ctx.createGain();
+              const filt = ctx.createBiquadFilter();
+
+              const freq = 1400 + Math.random() * 1800;
+              osc.type = 'sine';
+              osc.frequency.setValueAtTime(freq, ctx.currentTime);
+              osc.frequency.exponentialRampToValueAtTime(freq * 0.5, ctx.currentTime + 0.04);
+
+              filt.type = 'bandpass';
+              filt.frequency.value = freq;
+              filt.Q.value = 4.0;
+
+              const dropVol = (0.02 + Math.random() * 0.05);
+              g.gain.setValueAtTime(dropVol, ctx.currentTime);
+              g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.04);
+
+              osc.connect(filt);
+              filt.connect(g);
+              g.connect(masterGain);
+
+              osc.start();
+              osc.stop(ctx.currentTime + 0.05);
+            } catch (e) {}
+
+            const nextIn = 80 + Math.random() * 220;
+            const timer = setTimeout(spawnDrop, nextIn);
+            this.ambienceIntervals.push(timer);
+          };
+          spawnDrop();
+
+        } else if (track === 'waves') {
+          // Ocean Waves: Deep brown noise with smooth sinusoidal LFO swell filter and gain breathing
+          const brownBuffer = this._createBrownNoiseBuffer(ctx, 8);
+          const brownSource = ctx.createBufferSource();
+          brownSource.buffer = brownBuffer;
+          brownSource.loop = true;
+
+          const pinkBuffer = this._createPinkNoiseBuffer(ctx, 8);
+          const pinkSource = ctx.createBufferSource();
+          pinkSource.buffer = pinkBuffer;
+          pinkSource.loop = true;
+
+          const waveFilter = ctx.createBiquadFilter();
+          waveFilter.type = 'lowpass';
+          waveFilter.frequency.value = 450;
+          waveFilter.Q.value = 1.8;
+
+          const waveGain = ctx.createGain();
+          waveGain.gain.value = 0.65;
+
+          // LFO to modulate wave filter frequency (swell & ebb ~8.5 second wave period)
+          const lfoOsc = ctx.createOscillator();
+          lfoOsc.type = 'sine';
+          lfoOsc.frequency.value = 0.12; // 8.33 second period
+
+          const lfoGain = ctx.createGain();
+          lfoGain.gain.value = 350; // Cutoff sweeps between 150Hz and 800Hz
+          lfoOsc.connect(lfoGain);
+          lfoGain.connect(waveFilter.frequency);
+
+          // Second LFO for gentle wave amplitude breathing
+          const lfoGainOsc = ctx.createOscillator();
+          lfoGainOsc.type = 'sine';
+          lfoGainOsc.frequency.value = 0.12;
+
+          const lfoAmpGain = ctx.createGain();
+          lfoAmpGain.gain.value = 0.35;
+          lfoGainOsc.connect(lfoAmpGain);
+          lfoAmpGain.connect(waveGain.gain);
+
+          brownSource.connect(waveFilter);
+          pinkSource.connect(waveFilter);
+          waveFilter.connect(waveGain);
+          waveGain.connect(masterGain);
+
+          brownSource.start();
+          pinkSource.start();
+          lfoOsc.start();
+          lfoGainOsc.start();
+
+          this.ambienceNodes.sources.push(brownSource, pinkSource, lfoOsc, lfoGainOsc);
+
+        } else if (track === 'campfire') {
+          // Campfire: Low warm hearth rumble + Poisson wood crackle / snap engine
+          const brownBuffer = this._createBrownNoiseBuffer(ctx, 6);
+          const brownSource = ctx.createBufferSource();
+          brownSource.buffer = brownBuffer;
+          brownSource.loop = true;
+
+          const hearthFilter = ctx.createBiquadFilter();
+          hearthFilter.type = 'lowpass';
+          hearthFilter.frequency.value = 320;
+
+          const hearthGain = ctx.createGain();
+          hearthGain.gain.value = 0.55;
+
+          brownSource.connect(hearthFilter);
+          hearthFilter.connect(hearthGain);
+          hearthGain.connect(masterGain);
+          brownSource.start();
+          this.ambienceNodes.sources.push(brownSource);
+
+          // Procedural natural wood crackles and popping sparks
+          const spawnCrackle = () => {
+            if (!this.ambienceNodes.masterGain) return;
+            try {
+              const bufferSize = Math.floor(ctx.sampleRate * 0.015); // ~15ms burst
+              const crackleBuffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+              const data = crackleBuffer.getChannelData(0);
+              for (let i = 0; i < bufferSize; i++) {
+                data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufferSize * 0.25));
+              }
+
+              const crackleSource = ctx.createBufferSource();
+              crackleSource.buffer = crackleBuffer;
+
+              const crackleFilter = ctx.createBiquadFilter();
+              crackleFilter.type = 'bandpass';
+              crackleFilter.frequency.value = 2000 + Math.random() * 3200;
+              crackleFilter.Q.value = 3.5;
+
+              const cGain = ctx.createGain();
+              const snapVol = (0.05 + Math.random() * 0.14);
+              cGain.gain.value = snapVol;
+
+              crackleSource.connect(crackleFilter);
+              crackleFilter.connect(cGain);
+              cGain.connect(masterGain);
+
+              crackleSource.start();
+              crackleSource.stop(ctx.currentTime + 0.02);
+            } catch (e) {}
+
+            const nextCrackle = 40 + Math.random() * 280;
+            const timer = setTimeout(spawnCrackle, nextCrackle);
+            this.ambienceIntervals.push(timer);
+          };
+          spawnCrackle();
+
+        } else if (track === 'binaural') {
+          // Alpha Beats: Warm meditation fundamental drone (136.1Hz Om / 146.1Hz = 10Hz Alpha differential) + soft noise bed
           const oscL = ctx.createOscillator();
           const oscR = ctx.createOscillator();
+          const subOsc = ctx.createOscillator();
           const merger = ctx.createChannelMerger(2);
-          const gain = ctx.createGain();
+          const droneGain = ctx.createGain();
 
-          oscL.frequency.value = 216;
-          oscR.frequency.value = 226;
+          oscL.type = 'sine';
+          oscR.type = 'sine';
+          subOsc.type = 'sine';
+
+          oscL.frequency.value = 136.1; // Base frequency (Left)
+          oscR.frequency.value = 146.1; // +10 Hz Alpha difference (Right)
+          subOsc.frequency.value = 68.05; // Warm sub harmonic
 
           oscL.connect(merger, 0, 0);
           oscR.connect(merger, 0, 1);
-          merger.connect(gain);
-          gain.gain.value = volume * 0.25;
-          gain.connect(ctx.destination);
+          merger.connect(droneGain);
+
+          const subGain = ctx.createGain();
+          subGain.gain.value = 0.2;
+          subOsc.connect(subGain);
+          subGain.connect(droneGain);
+
+          droneGain.gain.value = 0.45;
+          droneGain.connect(masterGain);
+
+          // Soft background warm pink acoustic floor
+          const pinkBuffer = this._createPinkNoiseBuffer(ctx, 6);
+          const pinkSource = ctx.createBufferSource();
+          pinkSource.buffer = pinkBuffer;
+          pinkSource.loop = true;
+
+          const pinkFilter = ctx.createBiquadFilter();
+          pinkFilter.type = 'lowpass';
+          pinkFilter.frequency.value = 380;
+
+          const pinkGain = ctx.createGain();
+          pinkGain.gain.value = 0.2;
+
+          pinkSource.connect(pinkFilter);
+          pinkFilter.connect(pinkGain);
+          pinkGain.connect(masterGain);
 
           oscL.start();
           oscR.start();
-          this.ambienceNodes = { oscL, oscR, gain };
-          return;
-        }
+          subOsc.start();
+          pinkSource.start();
 
-        const bufferSize = ctx.sampleRate * 2;
-        const noiseBuffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-        const output = noiseBuffer.getChannelData(0);
-        for (let i = 0; i < bufferSize; i++) {
-          output[i] = Math.random() * 2 - 1;
-        }
+          this.ambienceNodes.sources.push(oscL, oscR, subOsc, pinkSource);
 
-        const whiteNoise = ctx.createBufferSource();
-        whiteNoise.buffer = noiseBuffer;
-        whiteNoise.loop = true;
-
-        const filter = ctx.createBiquadFilter();
-        if (track === 'rain') {
-          filter.type = 'lowpass';
-          filter.frequency.value = 850;
-        } else if (track === 'campfire') {
-          filter.type = 'bandpass';
-          filter.frequency.value = 1200;
-          filter.Q.value = 3.0;
-        } else if (track === 'waves') {
-          filter.type = 'lowpass';
-          filter.frequency.value = 450;
         } else {
-          filter.type = 'allpass';
+          // Focus Brown Noise (Deep relaxing waterfall / fan drone)
+          const brownBuffer = this._createBrownNoiseBuffer(ctx, 8);
+          const brownSource = ctx.createBufferSource();
+          brownSource.buffer = brownBuffer;
+          brownSource.loop = true;
+
+          const focusFilter = ctx.createBiquadFilter();
+          focusFilter.type = 'lowpass';
+          focusFilter.frequency.value = 650;
+          focusFilter.Q.value = 0.7;
+
+          const focusGain = ctx.createGain();
+          focusGain.gain.value = 0.8;
+
+          brownSource.connect(focusFilter);
+          focusFilter.connect(focusGain);
+          focusGain.connect(masterGain);
+
+          brownSource.start();
+          this.ambienceNodes.sources.push(brownSource);
         }
-
-        const gain = ctx.createGain();
-        gain.gain.value = volume;
-
-        whiteNoise.connect(filter);
-        filter.connect(gain);
-        gain.connect(ctx.destination);
-
-        whiteNoise.start();
-        this.ambienceNodes = { whiteNoise, gain };
       } catch (e) {
         console.warn('[SoundFX] Ambience error:', e);
       }
     },
 
     setAmbienceVolume(volume) {
-      if (this.ambienceNodes.gain) {
-        this.ambienceNodes.gain.gain.value = volume;
+      if (this.ambienceNodes && this.ambienceNodes.masterGain && this.ctx) {
+        const vol = Math.max(0, Math.min(1, volume));
+        this.ambienceNodes.masterGain.gain.setValueAtTime(vol, this.ctx.currentTime);
       }
     },
 
     stopAmbience() {
-      try {
-        if (this.ambienceNodes.whiteNoise) {
-          this.ambienceNodes.whiteNoise.stop();
-          this.ambienceNodes.whiteNoise.disconnect();
-        }
-        if (this.ambienceNodes.oscL) {
-          this.ambienceNodes.oscL.stop();
-          this.ambienceNodes.oscR.stop();
-          this.ambienceNodes.oscL.disconnect();
-          this.ambienceNodes.oscR.disconnect();
-        }
-      } catch (e) {}
+      // Clear all procedural generation timeouts/intervals
+      if (this.ambienceIntervals && this.ambienceIntervals.length > 0) {
+        this.ambienceIntervals.forEach(t => clearTimeout(t));
+        this.ambienceIntervals = [];
+      }
+
+      if (this.ambienceNodes && this.ambienceNodes.sources) {
+        this.ambienceNodes.sources.forEach(src => {
+          try {
+            if (typeof src.stop === 'function') src.stop();
+            if (typeof src.disconnect === 'function') src.disconnect();
+          } catch (e) {}
+        });
+      }
+
+      if (this.ambienceNodes && this.ambienceNodes.masterGain) {
+        try {
+          this.ambienceNodes.masterGain.disconnect();
+        } catch (e) {}
+      }
+
       this.ambienceNodes = {};
     }
   };

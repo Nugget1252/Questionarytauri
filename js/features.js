@@ -326,8 +326,12 @@ async function showTextFile(urlOrBlob, fileName) {
     const container = document.getElementById('textViewerContainer');
     const body = document.getElementById('textViewerBody');
     const nameEl = document.getElementById('currentTextName');
+    const tilesSection = document.getElementById('tilesSection');
     const tilesContainer = document.getElementById('tilesContainer');
     const sectionHeader = document.querySelector('#tilesSection .section-header');
+    const dashboardHeader = document.querySelector('.dashboard-header');
+    const breadcrumbContainer = document.querySelector('.breadcrumb-container');
+    const importedSection = document.getElementById('importedSection');
 
     if (nameEl) nameEl.textContent = _currentTextName;
 
@@ -360,9 +364,15 @@ async function showTextFile(urlOrBlob, fileName) {
             body.innerHTML = `<pre style="white-space: pre-wrap; font-family: inherit;">${escapeHtml(text)}</pre>`;
         }
 
+        document.body.classList.add('pdf-view-active');
+        if (tilesSection) tilesSection.style.display = 'block';
         if (container) container.style.display = 'block';
         if (tilesContainer) tilesContainer.style.display = 'none';
         if (sectionHeader) sectionHeader.style.display = 'none';
+        if (dashboardHeader) dashboardHeader.style.display = 'none';
+        if (breadcrumbContainer) breadcrumbContainer.style.display = 'none';
+        if (importedSection) importedSection.style.display = 'none';
+        if (typeof hideHomeTagsPanels === 'function') hideHomeTagsPanels();
     } catch (err) {
         showNotification('Failed to read text file', 'error');
         console.error(err);
@@ -373,12 +383,22 @@ function closeTextViewer() {
     const container = document.getElementById('textViewerContainer');
     const tilesContainer = document.getElementById('tilesContainer');
     const sectionHeader = document.querySelector('#tilesSection .section-header');
+    const dashboardHeader = document.querySelector('.dashboard-header');
+    const breadcrumbContainer = document.querySelector('.breadcrumb-container');
+    const importedSection = document.getElementById('importedSection');
+
+    document.body.classList.remove('pdf-view-active');
     if (container) container.style.display = 'none';
+    if (breadcrumbContainer) breadcrumbContainer.style.display = 'flex';
     if (tilesContainer) {
         const isListView = tilesContainer.classList.contains('list-view');
         tilesContainer.style.display = isListView ? 'flex' : 'grid';
     }
     if (sectionHeader) sectionHeader.style.display = 'flex';
+    const isRoot = typeof path !== 'undefined' && Array.isArray(path) && path.length === 0;
+    if (dashboardHeader && isRoot) dashboardHeader.style.display = window.innerWidth <= 768 ? 'grid' : 'flex';
+    if (importedSection) importedSection.style.display = isRoot ? 'block' : 'none';
+    if (isRoot && typeof showHomeTagsPanels === 'function') showHomeTagsPanels();
 }
 
 function copyTextViewerContent() {
@@ -405,8 +425,12 @@ async function showDocxFile(urlOrBlob, fileName) {
     const container = document.getElementById('docxViewerContainer');
     const body = document.getElementById('docxViewerBody');
     const nameEl = document.getElementById('currentDocxName');
+    const tilesSection = document.getElementById('tilesSection');
     const tilesContainer = document.getElementById('tilesContainer');
     const sectionHeader = document.querySelector('#tilesSection .section-header');
+    const dashboardHeader = document.querySelector('.dashboard-header');
+    const breadcrumbContainer = document.querySelector('.breadcrumb-container');
+    const importedSection = document.getElementById('importedSection');
 
     if (nameEl) nameEl.textContent = _currentDocxName;
 
@@ -435,9 +459,15 @@ async function showDocxFile(urlOrBlob, fileName) {
             body.innerHTML = '<p class="empty-state">Mammoth.js library unavailable. Download the file to view.</p>';
         }
 
+        document.body.classList.add('pdf-view-active');
+        if (tilesSection) tilesSection.style.display = 'block';
         if (container) container.style.display = 'block';
         if (tilesContainer) tilesContainer.style.display = 'none';
         if (sectionHeader) sectionHeader.style.display = 'none';
+        if (dashboardHeader) dashboardHeader.style.display = 'none';
+        if (breadcrumbContainer) breadcrumbContainer.style.display = 'none';
+        if (importedSection) importedSection.style.display = 'none';
+        if (typeof hideHomeTagsPanels === 'function') hideHomeTagsPanels();
     } catch (err) {
         showNotification('Failed to render Word document', 'error');
         console.error(err);
@@ -448,12 +478,22 @@ function closeDocxViewer() {
     const container = document.getElementById('docxViewerContainer');
     const tilesContainer = document.getElementById('tilesContainer');
     const sectionHeader = document.querySelector('#tilesSection .section-header');
+    const dashboardHeader = document.querySelector('.dashboard-header');
+    const breadcrumbContainer = document.querySelector('.breadcrumb-container');
+    const importedSection = document.getElementById('importedSection');
+
+    document.body.classList.remove('pdf-view-active');
     if (container) container.style.display = 'none';
+    if (breadcrumbContainer) breadcrumbContainer.style.display = 'flex';
     if (tilesContainer) {
         const isListView = tilesContainer.classList.contains('list-view');
         tilesContainer.style.display = isListView ? 'flex' : 'grid';
     }
     if (sectionHeader) sectionHeader.style.display = 'flex';
+    const isRoot = typeof path !== 'undefined' && Array.isArray(path) && path.length === 0;
+    if (dashboardHeader && isRoot) dashboardHeader.style.display = window.innerWidth <= 768 ? 'grid' : 'flex';
+    if (importedSection) importedSection.style.display = isRoot ? 'block' : 'none';
+    if (isRoot && typeof showHomeTagsPanels === 'function') showHomeTagsPanels();
 }
 
 function downloadDocxContent() {
@@ -2915,25 +2955,79 @@ function filterByTag(tagId) {
     showNotification(`Showing items tagged "${tagName}"`, 'info');
 }
 
-function navigateToTaggedItem(itemId) {
+async function navigateToTaggedItem(itemId) {
+    if (!itemId) return;
+
     if (itemId.startsWith('folder_')) {
         const pathStr = itemId.replace('folder_', '');
         const pathArray = pathStr.split('/').filter(s => s);
+        if (typeof window.showView === 'function') window.showView('home');
         if (typeof window.navigateToPath === 'function') {
-            if (typeof window.showView === 'function') window.showView('home');
-            window.navigateToPath(pathArray);
+            await window.navigateToPath(pathArray);
         }
     } else if (itemId.startsWith('doc_')) {
         const pathStr = itemId.replace('doc_', '');
         const segments = pathStr.split('/').filter(s => s);
         const fileName = segments.pop();
-        if (typeof window.navigateToPath === 'function' && fileName) {
-            if (typeof window.showView === 'function') window.showView('home');
-            window.navigateToPath(segments);
-            setTimeout(() => {
-                openAnyDocument(`documents/${pathStr}`, fileName);
-            }, 100);
+        const parentPath = segments;
+
+        if (typeof window.showView === 'function') window.showView('home');
+        if (typeof window.navigateToPath === 'function') {
+            await window.navigateToPath(parentPath);
         }
+
+        // Try to resolve the real target URL from DbService
+        let targetUrl = null;
+        if (typeof DbService !== 'undefined' && DbService) {
+            try {
+                const nodes = await DbService.getChildren(parentPath);
+                const found = (nodes || []).find(n => n.name === fileName || (n.file_path && n.file_path.includes(fileName)));
+                if (found && found.file_path && found.file_path !== '#') {
+                    targetUrl = found.file_path;
+                }
+            } catch (e) {}
+
+            if (!targetUrl) {
+                try {
+                    const searchRes = await DbService.search(fileName);
+                    const found = (searchRes || []).find(r => r.name === fileName || (r.url && r.url.includes(fileName)));
+                    if (found && found.url && found.url !== '#') {
+                        targetUrl = found.url;
+                    }
+                } catch (e) {}
+            }
+        }
+
+        if (!targetUrl) {
+            targetUrl = `documents/${fileName.endsWith('.pdf') ? fileName : (fileName + '.pdf')}`;
+        }
+
+        setTimeout(async () => {
+            if (typeof window.openAnyDocument === 'function') {
+                await window.openAnyDocument(targetUrl, fileName);
+            } else if (typeof window.showPDF === 'function') {
+                window.showPDF(targetUrl, fileName);
+            }
+        }, 120);
+    } else if (itemId.startsWith('note_')) {
+        const noteId = itemId.replace('note_', '');
+        if (typeof window.showView === 'function') window.showView('notes');
+        setTimeout(() => {
+            const noteEl = document.querySelector(`[data-note-id="${noteId}"]`) || document.getElementById(`note-${noteId}`);
+            if (noteEl) noteEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }, 150);
+    } else if (itemId.startsWith('deck_')) {
+        const deckId = itemId.replace('deck_', '');
+        if (typeof window.showView === 'function') window.showView('flashcards');
+        setTimeout(() => {
+            if (typeof window.startStudySession === 'function') {
+                window.startStudySession(deckId);
+            }
+        }, 150);
+    } else if (itemId.startsWith('reminder_')) {
+        if (typeof window.showView === 'function') window.showView('reminders');
+    } else if (itemId.startsWith('voicenote_')) {
+        if (typeof window.showView === 'function') window.showView('notes');
     } else {
         showNotification('Item type not recognized', 'info');
     }
