@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -8,64 +9,86 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" crossorigin="anonymous">
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
+:root {
+    --bg-base: #121214;
+    --toolbar-bg: #18181b;
+    --toolbar-border: #27272a;
+    --fg-color: #ededef;
+    --fg-muted: #a1a1aa;
+    --accent: #cf6215;
+    --pop-bg: #1c1c20;
+    --pop-border: #2e2e34;
+}
+
+[data-theme="light"] {
+    --bg-base: #f4f4f5;
+    --toolbar-bg: #ffffff;
+    --toolbar-border: #e4e4e7;
+    --fg-color: #18181b;
+    --fg-muted: #71717a;
+    --pop-bg: #ffffff;
+    --pop-border: #e4e4e7;
+}
+
 html, body {
     height: 100%;
     overflow: hidden;
-    background: #121214;
+    background: var(--bg-base);
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-    color: #ededef;
+    color: var(--fg-color);
     -webkit-font-smoothing: antialiased;
     user-select: none;
+    transition: background 0.2s ease, color 0.2s ease;
 }
 
 /* ── TOOLBAR ── */
 #toolbar {
     position: fixed; top: 0; left: 0; right: 0; z-index: 1000;
-    background: #18181b; color: #ededef; padding: 0 10px;
+    background: var(--toolbar-bg); color: var(--fg-color); padding: 0 10px;
     display: flex; align-items: center; gap: 4px;
-    font-size: 13px; border-bottom: 1px solid #27272a;
+    font-size: 13px; border-bottom: 1px solid var(--toolbar-border);
     height: 42px; overflow-x: auto; scrollbar-width: none;
 }
 #toolbar::-webkit-scrollbar { display: none; }
 
 .tb-btn {
-    background: transparent; color: #a1a1aa; border: 1px solid transparent;
+    background: transparent; color: var(--fg-muted); border: 1px solid transparent;
     padding: 0 7px; cursor: pointer; border-radius: 6px; font-size: 13px;
     display: inline-flex; align-items: center; justify-content: center;
     min-width: 32px; height: 30px; transition: all 0.15s ease;
     flex-shrink: 0; text-decoration: none; position: relative;
 }
-.tb-btn:hover { background: #27272a; color: #ededef; }
-.tb-btn.active { background: #cf6215 !important; color: #ffffff !important; border-color: #cf6215; }
+.tb-btn:hover { background: rgba(125, 125, 125, 0.15); color: var(--fg-color); }
+.tb-btn.active { background: var(--accent) !important; color: #ffffff !important; border-color: var(--accent); }
 .tb-btn.active::after {
     content: ''; position: absolute; bottom: -6px; left: 50%;
     transform: translateX(-50%); border-left: 4px solid transparent;
-    border-right: 4px solid transparent; border-top: 4px solid #cf6215;
+    border-right: 4px solid transparent; border-top: 4px solid var(--accent);
 }
 
-.toolbar-sep { width: 1px; height: 20px; background: #27272a; margin: 0 3px; flex-shrink: 0; }
+.toolbar-sep { width: 1px; height: 20px; background: var(--toolbar-border); margin: 0 3px; flex-shrink: 0; }
 .toolbar-spacer { flex: 1; min-width: 8px; }
-.toolbar-label { font-size: 12px; color: #71717a; white-space: nowrap; }
+.toolbar-label { font-size: 12px; color: var(--fg-muted); white-space: nowrap; }
 
 #pageNum {
     width: 42px; text-align: center; padding: 2px 4px;
-    border-radius: 6px; border: 1px solid #27272a;
-    background: #121214; color: #ededef; font-size: 12px;
+    border-radius: 6px; border: 1px solid var(--toolbar-border);
+    background: var(--bg-base); color: var(--fg-color); font-size: 12px;
     height: 28px; outline: none; transition: border-color 0.15s;
 }
-#pageNum:focus { border-color: #cf6215; }
+#pageNum:focus { border-color: var(--accent); }
 
 #zoomSelect {
-    background: #121214; color: #ededef; border: 1px solid #27272a;
+    background: var(--bg-base); color: var(--fg-color); border: 1px solid var(--toolbar-border);
     border-radius: 6px; padding: 2px 6px; font-size: 12px; height: 28px;
     cursor: pointer; outline: none; flex-shrink: 0;
 }
-#zoomSelect:focus { border-color: #cf6215; }
+#zoomSelect:focus { border-color: var(--accent); }
 
 /* ── TOOL FLYOUT POPOVERS ── */
 .tool-popover {
     position: fixed; top: 48px; z-index: 2000;
-    background: #1c1c20; border: 1px solid #2e2e34;
+    background: var(--pop-bg); border: 1px solid var(--pop-border);
     border-radius: 10px; padding: 10px 12px;
     display: none; flex-direction: column; gap: 8px;
     box-shadow: 0 10px 30px rgba(0,0,0,0.5);
@@ -78,18 +101,18 @@ html, body {
 }
 
 .pop-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.pop-label { font-size: 11px; font-weight: 600; color: #858590; text-transform: uppercase; }
-.pop-val { font-size: 11px; color: #ededef; font-family: monospace; min-width: 24px; text-align: right; }
+.pop-label { font-size: 11px; font-weight: 600; color: var(--fg-muted); text-transform: uppercase; }
+.pop-val { font-size: 11px; color: var(--fg-color); font-family: monospace; min-width: 24px; text-align: right; }
 
 .pop-slider {
     -webkit-appearance: none; appearance: none;
-    width: 100%; height: 4px; background: #2e2e34;
+    width: 100%; height: 4px; background: var(--toolbar-border);
     border-radius: 2px; outline: none; cursor: pointer;
 }
 .pop-slider::-webkit-slider-thumb {
     -webkit-appearance: none; appearance: none;
     width: 12px; height: 12px; border-radius: 50%;
-    background: #cf6215; cursor: pointer;
+    background: var(--accent); cursor: pointer;
 }
 
 .pop-swatches { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
@@ -101,7 +124,7 @@ html, body {
 .pop-dot.active { border-color: #ffffff; transform: scale(1.15); box-shadow: 0 0 5px rgba(255,255,255,0.5); }
 
 .pop-color-input {
-    width: 20px; height: 20px; border: 1px solid #2e2e34; border-radius: 4px;
+    width: 20px; height: 20px; border: 1px solid var(--pop-border); border-radius: 4px;
     background: transparent; cursor: pointer; padding: 0;
 }
 .pop-color-input::-webkit-color-swatch-wrapper { padding: 0; }
@@ -109,31 +132,31 @@ html, body {
 
 .shape-btn-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
 .shape-sub-btn {
-    background: #27272a; border: 1px solid #333338; color: #a1a1aa;
+    background: var(--pop-border); border: 1px solid transparent; color: var(--fg-muted);
     border-radius: 6px; padding: 6px 0; cursor: pointer; font-size: 12px;
     display: flex; align-items: center; justify-content: center;
 }
-.shape-sub-btn:hover { background: #333338; color: #fff; }
-.shape-sub-btn.active { background: #cf6215; color: #fff; border-color: #cf6215; }
+.shape-sub-btn:hover { background: rgba(125, 125, 125, 0.2); color: var(--fg-color); }
+.shape-sub-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 
 /* ── SEARCH BAR ── */
 #searchBar {
     display: none; position: fixed; top: 48px; right: 16px; z-index: 1001;
-    background: #1c1c20; border: 1px solid #2e2e34; border-radius: 8px;
+    background: var(--pop-bg); border: 1px solid var(--pop-border); border-radius: 8px;
     padding: 6px 10px; align-items: center; gap: 6px;
     box-shadow: 0 8px 24px rgba(0,0,0,0.5);
 }
 #searchBar.active { display: flex; }
 #searchInput {
-    background: #121214; border: 1px solid #2e2e34; border-radius: 4px;
-    color: #fff; padding: 3px 8px; font-size: 12px; width: 140px; outline: none;
+    background: var(--bg-base); border: 1px solid var(--pop-border); border-radius: 4px;
+    color: var(--fg-color); padding: 3px 8px; font-size: 12px; width: 140px; outline: none;
 }
-#searchInput:focus { border-color: #cf6215; }
-#searchCount { font-size: 11px; color: #71717a; min-width: 45px; text-align: center; }
+#searchInput:focus { border-color: var(--accent); }
+#searchCount { font-size: 11px; color: var(--fg-muted); min-width: 45px; text-align: center; }
 
 /* Loading Bar */
 #loadingBar { position: fixed; top: 42px; left: 0; right: 0; height: 3px; background: transparent; z-index: 101; }
-#loadingProgress { height: 100%; width: 0%; background: #cf6215; transition: width 0.2s ease; }
+#loadingProgress { height: 100%; width: 0%; background: var(--accent); transition: width 0.2s ease; }
 
 /* ── WORKSPACE ── */
 #viewerContainer {
@@ -184,11 +207,11 @@ html, body {
     line-height: 1.3; font-family: inherit; border-radius: 4px;
 }
 .pdf-inline-text:hover, .pdf-inline-text:focus, .pdf-inline-text.selected {
-    border-color: #cf6215; background: rgba(207, 98, 21, 0.08);
+    border-color: var(--accent); background: rgba(207, 98, 21, 0.08);
 }
 .text-drag-bar {
     position: absolute; top: -18px; left: 0;
-    font-size: 10px; background: #cf6215; color: #fff;
+    font-size: 10px; background: var(--accent); color: #fff;
     padding: 1px 6px; border-radius: 3px; cursor: move;
     display: none; user-select: none; align-items: center; gap: 4px;
 }
@@ -239,7 +262,7 @@ html, body {
 .textLayer ::selection { background: rgba(207, 98, 21, 0.4) !important; }
 
 #errorMessage { display: none; color: #f87171; text-align: center; padding: 60px 20px; font-size: 15px; }
-#loadingMessage { color: #71717a; text-align: center; padding: 60px 20px; font-size: 14px; }
+#loadingMessage { color: var(--fg-muted); text-align: center; padding: 60px 20px; font-size: 14px; }
 </style>
 </head>
 <body>
@@ -290,8 +313,6 @@ html, body {
 </div>
 
 <!-- Contextual Tool Popovers -->
-
-<!-- Pen Popover -->
 <div class="tool-popover" id="popoverPen">
     <div class="pop-row">
         <span class="pop-label">Pen Size</span>
@@ -312,7 +333,6 @@ html, body {
     </div>
 </div>
 
-<!-- Highlighter Popover -->
 <div class="tool-popover" id="popoverHighlighter">
     <div class="pop-row">
         <span class="pop-label">Thickness</span>
@@ -333,7 +353,6 @@ html, body {
     </div>
 </div>
 
-<!-- Text Popover -->
 <div class="tool-popover" id="popoverText">
     <div class="pop-row">
         <span class="pop-label">Font Size</span>
@@ -353,7 +372,6 @@ html, body {
     </div>
 </div>
 
-<!-- Eraser Popover -->
 <div class="tool-popover" id="popoverEraser">
     <div class="pop-row">
         <span class="pop-label">Eraser Size</span>
@@ -362,7 +380,6 @@ html, body {
     <input type="range" class="pop-slider" id="eraserSizeSlider" min="10" max="80" value="28">
 </div>
 
-<!-- Shapes Popover -->
 <div class="tool-popover" id="popoverShape">
     <span class="pop-label">Choose Shape</span>
     <div class="shape-btn-grid">
@@ -382,7 +399,6 @@ html, body {
     </div>
 </div>
 
-<!-- Search Panel -->
 <div id="searchBar">
     <input type="text" id="searchInput" placeholder="Find in text…">
     <span id="searchCount">0/0</span>
@@ -403,6 +419,13 @@ html, body {
 <script>
 (function() {
     'use strict';
+
+    function syncThemeFromParent() {
+        const theme = localStorage.getItem('questionary-theme') || localStorage.getItem('theme') || 'dark';
+        document.documentElement.setAttribute('data-theme', theme);
+    }
+    syncThemeFromParent();
+    window.addEventListener('storage', syncThemeFromParent);
 
     if (typeof pdfjsLib === 'undefined') {
         document.getElementById('loadingMessage').style.display = 'none';
@@ -450,9 +473,6 @@ html, body {
     let docUndoStacks = {};
     let activeDocId = '';
 
-    // ================================================================
-    // URL RESOLVER (SUPPORTS LOCAL-PDF://, ABSOLUTE URLS & HASHES)
-    // ================================================================
     function extractFileUrl() {
         const urlParams = new URLSearchParams(window.location.search);
         let rawFile = urlParams.get('file');
@@ -655,9 +675,6 @@ html, body {
         wrapper.dataset.rendering = 'false';
     }
 
-    /* ================================================================
-       GLORIOUS OFFSCREEN-BUFFERED HIGHLIGHTER & FAST CANVAS ENGINE
-       ================================================================ */
     function savePageSnapshot(pageNum, canvas) {
         try {
             const dataUrl = canvas.toDataURL('image/png');
@@ -910,9 +927,6 @@ html, body {
         });
     }
 
-    /* ================================================================
-       STICKY NOTES WITH OPACITY & COLOR CONTROLS
-       ================================================================ */
     function saveDOMOverlays(wrapper, pageNum) {
         const items = [];
         wrapper.querySelectorAll('.pdf-inline-text, .pdf-sticky-note').forEach(el => {
@@ -1120,9 +1134,6 @@ html, body {
         });
     }
 
-    /* ================================================================
-       CONTEXTUAL TOOL POPOVERS & TOOLBAR DISPATCHER
-       ================================================================ */
     function closeAllPopovers() {
         document.querySelectorAll('.tool-popover').forEach(p => p.classList.remove('open'));
         currentOpenPopover = null;
@@ -1209,7 +1220,6 @@ html, body {
         }
     });
 
-    /* Sliders & Color Swatches */
     document.getElementById('penSizeSlider').addEventListener('input', (e) => {
         toolSettings.pen.size = parseInt(e.target.value, 10);
         document.getElementById('penSizeVal').textContent = toolSettings.pen.size + 'px';
@@ -1287,7 +1297,6 @@ html, body {
         toolSettings.shape.color = e.target.value;
     });
 
-    /* Undo Handler */
     function undoAction() {
         const stack = docUndoStacks[currentPageNum];
         if (!stack || stack.length === 0) return;
@@ -1325,19 +1334,16 @@ html, body {
         }
     });
 
-    /* Dark Mode Inversion */
     document.getElementById('toggleDarkMode').addEventListener('click', () => {
         isDarkModeInverted = !isDarkModeInverted;
         document.querySelectorAll('.page-wrapper').forEach(w => w.classList.toggle('dark-inverted', isDarkModeInverted));
     });
 
-    /* Rotate Page */
     document.getElementById('rotatePage').addEventListener('click', () => {
         pageRotation = (pageRotation + 90) % 360;
         setupPlaceholders();
     });
 
-    /* Document Search */
     const searchBar = document.getElementById('searchBar');
     const searchInput = document.getElementById('searchInput');
     const searchCount = document.getElementById('searchCount');
@@ -1381,7 +1387,6 @@ html, body {
         scrollToPage(searchMatches[searchIndex]);
     });
 
-    /* Export Flattened Document Image */
     document.getElementById('downloadExport').addEventListener('click', async () => {
         const currentWrapper = viewerContainer.querySelector(`[data-page-num="${currentPageNum}"]`);
         if (!currentWrapper) return;
@@ -1403,9 +1408,6 @@ html, body {
         a.click();
     });
 
-    /* ================================================================
-       EXTERNAL PDF OPENER (ELECTRON / TAURI / WEB SAFE)
-       ================================================================ */
     document.getElementById('openExternalPdf').addEventListener('click', async (e) => {
         e.preventDefault();
         e.stopPropagation();
@@ -1432,9 +1434,6 @@ html, body {
         window.open(targetUrl, '_blank', 'noopener,noreferrer');
     });
 
-    /* ================================================================
-       SCROLLING, PAGINATION & ZOOM ENGINE
-       ================================================================ */
     function scrollToPage(pageNum) {
         if (pageNum < 1 || pageNum > totalPages) return;
         const wrapper = viewerContainer.querySelector(`[data-page-num="${pageNum}"]`);
@@ -1509,7 +1508,6 @@ html, body {
         }
     }, { passive: false });
 
-    // Keyboard Shortcuts
     window.addEventListener('keydown', (e) => {
         if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return;
 
@@ -1539,6 +1537,9 @@ html, body {
         if (e.data && e.data.type === 'loadPdf' && e.data.url) {
             fileUrl = e.data.url;
             loadDocument(fileUrl);
+        }
+        if (e.data && e.data.type === 'setTheme') {
+            document.documentElement.setAttribute('data-theme', e.data.theme);
         }
     });
 

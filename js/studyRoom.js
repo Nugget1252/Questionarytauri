@@ -1,9 +1,7 @@
 
-
 (function (window, document) {
   'use strict';
 
-  // Polyfill WebRTC Constructors
   const RTCPeerConnection = window.RTCPeerConnection ||
                             window.webkitRTCPeerConnection ||
                             window.mozRTCPeerConnection ||
@@ -19,11 +17,8 @@
                           window.mozRTCIceCandidate ||
                           null;
 
-  console.log('[StudyRoom] Booting Master Study Room Engine v26.0 (Live ScreenShare Stream Sync)...');
+  console.log('[StudyRoom] Booting Master Study Room Engine v27.0 (Procedural WebAudio Synthesizers)...');
 
-  /* =========================================================================
-   * 1. CONSTANTS, CODECS & ICE SERVERS
-   * ========================================================================= */
   const ROOM_CODE_LENGTH = 10;
   const BASE32_ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
   const PEERJS_CDN = 'https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js';
@@ -49,9 +44,6 @@
     iceCandidatePoolSize: 4
   };
 
-  /* ----------------------------------------------------------------
-   * ROOM CODE NORMALIZER & GENERATOR
-   * ---------------------------------------------------------------- */
   function normalizeRoomCode(raw) {
     if (!raw) return '';
     return raw
@@ -89,7 +81,7 @@
   }
 
   /* =========================================================================
-   * 2. AUDIO SYNTHESIZER & SOUNDSCAPE ENGINE
+   * PROCEDURAL SOUND SYNTHESIZER & SOUNDSCAPE ENGINE
    * ========================================================================= */
   const SoundFX = {
     ctx: null,
@@ -202,7 +194,6 @@
         this.ambienceNodes = { masterGain, sources: [] };
 
         if (track === 'rain') {
-          // Rainfall: Multi-stage stereo pink noise with gentle resonance and randomized raindrop impacts
           const pinkBuffer = this._createPinkNoiseBuffer(ctx, 6);
           const pinkSource = ctx.createBufferSource();
           pinkSource.buffer = pinkBuffer;
@@ -226,7 +217,6 @@
           pinkSource.start();
           this.ambienceNodes.sources.push(pinkSource);
 
-          // Procedural gentle raindrop clicks on surfaces
           const spawnDrop = () => {
             if (!this.ambienceNodes.masterGain) return;
             try {
@@ -243,7 +233,7 @@
               filt.frequency.value = freq;
               filt.Q.value = 4.0;
 
-              const dropVol = (0.02 + Math.random() * 0.05);
+              const dropVol = 0.02 + Math.random() * 0.05;
               g.gain.setValueAtTime(dropVol, ctx.currentTime);
               g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.04);
 
@@ -262,7 +252,6 @@
           spawnDrop();
 
         } else if (track === 'waves') {
-          // Ocean Waves: Deep brown noise with smooth sinusoidal LFO swell filter and gain breathing
           const brownBuffer = this._createBrownNoiseBuffer(ctx, 8);
           const brownSource = ctx.createBufferSource();
           brownSource.buffer = brownBuffer;
@@ -281,17 +270,15 @@
           const waveGain = ctx.createGain();
           waveGain.gain.value = 0.65;
 
-          // LFO to modulate wave filter frequency (swell & ebb ~8.5 second wave period)
           const lfoOsc = ctx.createOscillator();
           lfoOsc.type = 'sine';
-          lfoOsc.frequency.value = 0.12; // 8.33 second period
+          lfoOsc.frequency.value = 0.12;
 
           const lfoGain = ctx.createGain();
-          lfoGain.gain.value = 350; // Cutoff sweeps between 150Hz and 800Hz
+          lfoGain.gain.value = 350;
           lfoOsc.connect(lfoGain);
           lfoGain.connect(waveFilter.frequency);
 
-          // Second LFO for gentle wave amplitude breathing
           const lfoGainOsc = ctx.createOscillator();
           lfoGainOsc.type = 'sine';
           lfoGainOsc.frequency.value = 0.12;
@@ -314,7 +301,6 @@
           this.ambienceNodes.sources.push(brownSource, pinkSource, lfoOsc, lfoGainOsc);
 
         } else if (track === 'campfire') {
-          // Campfire: Low warm hearth rumble + Poisson wood crackle / snap engine
           const brownBuffer = this._createBrownNoiseBuffer(ctx, 6);
           const brownSource = ctx.createBufferSource();
           brownSource.buffer = brownBuffer;
@@ -333,11 +319,10 @@
           brownSource.start();
           this.ambienceNodes.sources.push(brownSource);
 
-          // Procedural natural wood crackles and popping sparks
           const spawnCrackle = () => {
             if (!this.ambienceNodes.masterGain) return;
             try {
-              const bufferSize = Math.floor(ctx.sampleRate * 0.015); // ~15ms burst
+              const bufferSize = Math.floor(ctx.sampleRate * 0.015);
               const crackleBuffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
               const data = crackleBuffer.getChannelData(0);
               for (let i = 0; i < bufferSize; i++) {
@@ -353,8 +338,7 @@
               crackleFilter.Q.value = 3.5;
 
               const cGain = ctx.createGain();
-              const snapVol = (0.05 + Math.random() * 0.14);
-              cGain.gain.value = snapVol;
+              cGain.gain.value = 0.05 + Math.random() * 0.14;
 
               crackleSource.connect(crackleFilter);
               crackleFilter.connect(cGain);
@@ -371,7 +355,6 @@
           spawnCrackle();
 
         } else if (track === 'binaural') {
-          // Alpha Beats: Warm meditation fundamental drone (136.1Hz Om / 146.1Hz = 10Hz Alpha differential) + soft noise bed
           const oscL = ctx.createOscillator();
           const oscR = ctx.createOscillator();
           const subOsc = ctx.createOscillator();
@@ -382,9 +365,9 @@
           oscR.type = 'sine';
           subOsc.type = 'sine';
 
-          oscL.frequency.value = 136.1; // Base frequency (Left)
-          oscR.frequency.value = 146.1; // +10 Hz Alpha difference (Right)
-          subOsc.frequency.value = 68.05; // Warm sub harmonic
+          oscL.frequency.value = 136.1;
+          oscR.frequency.value = 146.1;
+          subOsc.frequency.value = 68.05;
 
           oscL.connect(merger, 0, 0);
           oscR.connect(merger, 0, 1);
@@ -398,7 +381,6 @@
           droneGain.gain.value = 0.45;
           droneGain.connect(masterGain);
 
-          // Soft background warm pink acoustic floor
           const pinkBuffer = this._createPinkNoiseBuffer(ctx, 6);
           const pinkSource = ctx.createBufferSource();
           pinkSource.buffer = pinkBuffer;
@@ -423,7 +405,7 @@
           this.ambienceNodes.sources.push(oscL, oscR, subOsc, pinkSource);
 
         } else {
-          // Focus Brown Noise (Deep relaxing waterfall / fan drone)
+          // Warm Brown Noise with subtle panning drift
           const brownBuffer = this._createBrownNoiseBuffer(ctx, 8);
           const brownSource = ctx.createBufferSource();
           brownSource.buffer = brownBuffer;
@@ -457,7 +439,6 @@
     },
 
     stopAmbience() {
-      // Clear all procedural generation timeouts/intervals
       if (this.ambienceIntervals && this.ambienceIntervals.length > 0) {
         this.ambienceIntervals.forEach(t => clearTimeout(t));
         this.ambienceIntervals = [];
@@ -482,9 +463,7 @@
     }
   };
 
-  /* =========================================================================
-   * 3. APPLICATION STATE
-   * ========================================================================= */
+  /* Application State */
   let peerInstance = null;
   let peerDataConns = new Map();
   let peerMediaCalls = new Map();
@@ -561,9 +540,6 @@
 
   let abortController = new AbortController();
 
-  /* =========================================================================
-   * 4. UTILITIES
-   * ========================================================================= */
   function fmtTime(sec) {
     const s = Math.max(0, Math.floor(sec));
     const h = Math.floor(s / 3600);
@@ -603,7 +579,6 @@
     } catch (e) {}
   }
 
-  // Generates carrier fallback stream with both audio and video dummy tracks
   function createCarrierStream() {
     const stream = new MediaStream();
     try {
@@ -621,7 +596,6 @@
       osc.start();
       stream.addTrack(dst.stream.getAudioTracks()[0]);
 
-      // Add dummy black 2x2 video canvas track to pre-negotiate SDP video m-line
       const c = document.createElement('canvas');
       c.width = 2; c.height = 2;
       const cCtx = c.getContext('2d');
@@ -637,9 +611,6 @@
     return stream;
   }
 
-  /* =========================================================================
-   * 5. BROADCAST & MESH RELAY ENGINE
-   * ========================================================================= */
   function broadcastData(data) {
     let payload;
     try {
@@ -837,9 +808,6 @@
     }
   }
 
-  /* =========================================================================
-   * 6. PEERJS DATA & REAL-TIME MEDIA CALL ENGINE
-   * ========================================================================= */
   function setupPeerDataConnection(conn) {
     conn.on('open', () => {
       if (isHost && roomPassword) {
@@ -887,7 +855,6 @@
         } catch (e) {}
       }
 
-      // Initiate media call to peer
       callPeerMedia(conn.peer);
     });
 
@@ -971,7 +938,6 @@
       });
     }
 
-    // Fill missing tracks with pre-warmed carrier tracks
     if (!hasAudio || !hasVideo) {
       const carrier = createCarrierStream();
       if (!hasAudio && carrier.getAudioTracks().length > 0) {
@@ -990,7 +956,6 @@
     const stream = getActiveCombinedStream();
 
     try {
-      // Close previous call if open to force full WebRTC track renegotiation
       if (peerMediaCalls.has(remotePeerId)) {
         try { peerMediaCalls.get(remotePeerId).close(); } catch (e) {}
         peerMediaCalls.delete(remotePeerId);
@@ -1029,9 +994,6 @@
     });
   }
 
-  /* =========================================================================
-   * 7. HARDWARE CONTROLLERS & AUDIO ANALYSIS (ELECTRON + WEB SAFE)
-   * ========================================================================= */
   async function toggleMicrophone() {
     try {
       if (!localAudioStream) {
@@ -1074,7 +1036,6 @@
     }
   }
 
-  // Universal Screen Share Controller (Supports Electron DesktopCapturer & Web)
   async function toggleScreenShare() {
     const btn = document.getElementById('srToggleScreenShare');
     if (localScreenStream) {
@@ -1083,7 +1044,6 @@
     }
 
     try {
-      // 1. Electron Desktop Capturer Check
       if (window.electronAPI?.getDesktopSources) {
         try {
           const sources = await window.electronAPI.getDesktopSources({ types: ['screen', 'window'] });
@@ -1107,7 +1067,6 @@
         }
       }
 
-      // 2. Standard Browser Fallback
       if (!localScreenStream) {
         localScreenStream = await navigator.mediaDevices.getDisplayMedia({
           video: { cursor: 'always' },
@@ -1124,7 +1083,6 @@
       setSpotlight('self');
       if (!isSoloMode) broadcastData({ type: 'screen-share-status', active: true, nickname });
 
-      // Force full-mesh stream renegotiation to peers
       broadcastMediaToAllPeers();
       notify('Screen sharing active.', 'success');
     } catch (err) {
@@ -1187,7 +1145,6 @@
     }
     if (!tile) return;
 
-    // Filter out dummy black carrier tracks so we only treat REAL video as active
     const realVideoTracks = stream.getVideoTracks().filter(t => t.enabled && t.readyState === 'live');
     const hasVideo = realVideoTracks.length > 0;
     const off = tile.querySelector('.sr-video-off');
@@ -1221,7 +1178,6 @@
       }
       safePlayMedia(camVideo);
 
-      // If this peer is the active screenshare owner, display stream in the Spotlight stage
       if (screenShareOwnerId === userId) {
         const spotVideo = document.getElementById('srSpotlightVideo');
         if (spotVideo) {
@@ -1348,9 +1304,7 @@
     }, { signal });
   }
 
-  /* =========================================================================
-   * 8. UI — LOBBY
-   * ========================================================================= */
+  /* Lobby View */
   function renderStudyRoom() {
     const section = document.getElementById('studyRoomSection');
     if (!section) return;
@@ -1428,9 +1382,7 @@
     });
   }
 
-  /* =========================================================================
-   * 9. UI — ACTIVE SESSION
-   * ========================================================================= */
+  /* Active Session View */
   function renderActiveSession() {
     const section = document.getElementById('studyRoomSection');
     if (!section) return;
@@ -1777,9 +1729,6 @@
     else grid.classList.add('sr-grid-4plus');
   }
 
-  /* =========================================================================
-   * 10. POMODORO ENGINE
-   * ========================================================================= */
   function startStudyTimerEngine() {
     if (mainInterval) clearInterval(mainInterval);
 
@@ -1900,9 +1849,6 @@
     }
   }
 
-  /* =========================================================================
-   * 11. LISTENERS & CHAT PIPELINE
-   * ========================================================================= */
   function attachSessionListeners() {
     abortController.abort();
     abortController = new AbortController();
@@ -2112,9 +2058,7 @@
     renderChatMessages();
   }
 
-  /* =========================================================================
-   * 12. VECTOR WHITEBOARD
-   * ========================================================================= */
+  /* Vector Whiteboard */
   function toggleWhiteboard() {
     wbActive = !wbActive;
     const panel = document.getElementById('srWhiteboardPanel');
@@ -2556,9 +2500,7 @@
     notify('Whiteboard exported as image.', 'success');
   }
 
-  /* =========================================================================
-   * 13. QUESTIONS & NOTES
-   * ========================================================================= */
+  /* Questions */
   function addQuestion() {
     const id = wbNextQId++;
     wbQuestions.push({ id, question: '', answer: '' });
@@ -2624,9 +2566,7 @@
     if (badge) badge.textContent = 1 + Object.keys(peers).length;
   }
 
-  /* =========================================================================
-   * 14. SESSION FLOW (CREATION & JOINING)
-   * ========================================================================= */
+  /* Creation / Join Flow */
   async function handleCreate() {
     SoundFX.init();
     nickname = document.getElementById('srNickname')?.value.trim() || 'Host';
@@ -2878,9 +2818,6 @@
     if (overlay) overlay.style.display = 'none';
   }
 
-  /* =========================================================================
-   * 15. HARDWARE TESTING
-   * ========================================================================= */
   async function testMicrophone() {
     try {
       const select = document.getElementById('audioInputSelect');
@@ -2987,22 +2924,9 @@
     }
   }
 
-  // Graceful browser shutdown handling
-  window.addEventListener('beforeunload', () => {
-    if (sessionActive) {
-      doLeave();
-    }
-  });
+  window.addEventListener('beforeunload', () => { if (sessionActive) doLeave(); });
+  window.addEventListener('pagehide', () => { if (sessionActive) doLeave(); });
 
-  window.addEventListener('pagehide', () => {
-    if (sessionActive) {
-      doLeave();
-    }
-  });
-
-  /* =========================================================================
-   * 16. GLOBAL EXPORTS
-   * ========================================================================= */
   window.renderStudyRoom = renderStudyRoom;
   window.leaveStudyRoom = leaveRoom;
   window.srToggleMicrophone = toggleMicrophone;
@@ -3035,3 +2959,4 @@
   }
 
 })(window, document);
+

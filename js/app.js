@@ -3,8 +3,6 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
   console.log('[App] Stored hot-updated app.js is already running. Skipping base bundle.');
 } else {
 
-
-
   // ================================================================
   // LIVE GLOBAL SCOPE PATCHER (Forces updates into window scope)
   // ================================================================
@@ -200,7 +198,7 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
 
     async init() {
       const timeoutPromise = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error('DbService init timeout')), 2000)
+        setTimeout(() => reject(new Error('DbService init timeout')), 2000)
       );
 
       try {
@@ -302,18 +300,18 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
           this.db.run(`
           INSERT INTO nodes (id, parent_id, name, is_folder, file_path) VALUES
           (1, NULL, 'Physics', 1, '#'),
-                      (2, NULL, 'Chemistry', 1, '#'),
-                      (3, NULL, 'Mathematics', 1, '#'),
-                      (4, NULL, 'Biology', 1, '#'),
-                      (5, 1, 'Mechanics & Motion', 1, '#'),
-                      (6, 1, 'Thermodynamics', 1, '#'),
-                      (7, 1, 'Electromagnetism', 1, '#'),
-                      (8, 2, 'Organic Chemistry', 1, '#'),
-                      (9, 2, 'Inorganic Chemistry', 1, '#'),
-                      (10, 3, 'Calculus & Vectors', 1, '#'),
-                      (11, 3, 'Algebra & Matrices', 1, '#'),
-                      (12, 4, 'Genetics & Cell Biology', 1, '#');
-                      `);
+          (2, NULL, 'Chemistry', 1, '#'),
+          (3, NULL, 'Mathematics', 1, '#'),
+          (4, NULL, 'Biology', 1, '#'),
+          (5, 1, 'Mechanics & Motion', 1, '#'),
+          (6, 1, 'Thermodynamics', 1, '#'),
+          (7, 1, 'Electromagnetism', 1, '#'),
+          (8, 2, 'Organic Chemistry', 1, '#'),
+          (9, 2, 'Inorganic Chemistry', 1, '#'),
+          (10, 3, 'Calculus & Vectors', 1, '#'),
+          (11, 3, 'Algebra & Matrices', 1, '#'),
+          (12, 4, 'Genetics & Cell Biology', 1, '#');
+          `);
         }
         await this.saveToIndexedDB();
       } catch (e) {
@@ -460,7 +458,7 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
 
   // Global Reset Function for easy debugging / manual reset
   window.resetDatabase = async function() {
-    if (confirm('Reset database cache? This will purge the cached DB and reload from questionary.db or let you select a new file.')) {
+    if (confirm('Reset database cache? This will purge the cached DB and reload clean defaults.')) {
       await DbService.clearIndexedDB();
       location.reload();
     }
@@ -733,8 +731,8 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
         if (e.key === 'Enter') { const v = input.value.trim(); close(v || null); }
         if (e.key === 'Escape') close(null);
       });
-        overlay.addEventListener('click', e => { if (e.target === overlay) close(null); });
-        requestAnimationFrame(() => { input.focus(); input.select(); });
+      overlay.addEventListener('click', e => { if (e.target === overlay) close(null); });
+      requestAnimationFrame(() => { input.focus(); input.select(); });
     });
   }
   window.showPrompt = showPrompt;
@@ -789,7 +787,6 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
   }
 
   function showAutoLoginNotification(username) {
-    console.log('Auto-logging in as:', username);
     showNotification(`Welcome back, ${username}!`, 'success');
   }
 
@@ -813,7 +810,7 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
         if (note.title.toLowerCase().includes(query.toLowerCase()) ||
           note.content.toLowerCase().includes(query.toLowerCase())) {
           results.push({ name: note.title, path: ['Notes'], isFolder: false, isNote: true, noteId: note.id, url: null });
-          }
+        }
       });
     }
 
@@ -921,7 +918,7 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
     if (activeNav) activeNav.classList.add('active');
   }
 
-  function loadDocuments() { console.log('loadDocuments called'); }
+  function loadDocuments() {}
   function trackDailyAccess() {
     const today = new Date().toISOString().split('T')[0];
     const accessData = JSON.parse(localStorage.getItem('questionary-daily-access') || '{}');
@@ -1115,10 +1112,6 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
   }
   window.navigateToPath = navigateToPath;
 
-  async function getCurrentLevel() {
-    return await DbService.getChildren(path);
-  }
-
   async function updateDashboardStats() {
     const totalDocs = await DbService.countDocuments();
     const totalDocsEl = document.getElementById('totalDocuments');
@@ -1138,9 +1131,6 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
   // ================================================================
   // FULL-SCREEN MAXIMIZED PDF & DOCUMENT VIEWERS
   // ================================================================
-  /* ================================================================
-   *   RELIABLE PDF VIEWER CONTROLLERS (Supports Normal Papers + User Library)
-   *   ================================================================ */
   function showPDF(url, customName = null) {
       if (!url || url === '' || url === '#') return;
 
@@ -1154,7 +1144,6 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
 
       document.body.classList.add('pdf-view-active');
 
-      // Compute clean display title
       let filename = customName;
       if (!filename) {
         if (url.startsWith('blob:') || url.startsWith('data:') || url.startsWith('blob-id:')) {
@@ -1164,7 +1153,6 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
         }
       }
 
-      // Convert document paths ONLY if it's a relative path and NOT a blob / blob-id / data / local-pdf URL
       let targetUrl = url;
       if (window.DownloadManager && !url.startsWith('blob:') && !url.startsWith('blob-id:') && !url.startsWith('data:') && !url.startsWith('http') && !url.startsWith('local-pdf:')) {
         targetUrl = window.DownloadManager.resolveDocumentUrl(url);
@@ -1178,12 +1166,13 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
 
       if (pdfViewer) {
         const viewerUrl = 'pdfviewer.html?file=' + encodeURIComponent(targetUrl);
-
         pdfViewer.src = viewerUrl;
         pdfViewer.classList.add('active');
 
         pdfViewer.onload = function () {
+          const theme = localStorage.getItem('questionary-theme') || localStorage.getItem('theme') || 'dark';
           pdfViewer.contentWindow.postMessage({ type: 'loadPdf', url: targetUrl }, '*');
+          pdfViewer.contentWindow.postMessage({ type: 'setTheme', theme: theme }, '*');
           pdfViewer.onload = null;
         };
       }
@@ -1212,7 +1201,7 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
       if (timerPanel) timerPanel.style.display = 'flex';
       if (typeof initializeTimer === 'function') initializeTimer();
       if (typeof trackPdfViewStart === 'function') trackPdfViewStart();
-    }
+  }
 
   function closePDF() {
     const pdfViewer = document.getElementById('pdfViewer');
@@ -1222,7 +1211,6 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
     const dashboardHeader = document.querySelector('.dashboard-header');
     const breadcrumbContainer = document.querySelector('.breadcrumb-container');
 
-    // Remove full-bleed width override
     document.body.classList.remove('pdf-view-active');
 
     if (pdfViewerContainer) pdfViewerContainer.style.display = 'none';
@@ -1245,7 +1233,7 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
   window.showPDF = showPDF;
   window.closePDF = closePDF;
 
-  /* --- Image Viewer --- */
+  /* Image Viewer */
   var _currentImageBlobUrl = window._currentImageBlobUrl || null;
   var _currentImageName = window._currentImageName || '';
   function showImage(url, name) {
@@ -1326,8 +1314,6 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
   window.showImage = showImage;
   window.closeImageViewer = closeImageViewer;
   window.downloadCurrentImage = downloadCurrentImage;
-  window.showPDF = showPDF;
-  window.closePDF = closePDF;
 
   function renderAnalytics() {
     const accessData = JSON.parse(localStorage.getItem('questionary-daily-access') || '{}');
@@ -2162,16 +2148,16 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
       if (sidebarOverlay) sidebarOverlay.classList.toggle('active', isOpen);
     };
 
-      if (hamburgerBtn) hamburgerBtn.onclick = toggleSidebar;
-      if (mobileMenuToggle) mobileMenuToggle.onclick = toggleSidebar;
-      if (sidebarClose) sidebarClose.onclick = closeSidebar;
-      if (sidebarOverlay) sidebarOverlay.onclick = closeSidebar;
+    if (hamburgerBtn) hamburgerBtn.onclick = toggleSidebar;
+    if (mobileMenuToggle) mobileMenuToggle.onclick = toggleSidebar;
+    if (sidebarClose) sidebarClose.onclick = closeSidebar;
+    if (sidebarOverlay) sidebarOverlay.onclick = closeSidebar;
 
-      navLinks.querySelectorAll('.nav-link').forEach(link => {
-        link.addEventListener('click', () => {
-          closeSidebar();
-        });
+    navLinks.querySelectorAll('.nav-link').forEach(link => {
+      link.addEventListener('click', () => {
+        closeSidebar();
       });
+    });
   }
 
   async function initializeApp() {
@@ -2231,7 +2217,7 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
     }
 
     if (themeToggle) {
-      themeToggle.addEventListener('click', (e) => {
+      themeToggle.onclick = (e) => {
         e.preventDefault();
         e.stopPropagation();
         if (typeof window.toggleTheme === 'function') {
@@ -2244,10 +2230,11 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
           } else {
             document.documentElement.setAttribute('data-theme', newTheme);
             localStorage.setItem('theme', newTheme);
+            localStorage.setItem('questionary-theme', newTheme);
             updateThemeIcon(newTheme);
           }
         }
-      });
+      };
     }
 
     const accessibilityToggle = document.getElementById('accessibilityToggle');
@@ -2463,39 +2450,39 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
       if (typeof renderVoiceNotesGrid === 'function') renderVoiceNotesGrid();
     });
 
-      const tagsNav = document.getElementById('tagsNav');
-      tagsNav && tagsNav.addEventListener('click', () => {
-        showView('tags');
-        setActiveNav('tagsNav');
-        closeMenuOnClick();
-        if (typeof renderTagsMain === 'function') renderTagsMain();
-        if (typeof renderTaggedItems === 'function') renderTaggedItems();
-      });
+    const tagsNav = document.getElementById('tagsNav');
+    tagsNav && tagsNav.addEventListener('click', () => {
+      showView('tags');
+      setActiveNav('tagsNav');
+      closeMenuOnClick();
+      if (typeof renderTagsMain === 'function') renderTagsMain();
+      if (typeof renderTaggedItems === 'function') renderTaggedItems();
+    });
 
-        progressNav && progressNav.addEventListener('click', () => {
-          showView('progress');
-          setActiveNav('progressNav');
-          closeMenuOnClick();
-        });
+    progressNav && progressNav.addEventListener('click', () => {
+      showView('progress');
+      setActiveNav('progressNav');
+      closeMenuOnClick();
+    });
 
-        remindersNav && remindersNav.addEventListener('click', () => {
-          showView('reminders');
-          setActiveNav('remindersNav');
-          closeMenuOnClick();
-        });
+    remindersNav && remindersNav.addEventListener('click', () => {
+      showView('reminders');
+      setActiveNav('remindersNav');
+      closeMenuOnClick();
+    });
 
-        const studyRoomNav = document.getElementById('studyRoomNav');
-        studyRoomNav && studyRoomNav.addEventListener('click', () => {
-          showView('studyRoom');
-          setActiveNav('studyRoomNav');
-          closeMenuOnClick();
-        });
+    const studyRoomNav = document.getElementById('studyRoomNav');
+    studyRoomNav && studyRoomNav.addEventListener('click', () => {
+      showView('studyRoom');
+      setActiveNav('studyRoomNav');
+      closeMenuOnClick();
+    });
 
-        settingsNav && settingsNav.addEventListener('click', () => {
-          showView('settings');
-          setActiveNav('settingsNav');
-          closeMenuOnClick();
-        });
+    settingsNav && settingsNav.addEventListener('click', () => {
+      showView('settings');
+      setActiveNav('settingsNav');
+      closeMenuOnClick();
+    });
   }
 
   function initializeGlobalSearch() {
@@ -2507,11 +2494,11 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
       if (searchInput.value.trim()) performSearch();
     });
 
-      document.addEventListener('click', (e) => {
-        if (searchResults && !e.target.closest('.search-container')) {
-          searchResults.style.display = 'none';
-        }
-      });
+    document.addEventListener('click', (e) => {
+      if (searchResults && !e.target.closest('.search-container')) {
+        searchResults.style.display = 'none';
+      }
+    });
   }
 
   function initializeAccessibility() {
@@ -2758,15 +2745,15 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
     allSections.forEach(section => {
       if (section) section.style.display = 'none';
     });
-      if (searchResults) searchResults.style.display = 'none';
-      if (pdfViewerContainer) pdfViewerContainer.style.display = 'none';
-      if (pdfViewer) { pdfViewer.classList.remove('active'); pdfViewer.src = ''; }
-      hideHomeTagsPanels();
+    if (searchResults) searchResults.style.display = 'none';
+    if (pdfViewerContainer) pdfViewerContainer.style.display = 'none';
+    if (pdfViewer) { pdfViewer.classList.remove('active'); pdfViewer.src = ''; }
+    hideHomeTagsPanels();
 
-      switch(viewName) {
-        case 'home':
-          if (tilesSection) tilesSection.style.display = 'block';
-          const tc = document.getElementById('tilesContainer');
+    switch(viewName) {
+      case 'home':
+        if (tilesSection) tilesSection.style.display = 'block';
+        const tc = document.getElementById('tilesContainer');
         if (tc) {
           const isListView = tc.classList.contains('list-view');
           tc.style.display = isListView ? 'flex' : 'grid';
@@ -2781,96 +2768,96 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
         if (typeof window.renderLibrary === 'function') window.renderLibrary();
         navigateToPath(path);
         break;
-        case 'favorites':
-          if (favoritesSection) favoritesSection.style.display = 'block';
-          if (dashboardHeader) dashboardHeader.style.display = 'none';
-          if (breadcrumb) breadcrumb.style.display = 'none';
-          if (backBtn) backBtn.style.display = 'none';
-          renderFavorites();
+      case 'favorites':
+        if (favoritesSection) favoritesSection.style.display = 'block';
+        if (dashboardHeader) dashboardHeader.style.display = 'none';
+        if (breadcrumb) breadcrumb.style.display = 'none';
+        if (backBtn) backBtn.style.display = 'none';
+        renderFavorites();
         break;
-        case 'recent':
-          if (recentSection) recentSection.style.display = 'block';
-          if (dashboardHeader) dashboardHeader.style.display = 'none';
-          if (breadcrumb) breadcrumb.style.display = 'none';
-          if (backBtn) backBtn.style.display = 'none';
-          renderRecent();
+      case 'recent':
+        if (recentSection) recentSection.style.display = 'block';
+        if (dashboardHeader) dashboardHeader.style.display = 'none';
+        if (breadcrumb) breadcrumb.style.display = 'none';
+        if (backBtn) backBtn.style.display = 'none';
+        renderRecent();
         break;
-        case 'analytics':
-          if (analyticsSection) analyticsSection.style.display = 'block';
-          if (dashboardHeader) dashboardHeader.style.display = 'none';
-          if (breadcrumb) breadcrumb.style.display = 'none';
-          if (backBtn) backBtn.style.display = 'none';
-          renderAnalytics();
+      case 'analytics':
+        if (analyticsSection) analyticsSection.style.display = 'block';
+        if (dashboardHeader) dashboardHeader.style.display = 'none';
+        if (breadcrumb) breadcrumb.style.display = 'none';
+        if (backBtn) backBtn.style.display = 'none';
+        renderAnalytics();
         break;
-        case 'planner':
-          if (plannerSection) plannerSection.style.display = 'block';
-          if (dashboardHeader) dashboardHeader.style.display = 'none';
-          if (breadcrumb) breadcrumb.style.display = 'none';
-          if (backBtn) backBtn.style.display = 'none';
-          renderCalendar();
+      case 'planner':
+        if (plannerSection) plannerSection.style.display = 'block';
+        if (dashboardHeader) dashboardHeader.style.display = 'none';
+        if (breadcrumb) breadcrumb.style.display = 'none';
+        if (backBtn) backBtn.style.display = 'none';
+        renderCalendar();
         renderSessions();
         break;
-        case 'flashcards':
-          if (flashcardsSection) flashcardsSection.style.display = 'block';
-          if (dashboardHeader) dashboardHeader.style.display = 'none';
-          if (breadcrumb) breadcrumb.style.display = 'none';
-          if (backBtn) backBtn.style.display = 'none';
-          renderFlashcardDecks();
+      case 'flashcards':
+        if (flashcardsSection) flashcardsSection.style.display = 'block';
+        if (dashboardHeader) dashboardHeader.style.display = 'none';
+        if (breadcrumb) breadcrumb.style.display = 'none';
+        if (backBtn) backBtn.style.display = 'none';
+        renderFlashcardDecks();
         break;
-        case 'notes':
-          if (notesSection) notesSection.style.display = 'block';
-          if (dashboardHeader) dashboardHeader.style.display = 'none';
-          if (breadcrumb) breadcrumb.style.display = 'none';
-          if (backBtn) backBtn.style.display = 'none';
-          renderNotes();
+      case 'notes':
+        if (notesSection) notesSection.style.display = 'block';
+        if (dashboardHeader) dashboardHeader.style.display = 'none';
+        if (breadcrumb) breadcrumb.style.display = 'none';
+        if (backBtn) backBtn.style.display = 'none';
+        renderNotes();
         break;
-        case 'progress':
-          if (progressSection) progressSection.style.display = 'block';
-          if (dashboardHeader) dashboardHeader.style.display = 'none';
-          if (breadcrumb) breadcrumb.style.display = 'none';
-          if (backBtn) backBtn.style.display = 'none';
-          updateProgressDisplay();
+      case 'progress':
+        if (progressSection) progressSection.style.display = 'block';
+        if (dashboardHeader) dashboardHeader.style.display = 'none';
+        if (breadcrumb) breadcrumb.style.display = 'none';
+        if (backBtn) backBtn.style.display = 'none';
+        updateProgressDisplay();
         break;
-        case 'reminders':
-          if (remindersSection) remindersSection.style.display = 'block';
-          if (dashboardHeader) dashboardHeader.style.display = 'none';
-          if (breadcrumb) breadcrumb.style.display = 'none';
-          if (backBtn) backBtn.style.display = 'none';
-          if (typeof window.renderReminders === 'function') window.renderReminders();
-          break;
-        case 'settings':
-          if (settingsSection) settingsSection.style.display = 'block';
-          if (dashboardHeader) dashboardHeader.style.display = 'none';
-          if (breadcrumb) breadcrumb.style.display = 'none';
-          if (backBtn) backBtn.style.display = 'none';
-          if (typeof window.renderSettings === 'function') window.renderSettings();
-          if (window.DownloadManager && typeof window.DownloadManager.renderSettingsStorageTab === 'function') {
-            window.DownloadManager.renderSettingsStorageTab();
-          }
-          break;
-        case 'studyRoom':
-          if (studyRoomSection) studyRoomSection.style.display = 'block';
-          if (dashboardHeader) dashboardHeader.style.display = 'none';
-          if (breadcrumb) breadcrumb.style.display = 'none';
-          if (backBtn) backBtn.style.display = 'none';
-          if (typeof window.renderStudyRoom === 'function') window.renderStudyRoom();
-          break;
-        case 'tags':
-          if (tagsSection) tagsSection.style.display = 'block';
-          if (dashboardHeader) dashboardHeader.style.display = 'none';
-          if (breadcrumb) breadcrumb.style.display = 'none';
-          if (backBtn) backBtn.style.display = 'none';
-          if (typeof window.renderTagsMain === 'function') window.renderTagsMain();
-          if (typeof window.renderTaggedItems === 'function') window.renderTaggedItems();
-          break;
-        default:
-          if (tilesSection) tilesSection.style.display = 'block';
-          if (importedSection) importedSection.style.display = 'block';
-          if (dashboardHeader) dashboardHeader.style.display = window.innerWidth <= 768 ? 'grid' : 'flex';
-          if (breadcrumb) breadcrumb.style.display = 'flex';
-          if (typeof window.renderLibrary === 'function') window.renderLibrary();
-          break;
-      }
+      case 'reminders':
+        if (remindersSection) remindersSection.style.display = 'block';
+        if (dashboardHeader) dashboardHeader.style.display = 'none';
+        if (breadcrumb) breadcrumb.style.display = 'none';
+        if (backBtn) backBtn.style.display = 'none';
+        if (typeof window.renderReminders === 'function') window.renderReminders();
+        break;
+      case 'settings':
+        if (settingsSection) settingsSection.style.display = 'block';
+        if (dashboardHeader) dashboardHeader.style.display = 'none';
+        if (breadcrumb) breadcrumb.style.display = 'none';
+        if (backBtn) backBtn.style.display = 'none';
+        if (typeof window.renderSettings === 'function') window.renderSettings();
+        if (window.DownloadManager && typeof window.DownloadManager.renderSettingsStorageTab === 'function') {
+          window.DownloadManager.renderSettingsStorageTab();
+        }
+        break;
+      case 'studyRoom':
+        if (studyRoomSection) studyRoomSection.style.display = 'block';
+        if (dashboardHeader) dashboardHeader.style.display = 'none';
+        if (breadcrumb) breadcrumb.style.display = 'none';
+        if (backBtn) backBtn.style.display = 'none';
+        if (typeof window.renderStudyRoom === 'function') window.renderStudyRoom();
+        break;
+      case 'tags':
+        if (tagsSection) tagsSection.style.display = 'block';
+        if (dashboardHeader) dashboardHeader.style.display = 'none';
+        if (breadcrumb) breadcrumb.style.display = 'none';
+        if (backBtn) backBtn.style.display = 'none';
+        if (typeof window.renderTagsMain === 'function') window.renderTagsMain();
+        if (typeof window.renderTaggedItems === 'function') window.renderTaggedItems();
+        break;
+      default:
+        if (tilesSection) tilesSection.style.display = 'block';
+        if (importedSection) importedSection.style.display = 'block';
+        if (dashboardHeader) dashboardHeader.style.display = window.innerWidth <= 768 ? 'grid' : 'flex';
+        if (breadcrumb) breadcrumb.style.display = 'flex';
+        if (typeof window.renderLibrary === 'function') window.renderLibrary();
+        break;
+    }
   }
 
   function addToRecent(title, docPath, url) {
@@ -3673,12 +3660,12 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
         if (ok) removeCustomPreset(preset.id);
       });
 
-        const addBtn = document.getElementById('addPresetBtn');
-        if (addBtn) {
-          container.insertBefore(btn, addBtn);
-        } else {
-          container.appendChild(btn);
-        }
+      const addBtn = document.getElementById('addPresetBtn');
+      if (addBtn) {
+        container.insertBefore(btn, addBtn);
+      } else {
+        container.appendChild(btn);
+      }
     });
   }
 
@@ -3727,8 +3714,8 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
       if (e.target === overlay) overlay.remove();
     });
 
-      document.body.appendChild(overlay);
-      document.getElementById('presetLabel').focus();
+    document.body.appendChild(overlay);
+    document.getElementById('presetLabel').focus();
   }
 
   function addCustomPreset() {
@@ -3820,9 +3807,9 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
 
     pageBookmarks[docPath].push({
       id: Date.now().toString(),
-                                page: pageNumber,
-                                label: label || `Page ${pageNumber}`,
-                                createdAt: Date.now()
+      page: pageNumber,
+      label: label || `Page ${pageNumber}`,
+      createdAt: Date.now()
     });
 
     savePageBookmarks();
@@ -4297,23 +4284,23 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
       if (typeof showNotification === 'function') showNotification(checked ? 'Compact mode enabled' : 'Compact mode disabled', 'info');
     });
 
-      setupToggleRow('animationsToggle', (checked) => {
-        document.body.classList.toggle('reduced-animations', !checked);
-        if (typeof showNotification === 'function') showNotification(checked ? 'Animations enabled' : 'Animations reduced', 'info');
-      });
+    setupToggleRow('animationsToggle', (checked) => {
+      document.body.classList.toggle('reduced-animations', !checked);
+      if (typeof showNotification === 'function') showNotification(checked ? 'Animations enabled' : 'Animations reduced', 'info');
+    });
 
-        setupToggleRow('autoPlayToggle', (checked) => {
-          if (typeof showNotification === 'function') showNotification(checked ? 'PDFs will auto-open on click' : 'PDF preview mode', 'info');
-        });
+    setupToggleRow('autoPlayToggle', (checked) => {
+      if (typeof showNotification === 'function') showNotification(checked ? 'PDFs will auto-open on click' : 'PDF preview mode', 'info');
+    });
 
-          setupToggleRow('focusModeToggle', (checked) => {
-            document.body.classList.toggle('focus-mode', checked);
-            if (typeof showNotification === 'function') showNotification(checked ? 'Focus mode enabled' : 'Focus mode disabled', 'info');
-          });
+    setupToggleRow('focusModeToggle', (checked) => {
+      document.body.classList.toggle('focus-mode', checked);
+      if (typeof showNotification === 'function') showNotification(checked ? 'Focus mode enabled' : 'Focus mode disabled', 'info');
+    });
 
-            setupToggleRow('rememberLocationToggle', (checked) => {
-              if (typeof showNotification === 'function') showNotification(checked ? 'Will remember your last location' : 'Will start at home on launch', 'info');
-            });
+    setupToggleRow('rememberLocationToggle', (checked) => {
+      if (typeof showNotification === 'function') showNotification(checked ? 'Will remember your last location' : 'Will start at home on launch', 'info');
+    });
   }
 
   function setupSettingsActions() {
@@ -4331,10 +4318,10 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
             allKeys.forEach(key => {
               if (!keysToKeep.includes(key)) localStorage.removeItem(key);
             });
-              await DbService.clearIndexedDB();
-              showNotification('Local data cleared', 'success');
-              document.getElementById('userBadge')?.classList.remove('active');
-              setTimeout(() => location.reload(), 1000);
+            await DbService.clearIndexedDB();
+            showNotification('Local data cleared', 'success');
+            document.getElementById('userBadge')?.classList.remove('active');
+            setTimeout(() => location.reload(), 1000);
           }
         );
       });
@@ -4373,6 +4360,8 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
           'Are you sure you want to logout?',
           () => {
             localStorage.removeItem('questionary-login');
+            localStorage.removeItem('revamp-dpsnt-remember');
+            sessionStorage.removeItem('revamp-dpsnt-session');
             showNotification('Logged out successfully', 'info');
             setTimeout(() => location.reload(), 500);
           }
@@ -4558,11 +4547,11 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
       if (e.target.value === '') showSearchHistory();
     });
 
-      document.addEventListener('click', (e) => {
-        if (!e.target.closest('.search-container')) {
-          dropdown.classList.remove('active');
-        }
-      });
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('.search-container')) {
+        dropdown.classList.remove('active');
+      }
+    });
   }
 
   function showSearchHistory() {
@@ -4582,7 +4571,7 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
       </div>
       `).join('')}
       `;
-      dropdown.classList.add('active');
+    dropdown.classList.add('active');
   }
 
   function useSearchHistory(query) {
@@ -4953,7 +4942,7 @@ document.addEventListener('click', (e) => {
     return;
   }
 
-  // 3. ACCESSIBILITY TOGGLE SWITCHES (High Contrast, Large Text, etc.)
+  // 2. ACCESSIBILITY TOGGLE SWITCHES (High Contrast, Large Text, etc.)
   const a11yItem = e.target.closest('#highContrastToggle, #largeTextToggle, #reducedMotionToggle, #enhancedFocusToggle');
   if (a11yItem) {
     e.preventDefault();
@@ -4978,7 +4967,7 @@ document.addEventListener('click', (e) => {
     return;
   }
 
-  // 4. CLOSE ACCESSIBILITY PANEL ON OUTSIDE CLICK
+  // 3. CLOSE ACCESSIBILITY PANEL ON OUTSIDE CLICK
   const panel = document.getElementById('accessibilityPanel');
   if (panel && panel.classList.contains('active')) {
     if (!e.target.closest('#accessibilityPanel') && !e.target.closest('#accessibilityToggle')) {
