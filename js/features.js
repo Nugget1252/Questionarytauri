@@ -1,4 +1,5 @@
 
+// ============================================
 // QUESTIONARY ENHANCED FEATURES MODULE
 // Complete Local-First Desktop & Web Engine
 // ============================================
@@ -529,7 +530,6 @@ async function openAnyDocument(urlOrBlob, fileName) {
         }
     }
 
-    // Clean leading duplicated "documents/" if present before resolving
     if (window.DownloadManager && typeof target === 'string' && !target.startsWith('blob:') && !target.startsWith('blob-id:') && !target.startsWith('data:') && !target.startsWith('http') && !target.startsWith('local-pdf:')) {
         const cleanRelative = target.replace(/^(\.\/|\/)?(documents\/)+/i, '');
         target = window.DownloadManager.resolveDocumentUrl(cleanRelative);
@@ -2785,8 +2785,8 @@ async function navigateToTaggedItem(itemId) {
     } else if (itemId.startsWith('doc_')) {
         const pathStr = itemId.replace('doc_', '');
         const segments = pathStr.split('/').filter(s => s);
-        const fileName = segments.pop();
-        const parentPath = segments;
+        const fileName = segments[segments.length - 1];
+        const parentPath = segments.slice(0, -1);
 
         if (typeof window.showView === 'function') window.showView('home');
         if (typeof window.navigateToPath === 'function') {
@@ -2794,29 +2794,48 @@ async function navigateToTaggedItem(itemId) {
         }
 
         let targetUrl = null;
+
+        // 1. Try finding exact match in SQLite database for current parent path
         if (typeof DbService !== 'undefined' && DbService) {
             try {
                 const nodes = await DbService.getChildren(parentPath);
-                const found = (nodes || []).find(n => n.name === fileName || (n.file_path && n.file_path.includes(fileName)));
+                const found = (nodes || []).find(n => n.name === fileName || n.name.toLowerCase() === fileName.toLowerCase() || (n.file_path && n.file_path.includes(fileName)));
                 if (found && found.file_path && found.file_path !== '#') {
                     targetUrl = found.file_path;
                 }
             } catch (e) {}
 
+            // 2. Try global SQLite match
             if (!targetUrl) {
                 try {
-                    const searchRes = await DbService.search(fileName);
-                    const found = (searchRes || []).find(r => r.name === fileName || (r.url && r.url.includes(fileName)));
-                    if (found && found.url && found.url !== '#') {
-                        targetUrl = found.url;
+                    const exactNodes = await DbService.query("SELECT * FROM nodes WHERE name = ? AND is_folder = 0", [fileName]);
+                    if (exactNodes && exactNodes.length > 0 && exactNodes[0].file_path && exactNodes[0].file_path !== '#') {
+                        targetUrl = exactNodes[0].file_path;
+                    } else {
+                        const searchRes = await DbService.search(fileName);
+                        const match = (searchRes || []).find(r => !r.isFolder && r.url && r.url !== '#' && (r.name === fileName || r.name.toLowerCase() === fileName.toLowerCase()));
+                        if (match && match.url) {
+                            targetUrl = match.url;
+                        }
                     }
                 } catch (e) {}
             }
         }
 
-        // Clean relative path so documents prefix isn't repeated
+        // 3. Try finding in user imported files
+        if (!targetUrl && typeof UserLibraryDbService !== 'undefined' && UserLibraryDbService) {
+            try {
+                const allUserFiles = await UserLibraryDbService.query("SELECT * FROM files WHERE name = ?", [fileName]);
+                if (allUserFiles && allUserFiles.length > 0) {
+                    targetUrl = `blob-id:${allUserFiles[0].blob_id}`;
+                }
+            } catch (e) {}
+        }
+
+        // 4. Fallback to full segment path
         if (!targetUrl) {
-            targetUrl = fileName.endsWith('.pdf') ? fileName : (fileName + '.pdf');
+            const rawHierarchy = segments.join('/');
+            targetUrl = rawHierarchy.endsWith('.pdf') ? rawHierarchy : (rawHierarchy + '.pdf');
         }
 
         setTimeout(async () => {
@@ -2825,7 +2844,7 @@ async function navigateToTaggedItem(itemId) {
             } else if (typeof window.showPDF === 'function') {
                 window.showPDF(targetUrl, fileName);
             }
-        }, 120);
+        }, 150);
     } else if (itemId.startsWith('note_')) {
         const noteId = itemId.replace('note_', '');
         if (typeof window.showView === 'function') window.showView('notes');
