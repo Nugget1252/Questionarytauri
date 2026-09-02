@@ -1,6 +1,4 @@
 
-
-// ============================================
 // QUESTIONARY ENHANCED FEATURES MODULE
 // Complete Local-First Desktop & Web Engine
 // ============================================
@@ -3281,4 +3279,3 @@ if (document.readyState === 'loading') {
 } else {
     initEnhancedFeatures();
 }
-
