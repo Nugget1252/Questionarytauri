@@ -1131,7 +1131,7 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
   // ================================================================
   // FULL-SCREEN MAXIMIZED PDF & DOCUMENT VIEWERS
   // ================================================================
-  function showPDF(url, customName = null) {
+function showPDF(url, customName = null) {
       if (!url || url === '' || url === '#') return;
 
       const pdfViewer = document.getElementById('pdfViewer');
@@ -1152,8 +1152,7 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
           filename = url.split('/').pop().replace('.pdf', '').replace(/%20/g, ' ');
         }
       }
-      // In showPDF:
-      // Convert document paths ONLY if it's a relative path and NOT a blob / blob-id / data / local-pdf URL
+
       let targetUrl = url;
       if (window.DownloadManager && !url.startsWith('blob:') && !url.startsWith('blob-id:') && !url.startsWith('data:') && !url.startsWith('http') && !url.startsWith('local-pdf:')) {
         const cleanRelative = url.replace(/^(\.\/|\/)?(documents\/)+/i, '');
@@ -1162,6 +1161,10 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
         targetUrl = new URL(url, window.location.href).href;
       }
 
+      // Ensure local-pdf has three slashes for absolute paths (e.g. local-pdf:///home/...)
+      if (typeof targetUrl === 'string' && targetUrl.startsWith('local-pdf://') && !targetUrl.startsWith('local-pdf:///') && !targetUrl.startsWith('local-pdf://localhost')) {
+        targetUrl = targetUrl.replace('local-pdf://', 'local-pdf:///');
+      }
 
       if (typeof window.setCurrentPDF === 'function') {
         window.setCurrentPDF(targetUrl, filename);

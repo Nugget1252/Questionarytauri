@@ -535,6 +535,10 @@ async function openAnyDocument(urlOrBlob, fileName) {
         target = window.DownloadManager.resolveDocumentUrl(cleanRelative);
     }
 
+    if (typeof target === 'string' && target.startsWith('local-pdf://') && !target.startsWith('local-pdf:///') && !target.startsWith('local-pdf://localhost')) {
+        target = target.replace('local-pdf://', 'local-pdf:///');
+    }
+
     if (category === 'image') {
         let src = target;
         if (target instanceof Blob) {
@@ -554,6 +558,121 @@ async function openAnyDocument(urlOrBlob, fileName) {
         if (typeof window.showPDF === 'function') {
             await window.showPDF(pdfSrc, fileName);
         }
+    }
+}
+
+async function navigateToTaggedItem(itemId) {
+    if (!itemId) return;
+
+    // 1. Tagged Folder
+    if (itemId.startsWith('folder_')) {
+        const pathStr = itemId.replace('folder_', '');
+        const pathArray = pathStr.split('/').filter(s => s);
+        if (typeof window.showView === 'function') window.showView('home');
+        if (typeof window.navigateToPath === 'function') {
+            await window.navigateToPath(pathArray);
+        }
+        return;
+    }
+
+    // 2. Tagged Document or Item
+    if (itemId.startsWith('doc_')) {
+        const pathStr = itemId.replace('doc_', '');
+        const segments = pathStr.split('/').filter(s => s);
+        const fileName = segments[segments.length - 1];
+        const parentPath = segments.slice(0, -1);
+
+        let foundNode = null;
+        if (typeof DbService !== 'undefined' && DbService) {
+            try {
+                const nodes = await DbService.getChildren(parentPath);
+                foundNode = (nodes || []).find(n => n.name === fileName || n.name.toLowerCase() === fileName.toLowerCase() || (n.file_path && n.file_path.includes(fileName)));
+                
+                if (!foundNode) {
+                    const searchRes = await DbService.query("SELECT * FROM nodes WHERE name = ?", [fileName]);
+                    if (searchRes && searchRes.length > 0) {
+                        foundNode = searchRes[0];
+                    }
+                }
+            } catch (e) {}
+        }
+
+        // If the item in database is a folder, open folder instead of crashing PDF viewer
+        if (foundNode && (foundNode.is_folder === 1 || foundNode.file_path === '#' || !foundNode.file_path)) {
+            if (typeof window.showView === 'function') window.showView('home');
+            if (typeof window.navigateToPath === 'function') {
+                await window.navigateToPath([...parentPath, fileName]);
+            }
+            return;
+        }
+
+        if (typeof window.showView === 'function') window.showView('home');
+        if (typeof window.navigateToPath === 'function') {
+            await window.navigateToPath(parentPath);
+        }
+
+        let targetUrl = null;
+        if (foundNode && foundNode.file_path && foundNode.file_path !== '#') {
+            targetUrl = foundNode.file_path;
+        }
+
+        if (!targetUrl && typeof UserLibraryDbService !== 'undefined' && UserLibraryDbService) {
+            try {
+                const userFiles = await UserLibraryDbService.query("SELECT * FROM files WHERE name = ?", [fileName]);
+                if (userFiles && userFiles.length > 0) {
+                    targetUrl = `blob-id:${userFiles[0].blob_id}`;
+                }
+            } catch (e) {}
+        }
+
+        if (!targetUrl) {
+            const rawHierarchy = segments.join('/');
+            targetUrl = rawHierarchy.endsWith('.pdf') ? rawHierarchy : (rawHierarchy + '.pdf');
+        }
+
+        setTimeout(async () => {
+            if (typeof window.openAnyDocument === 'function') {
+                await window.openAnyDocument(targetUrl, fileName);
+            } else if (typeof window.showPDF === 'function') {
+                window.showPDF(targetUrl, fileName);
+            }
+        }, 150);
+        return;
+    }
+
+    // 3. Notes
+    if (itemId.startsWith('note_')) {
+        const noteId = itemId.replace('note_', '');
+        if (typeof window.showView === 'function') window.showView('notes');
+        setTimeout(() => {
+            const noteEl = document.querySelector(`[data-note-id="${noteId}"]`) || document.getElementById(`note-${noteId}`);
+            if (noteEl) noteEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }, 150);
+        return;
+    }
+
+    // 4. Flashcards
+    if (itemId.startsWith('deck_')) {
+        const deckId = itemId.replace('deck_', '');
+        if (typeof window.showView === 'function') window.showView('flashcards');
+        setTimeout(() => {
+            if (typeof window.startStudyDeck === 'function') {
+                window.startStudyDeck(deckId);
+            }
+        }, 150);
+        return;
+    }
+
+    // 5. Reminders
+    if (itemId.startsWith('reminder_')) {
+        if (typeof window.showView === 'function') window.showView('reminders');
+        return;
+    }
+
+    // 6. Voice Notes
+    if (itemId.startsWith('voicenote_')) {
+        if (typeof window.showView === 'function') window.showView('notes');
+        return;
     }
 }
 
