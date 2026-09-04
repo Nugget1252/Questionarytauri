@@ -23,9 +23,12 @@
     "sql.js": "^1.8.0"
   },
   "devDependencies": {
-    "electron": "^29.1.0",
-    "electron-builder": "^24.13.3",
-    "electron-installer-redhat": "^4.0.0"
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3"
+  },
+  "optionalDependencies": {
+    "electron-installer-redhat": "^4.0.0",
+    "electron-installer-debian": "^3.2.0"
   },
   "build": {
     "appId": "com.questionary.app",
