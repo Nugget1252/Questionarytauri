@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
     <link rel="icon" type="image/png" href="assets/logo.png">
     <meta charset="UTF-8">
@@ -10,32 +10,21 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet" crossorigin="anonymous" referrerpolicy="no-referrer">
+    
+    <!-- Font Awesome 6 (Direct CSS without restrictive CORS/referrer policies) -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     
     <!-- Stylesheets -->
-    <link rel="stylesheet" href="css/styles.css?v=220">
-    <link rel="stylesheet" href="css/features.css?v=220">
+    <link rel="stylesheet" href="css/styles.css?v=230">
+    <link rel="stylesheet" href="css/features.css?v=230">
     
     <style>
-        /* Mobile Safe Area & Android Touch Optimization */
+        /* Mobile Safe Area & Touch Optimization */
         :root {
             --safe-top: env(safe-area-inset-top, 0px);
             --safe-bottom: env(safe-area-inset-bottom, 0px);
             --safe-left: env(safe-area-inset-left, 0px);
             --safe-right: env(safe-area-inset-right, 0px);
-        }
-
-        /* Ensure Font Awesome Icons Render Correctly in Android WebViews */
-        i.fa, i.fas, i.far, i.fab, i.fal {
-            font-family: "Font Awesome 6 Free", "Font Awesome 6 Brands", sans-serif !important;
-            font-style: normal !important;
-            font-weight: 900 !important;
-            display: inline-flex !important;
-            align-items: center !important;
-            justify-content: center !important;
-            text-rendering: auto !important;
-            -webkit-font-smoothing: antialiased !important;
-            -moz-osx-font-smoothing: grayscale !important;
         }
 
         body {
@@ -183,10 +172,12 @@
                 font-size: 0.8rem !important;
                 left: 10px !important;
             }
+
             .update-check-btn,
             .content-update-btn {
                 display: none !important;
             }
+
             .accessibility-toggle {
                 display: inline-flex !important;
             }
@@ -205,8 +196,6 @@
                 justify-content: space-around !important;
                 align-items: center !important;
                 box-shadow: 0 -4px 20px rgba(0,0,0,0.3) !important;
-                backdrop-filter: blur(12px) !important;
-                -webkit-backdrop-filter: blur(12px) !important;
             }
 
             .mobile-bottom-nav-item {
@@ -1241,7 +1230,7 @@
         </section>
     </div>
 
-    <!-- Mobile Bottom Navigation Bar -->
+    <!-- Android & iOS Mobile Bottom Navigation Bar -->
     <nav class="mobile-bottom-nav" id="mobileBottomNav" aria-label="Mobile Bottom Navigation">
         <button class="mobile-bottom-nav-item active" data-view="home" id="mobileNavHome">
             <i class="fas fa-home"></i>
@@ -1285,7 +1274,7 @@
         </div>
     </div>
 
-    <!-- Modals -->
+    <!-- Modals (with Mobile Bottom Sheet Handle) -->
     <div class="modal-overlay" id="setupWizardModal">
         <div class="modal setup-wizard-card">
             <div class="modal-sheet-handle"></div>
@@ -1658,7 +1647,7 @@
             <span class="download-progress-text" id="downloadProgressText">Downloading update...</span>
         </div>
         <div class="download-progress-track">
-            <div class="download-progress-fill" id="downloadProgressFill"></div>
+            <div id="downloadProgressFill" class="download-progress-fill"></div>
         </div>
         <span class="download-progress-percent" id="downloadProgressPercent">0%</span>
     </div>
@@ -1669,7 +1658,7 @@
             <span class="content-progress-text" id="contentProgressText">Downloading new content...</span>
         </div>
         <div class="content-progress-track">
-            <div class="content-progress-fill" id="contentProgressFill"></div>
+            <div id="contentProgressFill" class="content-progress-fill"></div>
         </div>
     </div>
     
@@ -1775,12 +1764,12 @@
     });
 </script>
 
-<script src="js/hotUpdater.js?v=220"></script>
-<script src="js/contentUpdater.js?v=220"></script>
-<script src="js/downloadManager.js?v=220"></script>
-<script src="js/features.js?v=220"></script>
-<script src="js/studyRoom.js?v=220"></script>
-<script src="js/app.js?v=220"></script>
+<script src="js/hotUpdater.js?v=230"></script>
+<script src="js/contentUpdater.js?v=230"></script>
+<script src="js/downloadManager.js?v=230"></script>
+<script src="js/features.js?v=230"></script>
+<script src="js/studyRoom.js?v=230"></script>
+<script src="js/app.js?v=230"></script>
 
 </body>
 </html>

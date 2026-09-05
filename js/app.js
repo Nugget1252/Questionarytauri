@@ -205,8 +205,8 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
     }
   };
 
-  // ================================================================
-  // SQLITE & INDEXEDDB ENGINE (Android & Web Unbreakable)
+// ================================================================
+  // SQLITE & INDEXEDDB ENGINE (Android, Capacitor & Web Unbreakable)
   // ================================================================
   const DbService = {
     db: null,
@@ -262,7 +262,8 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
         if (typeof window.initSqlJs === 'function') {
           window.SQL_INSTANCE = await window.initSqlJs({
             locateFile: file => {
-              if (window.location.protocol === 'capacitor:' || window.location.protocol === 'http:' || window.location.protocol === 'https:') {
+              if (file.endsWith('.wasm')) {
+                // Try relative wasm asset first for local offline mobile packaging
                 return file;
               }
               return `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/${file}`;
@@ -273,10 +274,10 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
 
       this.SQL = window.SQL_INSTANCE;
       if (!this.SQL) {
-        throw new Error('SqlJs engine is unavailable');
+        throw new Error('SqlJs engine could not be instantiated');
       }
 
-      // Check IndexedDB
+      // 1. Instant check: load cached SQLite binary from IndexedDB
       let savedDb = await this.loadFromIndexedDB();
       if (savedDb) {
         try {
@@ -284,7 +285,7 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
           savedDb = null;
 
           if (await this.isValidDatabase()) {
-            console.log('[SQLite] Valid DB loaded from IndexedDB cache');
+            console.log('[SQLite] Valid DB loaded from local IndexedDB cache');
             return true;
           } else {
             await this.clearIndexedDB();
@@ -295,39 +296,48 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
         }
       }
 
-      // Candidate asset paths for cross-platform / Capacitor / Electron / WebViews
+      // 2. Multi-path probe for prebuilt questionary.db across Android/Capacitor/Web assets
+      const origin = window.location.origin || '';
+      const pathname = window.location.pathname.substring(0, window.location.pathname.lastIndexOf('/') + 1);
+      
       const candidatePaths = [
         'questionary.db',
         'assets/questionary.db',
-        '/questionary.db',
         './questionary.db',
-        (window.location.origin || '') + '/questionary.db',
-        (window.location.origin || '') + '/assets/questionary.db'
+        './assets/questionary.db',
+        pathname + 'questionary.db',
+        pathname + 'assets/questionary.db',
+        '/questionary.db',
+        '/assets/questionary.db',
+        origin + '/questionary.db',
+        origin + '/assets/questionary.db'
       ];
 
-      for (const path of candidatePaths) {
+      for (const candidate of candidatePaths) {
         try {
-          const response = await fetch(path);
+          const response = await fetch(candidate);
           if (response.ok) {
             let arrayBuffer = await response.arrayBuffer();
-            let uInt8Array = new Uint8Array(arrayBuffer);
-            const tempDb = new this.SQL.Database(uInt8Array);
+            if (arrayBuffer && arrayBuffer.byteLength > 0) {
+              let uInt8Array = new Uint8Array(arrayBuffer);
+              const tempDb = new this.SQL.Database(uInt8Array);
 
-            arrayBuffer = null;
-            uInt8Array = null;
+              arrayBuffer = null;
+              uInt8Array = null;
 
-            this.db = tempDb;
-            if (await this.isValidDatabase()) {
-              await this.saveToIndexedDB();
-              console.log(`[SQLite] Loaded questionary.db from: ${path}`);
-              return true;
+              this.db = tempDb;
+              if (await this.isValidDatabase()) {
+                await this.saveToIndexedDB();
+                console.log(`[SQLite] Loaded prebuilt database from: ${candidate}`);
+                return true;
+              }
             }
           }
         } catch (fetchErr) {}
       }
 
-      // Fresh WASM Schema Fallback
-      console.log('[SQLite] Populating default schema...');
+      // 3. Fallback: Create fresh SQLite database in memory & cache
+      console.log('[SQLite] Generating fresh database schema...');
       this.db = new this.SQL.Database();
       await this.createDefaultSchema();
       return true;
@@ -521,7 +531,6 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
       return res.length > 0 ? res[0].count : LocalNodeStore.countDocuments();
     }
   };
-
   // Global Reset Function for easy debugging / manual reset
   window.resetDatabase = async function() {
     if (confirm('Reset database cache? This will purge the cached DB and reload clean defaults.')) {
