@@ -1,5 +1,22 @@
 {
-  "appId": "com.questionary.app",
+  "appId": "com.dpsnt.questionary",
   "appName": "Questionary",
-  "webDir": "www"
+  "webDir": "www",
+  "bundledWebRuntime": false,
+  "server": {
+    "androidScheme": "https",
+    "cleartext": true
+  },
+  "android": {
+    "allowMixedContent": true,
+    "captureInput": true,
+    "webContentsDebuggingEnabled": true
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 1500,
+      "backgroundColor": "#111113",
+      "showSpinner": false
+    }
+  }
 }

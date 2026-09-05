@@ -1,6 +1,11 @@
-/* QUESTIONARY MINIMAL — v2 clean rewrite */
+
 
 :root {
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+    --safe-left: env(safe-area-inset-left, 0px);
+    --safe-right: env(safe-area-inset-right, 0px);
+
     --bg: #f7f7f8;
     --fg: #18181b;
     --fg2: #52525b;
@@ -87,6 +92,9 @@ body {
     min-height: 100vh;
     overflow-x: hidden;
     -webkit-font-smoothing: antialiased;
+    padding-top: var(--safe-top);
+    padding-left: var(--safe-left);
+    padding-right: var(--safe-right);
 }
 
 /* ── CUSTOM SCROLLBAR ── */
@@ -175,7 +183,6 @@ body {
 
 .mobile-menu-toggle, #mobileMenuToggle { display: none !important; }
 
-/* ── HORIZONTAL NAVBAR (DESKTOP: min-width 769px & body:not(.vertical-navbar-mode)) ── */
 /* ── HORIZONTAL NAVBAR (DESKTOP: min-width 769px & body:not(.vertical-navbar-mode)) ── */
 @media (min-width: 769px) {
     body:not(.vertical-navbar-mode) .nav-links,
@@ -268,6 +275,7 @@ body {
         display: none !important;
     }
 }
+
 /* ── OFF-CANVAS SLIDE DRAWER (MOBILE: max-width 768px & body:not(.vertical-navbar-mode)) ── */
 @media (max-width: 768px) {
     body:not(.vertical-navbar-mode) .nav-links,
@@ -378,9 +386,7 @@ body {
     color: var(--accent) !important;
 }
 
-/* ── SIDEBAR DIM OVERLAY ──
-   No backdrop-filter: WebKit renders blur even at opacity:0 causing
-   the permanent frosted-glass effect. Plain semi-transparent bg only. */
+/* ── SIDEBAR DIM OVERLAY ── */
 .sidebar-overlay {
     position: fixed !important;
     inset: 0 !important;
@@ -607,7 +613,7 @@ body {
 .form-input,.form-textarea,select.form-input {
     width: 100%; padding: 0.6rem 0.75rem; border: 1px solid var(--line);
     border-radius: 8px; background-color: var(--bg); color: var(--fg);
-    color-scheme: dark; /* Helps on Linux for default widgets */
+    color-scheme: dark;
     font-size: 0.85rem; font-family: inherit; transition: border-color 0.15s, box-shadow 0.15s; outline: none;
 }
 .form-input option, select.form-input option {
@@ -673,11 +679,11 @@ body {
     font-weight: 600; font-size: 0.82rem; letter-spacing: 0.01em;
     padding: 0.7rem 0; border-radius: 10px; position: relative; overflow: hidden;
     transition: background 0.15s, transform 0.1s, box-shadow 0.15s;
-    box-shadow: 0 1px 3px rgba(99,102,241,0.3);
+    box-shadow: 0 1px 3px rgba(207,98,21,0.3);
 }
 .btn-primary::after { display: none; }
-.btn-primary:hover { background: var(--accent-hover); transform: translateY(-1px); box-shadow: 0 4px 12px rgba(99,102,241,0.3); opacity: 1; }
-.btn-primary:active { transform: translateY(0); box-shadow: 0 1px 3px rgba(99,102,241,0.2); }
+.btn-primary:hover { background: var(--accent-hover); transform: translateY(-1px); box-shadow: 0 4px 12px rgba(207,98,21,0.3); opacity: 1; }
+.btn-primary:active { transform: translateY(0); box-shadow: 0 1px 3px rgba(207,98,21,0.2); }
 .btn-secondary { background: var(--bg); color: var(--fg); border: 1px solid var(--btn-border); }
 .btn-secondary:hover { border-color: var(--fg3); background: var(--hover); }
 .btn-sm {
@@ -912,10 +918,10 @@ body {
 .modal-footer .btn-primary {
     width: auto; background: var(--accent); color: #fff;
     border: none; border-radius: 8px; padding: 0.5rem 1.1rem;
-    box-shadow: 0 1px 3px rgba(99,102,241,0.3);
+    box-shadow: 0 1px 3px rgba(207,98,21,0.3);
 }
 .modal-footer .btn-primary::after { display: none; }
-.modal-footer .btn-primary:hover { background: var(--accent-hover); opacity: 1; box-shadow: 0 4px 12px rgba(99,102,241,0.3); }
+.modal-footer .btn-primary:hover { background: var(--accent-hover); opacity: 1; box-shadow: 0 4px 12px rgba(207,98,21,0.3); }
 
 /* Confirm modal */
 .confirm-modal-overlay {
@@ -1090,10 +1096,7 @@ body {
 .deck-card-actions { display: flex; gap: 0.35rem; }
 .deck-card-actions .btn { flex: 1; }
 
-/* ── TAURI / WEBKIT WEBVIEW 3D FLASHCARD FLIP FIX ── */
-/* ================================================================
-   FLICKER-FREE 3D FLASHCARD (Zero Bleed-Through on WebKit/Linux)
-   ================================================================ */
+/* ── FLICKER-FREE 3D FLASHCARD ── */
 .flashcard-container {
     perspective: 1000px !important;
     -webkit-perspective: 1000px !important;
@@ -1161,7 +1164,6 @@ body {
     transition: visibility 0s 0.25s;
 }
 
-/* Swap visibility at 90° rotation point to eliminate WebKit composite bleeding */
 .flashcard.flipped .flashcard-front {
     visibility: hidden;
     transition: visibility 0s 0.25s;
@@ -1423,6 +1425,7 @@ body.enhanced-focus .tile:focus {
     outline-offset: 3px !important;
     box-shadow: 0 0 0 6px rgba(250, 204, 21, 0.4) !important;
 }
+
 /* ── TIMER ── */
 .timer-panel {
     position: fixed; bottom: 16px; right: 16px; width: 270px;
@@ -2023,9 +2026,6 @@ body.focus-mode::after {
 @keyframes pulse { 0%,100% { box-shadow: none; } 50% { box-shadow: 0 0 0 4px rgba(0,0,0,0.08); } }
 
 /* ── RESPONSIVE ── */
-
-/* 1100px: no longer collapses nav — drawer handles nav at all widths */
-
 @media (max-width: 960px) {
     .search-input { width: 140px; }
     .search-input:focus { width: 180px; }
@@ -2037,7 +2037,6 @@ body.focus-mode::after {
     .stat-card { min-width: 120px; padding: 0.7rem 0.9rem; }
 }
 @media (max-width: 768px) {
-    /* Keep header as a fixed-height sticky top bar on mobile too */
     .header { height: 52px !important; min-height: 52px !important; padding: 0 0.85rem !important; flex-wrap: nowrap !important; gap: 0.5rem; }
     .header-left { gap: 0.5rem; }
     .container { padding: 0.85rem; }
@@ -2148,11 +2147,9 @@ input, textarea, select, code, pre, [contenteditable="true"],
         border-right: 1px solid var(--line) !important;
         border-bottom: none !important;
         background: var(--surface) !important;
-        /* Do NOT put overflow-y here — it clips the user dropdown */
         overflow: visible !important;
     }
 
-    /* The left column scrolls independently, not the header */
     body.vertical-navbar-mode .header-left {
         flex-direction: column !important;
         align-items: flex-start !important;
@@ -2207,7 +2204,6 @@ input, textarea, select, code, pre, [contenteditable="true"],
         padding-top: 12px !important;
         border-top: 1px solid var(--line) !important;
         flex-shrink: 0 !important;
-        /* Keep overflow visible so dropdown opens upward correctly */
         overflow: visible !important;
     }
 
@@ -2222,7 +2218,6 @@ input, textarea, select, code, pre, [contenteditable="true"],
         display: inline-block !important;
     }
 
-    /* In vertical mode the dropdown opens upward and to the right, not clipped */
     body.vertical-navbar-mode .user-dropdown-menu {
         top: auto !important;
         bottom: calc(100% + 6px) !important;
@@ -2243,6 +2238,7 @@ input, textarea, select, code, pre, [contenteditable="true"],
         display: none !important;
     }
 }
+
 /* ── HORIZONTAL ACTION ROW ── */
 .header-actions-row {
     display: flex;
@@ -2279,6 +2275,7 @@ body.vertical-navbar-mode .header-actions-row button:hover {
     color: var(--accent) !important;
     border-color: var(--accent) !important;
 }
+
 /* ── STUDY ROOM 2.0 STYLING ENHANCEMENTS ── */
 .sr-speaking {
   outline: 3px solid #10b981 !important;
@@ -2364,6 +2361,7 @@ body.vertical-navbar-mode .header-actions-row button:hover {
   0% { transform: translateY(0) scale(0.5); opacity: 1; }
   100% { transform: translateY(-160px) scale(1.2); opacity: 0; }
 }
+
 /* ================================================================
    QUIZ RESULTS & REVIEW SYSTEM
    ================================================================ */
@@ -2531,6 +2529,7 @@ body.vertical-navbar-mode .header-actions-row button:hover {
     flex: 1;
     min-height: 44px;
 }
+
 /* --- Spotlight / Screen Share Stage --- */
 .sr-video-area {
   flex: 1;
@@ -2607,6 +2606,7 @@ body.vertical-navbar-mode .header-actions-row button:hover {
   width: 150px;
   min-width: 150px;
 }
+
 /* ── DOWNLOAD BANNER & STORAGE WIZARD ── */
 .download-banner {
     position: fixed;
@@ -2764,6 +2764,7 @@ body.vertical-navbar-mode .header-actions-row button:hover {
     font-weight: 600;
     margin-right: 6px;
 }
+
 /* ================================================================
    PREMIUM SETUP WIZARD & QUALITY CARDS
    ================================================================ */

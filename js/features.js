@@ -1,7 +1,8 @@
 
+
 // ============================================
 // QUESTIONARY ENHANCED FEATURES MODULE
-// Complete Local-First Desktop & Web Engine
+// Complete Local-First Mobile & Web Engine
 // ============================================
 
 window.activeDropTargetFolderId = null;
@@ -564,7 +565,6 @@ async function openAnyDocument(urlOrBlob, fileName) {
 async function navigateToTaggedItem(itemId) {
     if (!itemId) return;
 
-    // 1. Tagged Folder
     if (itemId.startsWith('folder_')) {
         const pathStr = itemId.replace('folder_', '');
         const pathArray = pathStr.split('/').filter(s => s);
@@ -575,7 +575,6 @@ async function navigateToTaggedItem(itemId) {
         return;
     }
 
-    // 2. Tagged Document or Item
     if (itemId.startsWith('doc_')) {
         const pathStr = itemId.replace('doc_', '');
         const segments = pathStr.split('/').filter(s => s);
@@ -597,7 +596,6 @@ async function navigateToTaggedItem(itemId) {
             } catch (e) {}
         }
 
-        // If the item in database is a folder, open folder instead of crashing PDF viewer
         if (foundNode && (foundNode.is_folder === 1 || foundNode.file_path === '#' || !foundNode.file_path)) {
             if (typeof window.showView === 'function') window.showView('home');
             if (typeof window.navigateToPath === 'function') {
@@ -640,7 +638,6 @@ async function navigateToTaggedItem(itemId) {
         return;
     }
 
-    // 3. Notes
     if (itemId.startsWith('note_')) {
         const noteId = itemId.replace('note_', '');
         if (typeof window.showView === 'function') window.showView('notes');
@@ -651,7 +648,6 @@ async function navigateToTaggedItem(itemId) {
         return;
     }
 
-    // 4. Flashcards
     if (itemId.startsWith('deck_')) {
         const deckId = itemId.replace('deck_', '');
         if (typeof window.showView === 'function') window.showView('flashcards');
@@ -663,13 +659,11 @@ async function navigateToTaggedItem(itemId) {
         return;
     }
 
-    // 5. Reminders
     if (itemId.startsWith('reminder_')) {
         if (typeof window.showView === 'function') window.showView('reminders');
         return;
     }
 
-    // 6. Voice Notes
     if (itemId.startsWith('voicenote_')) {
         if (typeof window.showView === 'function') window.showView('notes');
         return;
@@ -692,7 +686,7 @@ window.quizState = quizState;
 
 function startQuiz(deckId, mode = 'multiple-choice', timeLimit = null) {
     const decks = window.flashcardDecks || JSON.parse(localStorage.getItem('questionary-flashcards') || '[]');
-    const deck = decks.find(d => d.id === deckId);
+    const deck = decks.find(d => String(d.id) === String(deckId));
     if (!deck || !deck.cards || deck.cards.length < 2) {
         showNotification('Need at least 2 cards to start a quiz', 'warning');
         return;
@@ -2226,7 +2220,7 @@ var UserLibraryDbService = window.UserLibraryDbService || {
             await this.saveDbToIndexedDB();
             return true;
         } catch (err) {
-            console.error('[UserLibraryDB] Critical init error:', err);
+            console.error('[UserLibraryDB] Init error:', err);
             return false;
         }
     },
@@ -2891,103 +2885,6 @@ function filterByTag(tagId) {
     showNotification(`Showing items tagged "${tagName}"`, 'info');
 }
 
-async function navigateToTaggedItem(itemId) {
-    if (!itemId) return;
-
-    if (itemId.startsWith('folder_')) {
-        const pathStr = itemId.replace('folder_', '');
-        const pathArray = pathStr.split('/').filter(s => s);
-        if (typeof window.showView === 'function') window.showView('home');
-        if (typeof window.navigateToPath === 'function') {
-            await window.navigateToPath(pathArray);
-        }
-    } else if (itemId.startsWith('doc_')) {
-        const pathStr = itemId.replace('doc_', '');
-        const segments = pathStr.split('/').filter(s => s);
-        const fileName = segments[segments.length - 1];
-        const parentPath = segments.slice(0, -1);
-
-        if (typeof window.showView === 'function') window.showView('home');
-        if (typeof window.navigateToPath === 'function') {
-            await window.navigateToPath(parentPath);
-        }
-
-        let targetUrl = null;
-
-        // 1. Try finding exact match in SQLite database for current parent path
-        if (typeof DbService !== 'undefined' && DbService) {
-            try {
-                const nodes = await DbService.getChildren(parentPath);
-                const found = (nodes || []).find(n => n.name === fileName || n.name.toLowerCase() === fileName.toLowerCase() || (n.file_path && n.file_path.includes(fileName)));
-                if (found && found.file_path && found.file_path !== '#') {
-                    targetUrl = found.file_path;
-                }
-            } catch (e) {}
-
-            // 2. Try global SQLite match
-            if (!targetUrl) {
-                try {
-                    const exactNodes = await DbService.query("SELECT * FROM nodes WHERE name = ? AND is_folder = 0", [fileName]);
-                    if (exactNodes && exactNodes.length > 0 && exactNodes[0].file_path && exactNodes[0].file_path !== '#') {
-                        targetUrl = exactNodes[0].file_path;
-                    } else {
-                        const searchRes = await DbService.search(fileName);
-                        const match = (searchRes || []).find(r => !r.isFolder && r.url && r.url !== '#' && (r.name === fileName || r.name.toLowerCase() === fileName.toLowerCase()));
-                        if (match && match.url) {
-                            targetUrl = match.url;
-                        }
-                    }
-                } catch (e) {}
-            }
-        }
-
-        // 3. Try finding in user imported files
-        if (!targetUrl && typeof UserLibraryDbService !== 'undefined' && UserLibraryDbService) {
-            try {
-                const allUserFiles = await UserLibraryDbService.query("SELECT * FROM files WHERE name = ?", [fileName]);
-                if (allUserFiles && allUserFiles.length > 0) {
-                    targetUrl = `blob-id:${allUserFiles[0].blob_id}`;
-                }
-            } catch (e) {}
-        }
-
-        // 4. Fallback to full segment path
-        if (!targetUrl) {
-            const rawHierarchy = segments.join('/');
-            targetUrl = rawHierarchy.endsWith('.pdf') ? rawHierarchy : (rawHierarchy + '.pdf');
-        }
-
-        setTimeout(async () => {
-            if (typeof window.openAnyDocument === 'function') {
-                await window.openAnyDocument(targetUrl, fileName);
-            } else if (typeof window.showPDF === 'function') {
-                window.showPDF(targetUrl, fileName);
-            }
-        }, 150);
-    } else if (itemId.startsWith('note_')) {
-        const noteId = itemId.replace('note_', '');
-        if (typeof window.showView === 'function') window.showView('notes');
-        setTimeout(() => {
-            const noteEl = document.querySelector(`[data-note-id="${noteId}"]`) || document.getElementById(`note-${noteId}`);
-            if (noteEl) noteEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }, 150);
-    } else if (itemId.startsWith('deck_')) {
-        const deckId = itemId.replace('deck_', '');
-        if (typeof window.showView === 'function') window.showView('flashcards');
-        setTimeout(() => {
-            if (typeof window.startStudyDeck === 'function') {
-                window.startStudyDeck(deckId);
-            }
-        }, 150);
-    } else if (itemId.startsWith('reminder_')) {
-        if (typeof window.showView === 'function') window.showView('reminders');
-    } else if (itemId.startsWith('voicenote_')) {
-        if (typeof window.showView === 'function') window.showView('notes');
-    } else {
-        showNotification('Item type not recognized', 'info');
-    }
-}
-
 /* 14. Voice Notes Grid for Notes View */
 function renderVoiceNotesGrid() {
     const container = document.getElementById('voiceNotesGrid');
@@ -3349,7 +3246,6 @@ window.deleteTag = deleteTag;
 window.addTagToItem = addTagToItem;
 window.removeTagFromItem = removeTagFromItem;
 window.getItemTags = getItemTags;
-window.getItemsByTag = getItemsByTag;
 window.openTagModal = openTagModal;
 window.closeTagModal = closeTagModal;
 window.saveTag = saveTag;
@@ -3417,3 +3313,4 @@ if (document.readyState === 'loading') {
 } else {
     initEnhancedFeatures();
 }
+

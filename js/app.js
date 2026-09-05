@@ -1,4 +1,5 @@
 
+
 if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScript.id?.startsWith('hot-js-')) {
   console.log('[App] Stored hot-updated app.js is already running. Skipping base bundle.');
 } else {
@@ -18,6 +19,10 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
         if (files['js/features.js']) {
           window.eval(files['js/features.js']);
           console.log('[HotUpdate] Force-evaluated latest js/features.js into global scope');
+        }
+        if (files['js/downloadManager.js']) {
+          window.eval(files['js/downloadManager.js']);
+          console.log('[HotUpdate] Force-evaluated latest js/downloadManager.js into global scope');
         }
       }
     } catch (err) {
@@ -51,7 +56,8 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
     enhancedFocus: localStorage.getItem('accessibility-enhanced-focus') === 'true'
   };
 
-  // PREVENT ACCIDENTAL UI TEXT SELECTION ENGINE
+  // ================================================================
+  // PREVENT ACCIDENTAL UI TEXT SELECTION & TOUCH OPTIMIZATION
   // ================================================================
   function preventAccidentalSelection() {
     if (!document.getElementById('prevent-selection-styles')) {
@@ -66,11 +72,14 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
       .sr-wb-toolbar, .sr-exp-badge, .alarm-notification, .login-screen, .login-card,
       .card-editor, .session-item, .deck-card, .note-card, .quick-link-item,
       .search-result-item, .page-bookmark-item, .print-queue-item, .timer-preset-btn,
-      .dialog-box, .dialog-overlay, #dbUploadOverlay, #dbDropZone, .mobile-bottom-nav {
+      .dialog-box, .dialog-overlay, #dbUploadOverlay, #dbDropZone, .mobile-bottom-nav,
+      .mobile-bottom-nav-item, .library-item, .modal-sheet-handle {
         -webkit-user-select: none !important;
         -moz-user-select: none !important;
         -ms-user-select: none !important;
         user-select: none !important;
+        -webkit-tap-highlight-color: transparent !important;
+        touch-action: manipulation;
       }
 
       input, textarea, select, code, pre, [contenteditable="true"],
@@ -80,6 +89,11 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
         -moz-user-select: text !important;
         -ms-user-select: text !important;
         user-select: text !important;
+        touch-action: auto;
+      }
+
+      canvas, #srWbCanvas, .annotation-canvas {
+        touch-action: none !important;
       }
       `;
       (document.head || document.documentElement).appendChild(style);
@@ -107,7 +121,7 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
   preventAccidentalSelection();
 
   // ================================================================
-  // DUAL-ENGINE SQLITE & INDEXEDDB DATABASE SERVICE (Android Unbreakable)
+  // LOCAL NODE STORE (Android & Offline Fallback Engine)
   // ================================================================
   const LocalNodeStore = {
     getNodes() {
@@ -191,72 +205,109 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
     }
   };
 
+  // ================================================================
+  // SQLITE & INDEXEDDB ENGINE (Android & Web Unbreakable)
+  // ================================================================
   const DbService = {
     db: null,
     SQL: null,
     isFallback: false,
 
     async init() {
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('DbService init timeout')), 2000)
-      );
-
       try {
-        await Promise.race([this._internalInit(), timeoutPromise]);
+        await this._internalInit();
+        console.log('[SQLite Engine] Initialized successfully');
         return true;
       } catch (err) {
-        console.warn('[SQLite] WASM DB Init timed out or failed. Activating LocalNodeStore fallback engine:', err);
+        console.warn('[SQLite Engine] WASM DB Init fallback triggered. Activating LocalNodeStore:', err);
         this.isFallback = true;
-        LocalNodeStore.seedDefaultLibrary();
+        if (LocalNodeStore.getNodes().length === 0) {
+          LocalNodeStore.seedDefaultLibrary();
+        }
         return true;
       }
     },
 
-    async _internalInit() {
-      if (!window.SQL_INSTANCE) {
-        if (typeof window.initSqlJs === 'undefined') {
+    async _loadSqlJsScript() {
+      if (typeof window.initSqlJs !== 'undefined') return true;
+
+      const scriptSources = [
+        'js/sql-wasm.js',
+        'sql-wasm.js',
+        'assets/sql-wasm.js',
+        'https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.js'
+      ];
+
+      for (const src of scriptSources) {
+        try {
           await new Promise((resolve, reject) => {
             const script = document.createElement('script');
-            script.src = 'https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.js';
+            script.src = src;
             script.onload = resolve;
             script.onerror = reject;
             document.head.appendChild(script);
           });
-        }
+          if (typeof window.initSqlJs !== 'undefined') {
+            return true;
+          }
+        } catch (e) {}
+      }
+      return typeof window.initSqlJs !== 'undefined';
+    },
 
-        window.SQL_INSTANCE = await window.initSqlJs({
-          locateFile: file => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/${file}`
-        });
+    async _internalInit() {
+      if (!window.SQL_INSTANCE) {
+        await this._loadSqlJsScript();
+
+        if (typeof window.initSqlJs === 'function') {
+          window.SQL_INSTANCE = await window.initSqlJs({
+            locateFile: file => {
+              if (window.location.protocol === 'capacitor:' || window.location.protocol === 'http:' || window.location.protocol === 'https:') {
+                return file;
+              }
+              return `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/${file}`;
+            }
+          });
+        }
       }
 
       this.SQL = window.SQL_INSTANCE;
+      if (!this.SQL) {
+        throw new Error('SqlJs engine is unavailable');
+      }
 
       // Check IndexedDB
       let savedDb = await this.loadFromIndexedDB();
       if (savedDb) {
-        this.db = new this.SQL.Database(savedDb);
-        savedDb = null;
+        try {
+          this.db = new this.SQL.Database(savedDb);
+          savedDb = null;
 
-        if (await this.isValidDatabase()) {
-          console.log('[SQLite] Valid DB loaded from IndexedDB cache');
-          return true;
-        } else {
-          await this.clearIndexedDB();
+          if (await this.isValidDatabase()) {
+            console.log('[SQLite] Valid DB loaded from IndexedDB cache');
+            return true;
+          } else {
+            await this.clearIndexedDB();
+            this.db = null;
+          }
+        } catch (dbErr) {
           this.db = null;
         }
       }
 
-      // Candidate asset paths for cross-platform / Tauri / Electron / WebViews
+      // Candidate asset paths for cross-platform / Capacitor / Electron / WebViews
       const candidatePaths = [
         'questionary.db',
-        '/questionary.db',
         'assets/questionary.db',
-        (window.location.origin || '') + '/questionary.db'
+        '/questionary.db',
+        './questionary.db',
+        (window.location.origin || '') + '/questionary.db',
+        (window.location.origin || '') + '/assets/questionary.db'
       ];
 
       for (const path of candidatePaths) {
         try {
-          const response = await fetch(path + '?v=' + Date.now());
+          const response = await fetch(path);
           if (response.ok) {
             let arrayBuffer = await response.arrayBuffer();
             let uInt8Array = new Uint8Array(arrayBuffer);
@@ -333,64 +384,79 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
 
     async query(sql, params = []) {
       if (this.isFallback || !this.db) return [];
-      const stmt = this.db.prepare(sql);
-      stmt.bind(params);
-      const results = [];
-      while (stmt.step()) {
-        results.push(stmt.getAsObject());
+      try {
+        const stmt = this.db.prepare(sql);
+        stmt.bind(params);
+        const results = [];
+        while (stmt.step()) {
+          results.push(stmt.getAsObject());
+        }
+        stmt.free();
+        return results;
+      } catch (err) {
+        console.error('[SQLite Query Error]:', err);
+        return [];
       }
-      stmt.free();
-      return results;
     },
 
     async saveToIndexedDB() {
       if (this.isFallback || !this.db) return;
-      let data = this.db.export();
-      return new Promise((resolve, reject) => {
-        const request = indexedDB.open('QuestionarySQLiteDB', 1);
-        request.onupgradeneeded = e => e.target.result.createObjectStore('db_store');
-        request.onsuccess = e => {
-          const idb = e.target.result;
-          const tx = idb.transaction('db_store', 'readwrite');
-          const putReq = tx.objectStore('db_store').put(data, 'questionary.db');
-          putReq.onsuccess = () => { data = null; resolve(); };
-          putReq.onerror = () => { data = null; reject(putReq.error); };
-        };
-        request.onerror = () => { data = null; reject(request.error); };
-      });
+      try {
+        let data = this.db.export();
+        return new Promise((resolve, reject) => {
+          const request = indexedDB.open('QuestionarySQLiteDB', 1);
+          request.onupgradeneeded = e => e.target.result.createObjectStore('db_store');
+          request.onsuccess = e => {
+            const idb = e.target.result;
+            const tx = idb.transaction('db_store', 'readwrite');
+            const putReq = tx.objectStore('db_store').put(data, 'questionary.db');
+            putReq.onsuccess = () => { data = null; resolve(); };
+            putReq.onerror = () => { data = null; reject(putReq.error); };
+          };
+          request.onerror = () => { data = null; reject(request.error); };
+        });
+      } catch (e) {}
     },
 
     async loadFromIndexedDB() {
       return new Promise(resolve => {
-        const request = indexedDB.open('QuestionarySQLiteDB', 1);
-        request.onupgradeneeded = e => e.target.result.createObjectStore('db_store');
-        request.onsuccess = e => {
-          const idb = e.target.result;
-          const tx = idb.transaction('db_store', 'readonly');
-          const getReq = tx.objectStore('db_store').get('questionary.db');
-          getReq.onsuccess = () => resolve(getReq.result);
-          getReq.onerror = () => resolve(null);
-        };
-        request.onerror = () => resolve(null);
+        try {
+          const request = indexedDB.open('QuestionarySQLiteDB', 1);
+          request.onupgradeneeded = e => e.target.result.createObjectStore('db_store');
+          request.onsuccess = e => {
+            const idb = e.target.result;
+            const tx = idb.transaction('db_store', 'readonly');
+            const getReq = tx.objectStore('db_store').get('questionary.db');
+            getReq.onsuccess = () => resolve(getReq.result);
+            getReq.onerror = () => resolve(null);
+          };
+          request.onerror = () => resolve(null);
+        } catch (e) {
+          resolve(null);
+        }
       });
     },
 
     async clearIndexedDB() {
       return new Promise(resolve => {
-        const req = indexedDB.deleteDatabase('QuestionarySQLiteDB');
-        req.onsuccess = () => resolve();
-        req.onerror = () => resolve();
-        req.onblocked = () => resolve();
+        try {
+          const req = indexedDB.deleteDatabase('QuestionarySQLiteDB');
+          req.onsuccess = () => resolve();
+          req.onerror = () => resolve();
+          req.onblocked = () => resolve();
+        } catch (e) {
+          resolve();
+        }
       });
     },
 
     async getNodeIdByPath(pathArray) {
-      if (this.isFallback) return null;
+      if (this.isFallback || !this.db) return null;
       let currentId = null;
       for (const segment of pathArray) {
         const sql = currentId === null
-        ? "SELECT id FROM nodes WHERE parent_id IS NULL AND name = ?"
-        : "SELECT id FROM nodes WHERE parent_id = ? AND name = ?";
+          ? "SELECT id FROM nodes WHERE parent_id IS NULL AND name = ?"
+          : "SELECT id FROM nodes WHERE parent_id = ? AND name = ?";
         const params = currentId === null ? [segment] : [currentId, segment];
         const res = await this.query(sql, params);
         if (res.length === 0) return null;
@@ -409,8 +475,8 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
       }
       const res = await this.query(
         parentId === null
-        ? "SELECT * FROM nodes WHERE parent_id IS NULL ORDER BY name ASC"
-        : "SELECT * FROM nodes WHERE parent_id = ? ORDER BY name ASC",
+          ? "SELECT * FROM nodes WHERE parent_id IS NULL ORDER BY name ASC"
+          : "SELECT * FROM nodes WHERE parent_id = ? ORDER BY name ASC",
         parentId === null ? [] : [parentId]
       );
       return (res && res.length > 0) ? res : LocalNodeStore.getChildren(pathArray);
@@ -460,19 +526,15 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
   window.resetDatabase = async function() {
     if (confirm('Reset database cache? This will purge the cached DB and reload clean defaults.')) {
       await DbService.clearIndexedDB();
+      localStorage.removeItem('questionary-local-nodes');
       location.reload();
     }
   };
 
   async function initializeFavorites() {
     try {
-      if (window.__TAURI__) {
-        const loaded = await loadFavoritesFromTauri();
-        if (loaded) return;
-      }
       favorites = JSON.parse(localStorage.getItem('questionary-favorites') || '[]');
     } catch (e) {
-      console.error('Error loading favorites:', e);
       favorites = [];
     }
   }
@@ -480,75 +542,14 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
   async function saveFavorites() {
     try {
       localStorage.setItem('questionary-favorites', JSON.stringify(favorites));
-      if (window.__TAURI__) {
-        await saveFavoritesToTauri();
-      }
     } catch (e) {
       console.error('Error saving favorites:', e);
     }
   }
 
-  async function loadFavoritesFromTauri() {
-    try {
-      const { readTextFile, BaseDirectory } = window.__TAURI__.fs || {};
-      const { appDataDir } = window.__TAURI__.path || {};
-      if (readTextFile && appDataDir) {
-        const data = await readTextFile('favorites.json', { dir: BaseDirectory.AppData });
-        favorites = JSON.parse(data);
-        localStorage.setItem('questionary-favorites', JSON.stringify(favorites));
-        return true;
-      }
-    } catch (e) {
-      console.log('Loading favorites from localStorage instead');
-    }
-    return false;
-  }
-
-  async function saveFavoritesToTauri() {
-    try {
-      const { writeTextFile, createDir, BaseDirectory } = window.__TAURI__.fs || {};
-      if (writeTextFile && createDir) {
-        try {
-          await createDir('', { dir: BaseDirectory.AppData, recursive: true });
-        } catch (e) {}
-        await writeTextFile('favorites.json', JSON.stringify(favorites, null, 2), {
-          dir: BaseDirectory.AppData
-        });
-      }
-    } catch (e) {
-      console.error('Error saving favorites to Tauri:', e);
-    }
-  }
-
-  async function loadRecentFromTauri() {
-    try {
-      const { readTextFile, BaseDirectory } = window.__TAURI__.fs || {};
-      if (readTextFile) {
-        const data = await readTextFile('recent.json', { dir: BaseDirectory.AppData });
-        const recent = JSON.parse(data);
-        localStorage.setItem('questionary-recent', JSON.stringify(recent));
-        return recent;
-      }
-    } catch (e) {
-      console.log('Loading recent from localStorage');
-    }
-    return null;
-  }
-
   async function saveRecentToStorage(recent) {
     try {
       localStorage.setItem('questionary-recent', JSON.stringify(recent));
-      if (window.__TAURI__) {
-        const { writeTextFile, createDir, BaseDirectory } = window.__TAURI__.fs || {};
-        if (writeTextFile && createDir) {
-          try {
-            await createDir('', { dir: BaseDirectory.AppData, recursive: true });
-          } catch (e) {}
-          await writeTextFile('recent.json', JSON.stringify(recent, null, 2), {
-            dir: BaseDirectory.AppData
-          });
-        }
-      }
     } catch (e) {
       console.error('Error saving recent:', e);
     }
@@ -946,7 +947,7 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
           'home': 'homeNav', 'favorites': 'favoritesNav', 'recent': 'recentNav',
           'analytics': 'analyticsNav', 'planner': 'plannerNav', 'flashcards': 'flashcardsNav',
           'notes': 'notesNav', 'progress': 'progressNav', 'reminders': 'remindersNav',
-          'settings': 'settingsNav', 'tags': 'tagsNav'
+          'settings': 'settingsNav', 'tags': 'tagsNav', 'studyRoom': 'studyRoomNav'
         };
         if (navMap[lastView]) setActiveNav(navMap[lastView]);
       } else {
@@ -1030,7 +1031,7 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
           } else if (key.match(/\.(png|jpg|jpeg|webp|gif|svg)$/i)) {
             showImage(value, key);
           } else {
-            showPDF(value);
+            showPDF(value, key);
           }
         }
       };
@@ -1131,7 +1132,7 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
   // ================================================================
   // FULL-SCREEN MAXIMIZED PDF & DOCUMENT VIEWERS
   // ================================================================
-function showPDF(url, customName = null) {
+  function showPDF(url, customName = null) {
       if (!url || url === '' || url === '#') return;
 
       const pdfViewer = document.getElementById('pdfViewer');
@@ -1158,10 +1159,13 @@ function showPDF(url, customName = null) {
         const cleanRelative = url.replace(/^(\.\/|\/)?(documents\/)+/i, '');
         targetUrl = window.DownloadManager.resolveDocumentUrl(cleanRelative);
       } else if (!url.startsWith('blob:') && !url.startsWith('blob-id:') && !url.startsWith('data:') && !url.startsWith('http') && !url.startsWith('local-pdf:')) {
-        targetUrl = new URL(url, window.location.href).href;
+        try {
+          targetUrl = new URL(url, window.location.href).href;
+        } catch (e) {
+          targetUrl = url;
+        }
       }
 
-      // Ensure local-pdf has three slashes for absolute paths (e.g. local-pdf:///home/...)
       if (typeof targetUrl === 'string' && targetUrl.startsWith('local-pdf://') && !targetUrl.startsWith('local-pdf:///') && !targetUrl.startsWith('local-pdf://localhost')) {
         targetUrl = targetUrl.replace('local-pdf://', 'local-pdf:///');
       }
@@ -1260,6 +1264,7 @@ function showPDF(url, customName = null) {
     _currentImageBlobUrl = url;
     _displayImageViewer(url, name);
   }
+
   function _displayImageViewer(imgSrc, name) {
     const container = document.getElementById('imageViewerContainer');
     const img = document.getElementById('imageViewerImg');
@@ -1284,6 +1289,7 @@ function showPDF(url, customName = null) {
     if (typeof hideHomeTagsPanels === 'function') hideHomeTagsPanels();
     updateBreadcrumb();
   }
+
   function closeImageViewer() {
     const container = document.getElementById('imageViewerContainer');
     const img = document.getElementById('imageViewerImg');
@@ -1309,6 +1315,7 @@ function showPDF(url, customName = null) {
     if (importedSection) importedSection.style.display = isRoot ? 'block' : 'none';
     if (isRoot && typeof showHomeTagsPanels === 'function') showHomeTagsPanels();
   }
+
   function downloadCurrentImage() {
     if (!_currentImageBlobUrl) return;
     const a = document.createElement('a');
@@ -1775,7 +1782,7 @@ function showPDF(url, customName = null) {
   }
 
   // ================================================================
-  // FLASHCARD ENGINE — BULLETPROOF SYNC & SAFE DELETION
+  // FLASHCARD ENGINE
   // ================================================================
   function loadFlashcardDecks() {
     try {
@@ -2178,17 +2185,6 @@ function showPDF(url, customName = null) {
         checkSavedLogin();
       }
     }, 1500);
-
-    if (window.__TAURI__ && window.__TAURI__.window) {
-      try {
-        const currentWindow = window.__TAURI__.window.getCurrentWindow();
-        await currentWindow.show();
-        await currentWindow.setFocus();
-        console.log('[App] Window shown');
-      } catch (e) {
-        console.log('Could not show window:', e);
-      }
-    }
 
     await initializeFavorites();
     await DbService.init();
@@ -3982,8 +3978,7 @@ function showPDF(url, customName = null) {
     wbEraser:      { key: 'e', ctrl: false, alt: false, shift: false, label: 'Whiteboard Eraser' },
     wbHighlighter: { key: 'h', ctrl: false, alt: false, shift: false, label: 'Whiteboard Highlighter' },
     toggleMic:     { key: 'm', ctrl: true, alt: false, shift: false, label: 'Toggle Microphone' },
-    toggleCam:     { key: 'v', ctrl: true, alt: false, shift: false, label: 'Toggle Camera' },
-    pushToTalk:    { key: 't', ctrl: false, alt: false, shift: false, label: 'Push to Talk (Hold)' },
+    toggleCam:     { key: 'v', ctrl: true, alt: false, shift: false, label: 'Toggle Camera' }
   };
 
   function loadKeybinds() {
@@ -4037,7 +4032,7 @@ function showPDF(url, customName = null) {
     const categories = {
       'General': ['focusSearch', 'newNote', 'newFlashcard', 'shareLocation', 'quickLinks', 'goBack', 'goHome', 'navBack'],
       'Whiteboard': ['wbUndo', 'wbRedo', 'wbPen', 'wbEraser', 'wbHighlighter'],
-      'Study Room': ['toggleMic', 'toggleCam', 'pushToTalk']
+      'Study Room': ['toggleMic', 'toggleCam']
     };
     let html = '';
     for (const [cat, ids] of Object.entries(categories)) {
@@ -4597,7 +4592,7 @@ function showPDF(url, customName = null) {
   window.clearSearchHistory = clearSearchHistory;
 
   // ================================================================
-  // UPDATER INTEGRATION
+  // CODE & ASSET UPDATER INTEGRATION
   // ================================================================
   var updateState = window.updateState || {
     available: false,
@@ -4618,34 +4613,12 @@ function showPDF(url, customName = null) {
 
     if (btn) btn.classList.add('checking');
 
-    let nativeUpdateFound = false;
-
-    if (window.__TAURI__ && (window.__TAURI__.updater || window.__TAURI_PLUGIN_UPDATER__)) {
-      try {
-        showNotification('Checking for native app binary updates...', 'info');
-        const updater = window.__TAURI__.updater || window.__TAURI_PLUGIN_UPDATER__;
-        const update = await updater.check();
-
-        if (update && update.available) {
-          nativeUpdateFound = true;
-          updateState.available = true;
-          updateState.version = update.version;
-          updateState.update = update;
-          showNotification(`Native update ${update.version} available! Installing...`, 'success');
-          await downloadAndInstallUpdate();
-          return;
-        }
-      } catch (tauriErr) {
-        console.warn('[Tauri Native Updater]: Native check skipped/unconfigured. Falling back to Hot-Code Updater:', tauriErr.message || tauriErr);
-      }
-    }
-
     if (window.hotCodeUpdater && typeof window.hotCodeUpdater.check === 'function') {
       try {
-        showNotification('Checking for GitHub code updates...', 'info');
+        showNotification('Checking for app updates...', 'info');
         const updates = await window.hotCodeUpdater.check(false);
         if (updates && updates.length > 0) {
-          showNotification(`Downloading ${updates.length} hot update file(s)...`, 'info');
+          showNotification(`Downloading ${updates.length} updated file(s)...`, 'info');
           await window.hotCodeUpdater.download();
         } else {
           showNotification('App code is completely up to date!', 'success');
@@ -4657,115 +4630,11 @@ function showPDF(url, customName = null) {
         resetUpdateButton();
       }
     } else {
-      if (!nativeUpdateFound) {
-        showNotification('No updater available in this environment.', 'warning');
-        resetUpdateButton();
-      }
+      showNotification('App is up to date!', 'success');
+      resetUpdateButton();
     }
 
     if (btn) btn.classList.remove('checking');
-  }
-
-  async function downloadAndInstallUpdate() {
-    if (!updateState.update) return;
-    updateState.downloading = true;
-    updateButtonToProgressMode();
-
-    try {
-      showNotification('Downloading & installing update...', 'info');
-
-      await updateState.update.downloadAndInstall((event) => {
-        if (event.event === 'Started') {
-          updateState.totalBytes = event.data.contentLength || 0;
-        } else if (event.event === 'Progress') {
-          updateState.downloadedBytes += event.data.chunkLength || 0;
-          if (updateState.totalBytes > 0) {
-            updateState.downloadProgress = Math.round((updateState.downloadedBytes / updateState.totalBytes) * 100);
-          }
-          updateProgressButton();
-        } else if (event.event === 'Finished') {
-          updateState.downloadProgress = 100;
-          updateProgressButton();
-        }
-      });
-
-      showNotification('Update installed! Restarting app...', 'success');
-      updateButtonToRestartMode();
-
-      setTimeout(async () => {
-        try {
-          if (window.__TAURI__?.process?.relaunch) {
-            await window.__TAURI__.process.relaunch();
-          } else if (window.__TAURI__?.core?.invoke) {
-            await window.__TAURI__.core.invoke('plugin:process|relaunch');
-          } else {
-            location.reload();
-          }
-        } catch (e) {
-          console.error('Relaunch failed:', e);
-          location.reload();
-        }
-      }, 1500);
-
-    } catch (error) {
-      console.error('[Install Error]:', error);
-      showNotification('Failed to install update: ' + error.message, 'error');
-      resetUpdateButton();
-    } finally {
-      updateState.downloading = false;
-    }
-  }
-
-  function updateButtonToDownloadMode(version) {
-    const btn = document.getElementById('checkUpdatesBtn');
-    if (btn) {
-      btn.innerHTML = `<i class="fas fa-download"></i>`;
-      btn.title = `Download update ${version}`;
-      btn.classList.add('update-available');
-    }
-  }
-
-  function updateButtonToProgressMode() {
-    const btn = document.getElementById('checkUpdatesBtn');
-    if (btn) {
-      btn.innerHTML = `<i class="fas fa-download"></i>`;
-      btn.title = 'Downloading...';
-      btn.classList.add('downloading');
-      btn.classList.remove('update-available');
-    }
-    showDownloadProgressBar();
-  }
-
-  function updateProgressButton() {
-    const progressFill = document.getElementById('downloadProgressFill');
-    const progressPercent = document.getElementById('downloadProgressPercent');
-    const progressText = document.getElementById('downloadProgressText');
-    if (progressFill) progressFill.style.width = `${updateState.downloadProgress}%`;
-    if (progressPercent) progressPercent.textContent = `${updateState.downloadProgress}%`;
-    if (progressText) progressText.textContent = `${formatBytes(updateState.downloadedBytes)} / ${formatBytes(updateState.totalBytes)}`;
-  }
-
-  function showDownloadProgressBar() {
-    const progressBar = document.getElementById('downloadProgressBar');
-    if (progressBar) progressBar.style.display = 'block';
-  }
-
-  function hideDownloadProgressBar() {
-    const progressBar = document.getElementById('downloadProgressBar');
-    if (progressBar) progressBar.style.display = 'none';
-    const progressFill = document.getElementById('downloadProgressFill');
-    if (progressFill) progressFill.style.width = '0%';
-  }
-
-  function updateButtonToRestartMode() {
-    const btn = document.getElementById('checkUpdatesBtn');
-    if (btn) {
-      btn.innerHTML = `<i class="fas fa-redo"></i>`;
-      btn.title = 'Restarting...';
-      btn.classList.remove('downloading');
-      btn.classList.add('restarting');
-    }
-    hideDownloadProgressBar();
   }
 
   function resetUpdateButton() {
@@ -4775,18 +4644,9 @@ function showPDF(url, customName = null) {
       btn.title = 'Check for Updates';
       btn.classList.remove('update-available', 'downloading', 'restarting');
     }
-    hideDownloadProgressBar();
     updateState.available = false;
     updateState.update = null;
     updateState.downloading = false;
-  }
-
-  function formatBytes(bytes) {
-    if (bytes === 0) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
   }
 
   (function initUpdateButton() {
@@ -4843,20 +4703,6 @@ function showPDF(url, customName = null) {
     if (!url) return;
 
     try {
-      if (window.__TAURI__ && window.__TAURI__.shell && typeof window.__TAURI__.shell.open === 'function') {
-        await window.__TAURI__.shell.open(url);
-        showNotification('Opening PDF in external application...', 'info');
-        return;
-      } else if (window.__TAURI__ && window.__TAURI__.core && typeof window.__TAURI__.core.invoke === 'function') {
-        await window.__TAURI__.core.invoke('plugin:shell|open', { href: url });
-        showNotification('Opening PDF in external application...', 'info');
-        return;
-      }
-    } catch (err) {
-      console.warn('[Tauri Shell Open Error]:', err);
-    }
-
-    try {
       const a = document.createElement('a');
       a.href = url;
       a.target = '_blank';
@@ -4864,7 +4710,7 @@ function showPDF(url, customName = null) {
       document.body.appendChild(a);
       a.click();
       setTimeout(() => a.remove(), 100);
-      showNotification('Opened PDF in new window', 'info');
+      showNotification('Opened document in new window', 'info');
     } catch (e) {
       window.open(url, '_blank');
     }
@@ -4981,14 +4827,3 @@ document.addEventListener('click', (e) => {
     }
   }
 });
-
-
-      // In showPDF:
-      // Convert document paths ONLY if it's a relative path and NOT a blob / blob-id / data / local-pdf URL
-      let targetUrl = url;
-      if (window.DownloadManager && !url.startsWith('blob:') && !url.startsWith('blob-id:') && !url.startsWith('data:') && !url.startsWith('http') && !url.startsWith('local-pdf:')) {
-        const cleanRelative = url.replace(/^(\.\/|\/)?(documents\/)+/i, '');
-        targetUrl = window.DownloadManager.resolveDocumentUrl(cleanRelative);
-      } else if (!url.startsWith('blob:') && !url.startsWith('blob-id:') && !url.startsWith('data:') && !url.startsWith('http') && !url.startsWith('local-pdf:')) {
-        targetUrl = new URL(url, window.location.href).href;
-      }

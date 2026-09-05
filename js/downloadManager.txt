@@ -1,7 +1,5 @@
 // js/downloadManager.js
 (function () {
-  'use strict';
-
   const DownloadManager = {
     storagePath: '',
     qualityProfile: 'sd', // 'sd' | 'hd'
@@ -14,47 +12,29 @@
     releaseTag: 'v0.9.8',
 
     async init() {
+      if (!window.electronAPI) return;
+
       this.qualityProfile = localStorage.getItem('questionary-quality-profile') || 'sd';
-
-      if (window.electronAPI && typeof window.electronAPI.getDefaultStoragePath === 'function') {
-        try {
-          this.storagePath = localStorage.getItem('questionary-storage-path') || await window.electronAPI.getDefaultStoragePath();
-        } catch (e) {
-          this.storagePath = 'Local Storage';
-        }
-      } else if (window.Capacitor) {
-        this.storagePath = localStorage.getItem('questionary-storage-path') || 'App Internal Storage';
-      } else {
-        this.storagePath = localStorage.getItem('questionary-storage-path') || 'IndexedDB / Browser Storage';
-      }
-
+      this.storagePath = localStorage.getItem('questionary-storage-path') || await window.electronAPI.getDefaultStoragePath();
       localStorage.setItem('questionary-storage-path', this.storagePath);
 
-      if (window.electronAPI && typeof window.electronAPI.checkDocumentsExist === 'function') {
-        try {
-          this.hasDocuments = await window.electronAPI.checkDocumentsExist(this.storagePath);
-        } catch (e) {
-          this.hasDocuments = localStorage.getItem('questionary-docs-installed') === 'true';
-        }
-      } else {
-        this.hasDocuments = localStorage.getItem('questionary-docs-installed') === 'true';
-      }
-
+      this.hasDocuments = await window.electronAPI.checkDocumentsExist(this.storagePath);
       this.setupProgressListener();
+
+      // Render settings storage tab if element already exists in DOM
       this.renderSettingsStorageTab();
 
-      // Automatically open Setup Wizard if no documents exist locally and setup is not marked complete
+      // Automatically pop Setup Wizard if no documents exist locally and setup isn't marked complete
       if (!this.hasDocuments && !localStorage.getItem('questionary-setup-complete')) {
         setTimeout(() => this.openSetupWizard(), 300);
       }
     },
 
     setupProgressListener() {
-      if (window.electronAPI && typeof window.electronAPI.onDownloadProgress === 'function') {
-        window.electronAPI.onDownloadProgress((data) => {
-          this.updateLiveProgressUI(data);
-        });
-      }
+      if (!window.electronAPI) return;
+      window.electronAPI.onDownloadProgress((data) => {
+        this.updateLiveProgressUI(data);
+      });
     },
 
     updateLiveProgressUI(data) {
@@ -76,11 +56,10 @@
         setTimeout(() => {
           banner.style.display = 'none';
           this.hasDocuments = true;
-          localStorage.setItem('questionary-docs-installed', 'true');
           this.renderSettingsStorageTab();
           if (typeof window.renderTiles === 'function') window.renderTiles();
           if (typeof window.showNotification === 'function') {
-            window.showNotification('Documents downloaded and installed successfully!', 'success');
+            window.showNotification('Documents downloaded and extracted successfully!', 'success');
           }
         }, 1500);
       }
@@ -112,20 +91,11 @@
     },
 
     async handleBrowseFolder(inputId) {
-      if (window.electronAPI && typeof window.electronAPI.selectStorageFolder === 'function') {
-        try {
-          const selected = await window.electronAPI.selectStorageFolder();
-          if (selected) {
-            const el = document.getElementById(inputId);
-            if (el) el.value = selected;
-          }
-        } catch (err) {
-          console.warn('[DownloadManager] Folder selection canceled or failed:', err);
-        }
-      } else {
-        if (typeof window.showNotification === 'function') {
-          window.showNotification('Storage location is managed automatically on this platform.', 'info');
-        }
+      if (!window.electronAPI) return;
+      const selected = await window.electronAPI.selectStorageFolder();
+      if (selected) {
+        const el = document.getElementById(inputId);
+        if (el) el.value = selected;
       }
     },
 
@@ -150,6 +120,13 @@
     // ZIP PACK DOWNLOAD & EXTRACTION TRIGGER
     // ============================================
     async startFullPackDownload() {
+      if (!window.electronAPI) {
+        if (typeof window.showNotification === 'function') {
+          window.showNotification('Electron API not available.', 'error');
+        }
+        return;
+      }
+
       if (this.isDownloading) {
         if (typeof window.showNotification === 'function') {
           window.showNotification('Download already in progress...', 'info');
@@ -159,133 +136,53 @@
 
       this.isDownloading = true;
 
-      if (window.electronAPI && typeof window.electronAPI.downloadFullPack === 'function') {
-        const result = await window.electronAPI.downloadFullPack({
-          quality: this.qualityProfile,
-          storageDir: this.storagePath,
-          repoOwner: this.repoOwner,
-          repoName: this.repoName,
-          releaseTag: this.releaseTag
-        });
+      const result = await window.electronAPI.downloadFullPack({
+        quality: this.qualityProfile,
+        storageDir: this.storagePath,
+        repoOwner: this.repoOwner,
+        repoName: this.repoName,
+        releaseTag: this.releaseTag
+      });
 
-        this.isDownloading = false;
+      this.isDownloading = false;
 
-        if (!result.success) {
-          if (typeof window.showNotification === 'function') {
-            window.showNotification('Download failed: ' + result.error, 'error');
-          }
-        } else {
-          this.hasDocuments = true;
-          localStorage.setItem('questionary-docs-installed', 'true');
-          this.renderSettingsStorageTab();
-          if (typeof window.renderTiles === 'function') window.renderTiles();
-        }
-        return;
-      }
-
-      // Android / Capacitor / Browser Download Fallback
-      try {
+      if (!result.success) {
         if (typeof window.showNotification === 'function') {
-          window.showNotification('Starting document pack download...', 'info');
+          window.showNotification('Download failed: ' + result.error, 'error');
         }
-
-        const banner = document.getElementById('globalDownloadBanner');
-        if (banner) banner.style.display = 'flex';
-
-        const fileEl = document.getElementById('dlCurrentFile');
-        const percentEl = document.getElementById('dlPercent');
-        const fillEl = document.getElementById('dlProgressBarFill');
-
-        if (fileEl) fileEl.textContent = `Downloading ${this.qualityProfile.toUpperCase()} pack...`;
-        if (percentEl) percentEl.textContent = '20%';
-        if (fillEl) fillEl.style.width = '20%';
-
-        await new Promise(r => setTimeout(r, 600));
-
-        if (percentEl) percentEl.textContent = '65%';
-        if (fillEl) fillEl.style.width = '65%';
-
-        await new Promise(r => setTimeout(r, 600));
-
-        if (percentEl) percentEl.textContent = '100%';
-        if (fillEl) fillEl.style.width = '100%';
-
+      } else {
         this.hasDocuments = true;
-        localStorage.setItem('questionary-docs-installed', 'true');
-
-        setTimeout(() => {
-          if (banner) banner.style.display = 'none';
-          this.renderSettingsStorageTab();
-          if (typeof window.renderTiles === 'function') window.renderTiles();
-          if (typeof window.showNotification === 'function') {
-            window.showNotification('Document library ready!', 'success');
-          }
-        }, 800);
-      } catch (err) {
-        console.error('[DownloadManager Error]:', err);
-        if (typeof window.showNotification === 'function') {
-          window.showNotification('Download encountered an issue: ' + err.message, 'error');
-        }
-      } finally {
-        this.isDownloading = false;
+        this.renderSettingsStorageTab();
+        if (typeof window.renderTiles === 'function') window.renderTiles();
       }
     },
 
     // ============================================
-    // UNIVERSAL DOCUMENT PATH RESOLUTION
+    // PATH RESOLUTION FOR PDF VIEWER & TILES
     // ============================================
     resolveDocumentUrl(dbFilePath) {
       if (!dbFilePath || dbFilePath === '#' || dbFilePath === '') return dbFilePath;
-      if (
-        dbFilePath.startsWith('blob:') ||
-        dbFilePath.startsWith('data:') ||
-        dbFilePath.startsWith('http://') ||
-        dbFilePath.startsWith('https://') ||
-        dbFilePath.startsWith('capacitor:') ||
-        dbFilePath.startsWith('local-pdf:')
-      ) {
+      if (dbFilePath.startsWith('blob:') || dbFilePath.startsWith('data:') || dbFilePath.startsWith('http') || dbFilePath.startsWith('local-pdf:')) {
         return dbFilePath;
       }
 
+      const cleanStorage = this.storagePath.replace(/\\/g, '/').replace(/\/+$/, '');
       const cleanPath = dbFilePath.replace(/^\/+/, '').replace(/\\/g, '/');
 
-      // Electron Desktop custom protocol handler
-      if (window.electronAPI) {
-        const cleanStorage = this.storagePath.replace(/\\/g, '/').replace(/\/+$/, '');
-        const fullPath = `${cleanStorage}/documents/${cleanPath}`;
-        return `local-pdf://${fullPath}`;
-      }
-
-      // Android / Capacitor / Browser WebView standard local URL resolution
-      try {
-        if (cleanPath.startsWith('documents/')) {
-          return new URL(cleanPath, window.location.href).href;
-        }
-        return new URL(`documents/${cleanPath}`, window.location.href).href;
-      } catch (e) {
-        return `documents/${cleanPath}`;
-      }
+      // Check if file is inside storage/documents/documents/ or storage/documents/
+      const fullPath = `${cleanStorage}/documents/${cleanPath}`;
+      return `local-pdf://${fullPath}`;
     },
-
     // ============================================
     // SETTINGS STORAGE MANAGER TAB
     // ============================================
     async renderSettingsStorageTab() {
       const container = document.getElementById('settingsStoragePanel');
-      if (!container) return;
+      if (!container || !window.electronAPI) return;
 
-      let usedMB = '150.0';
-      let docsStatus = this.hasDocuments ? 'Local documents installed' : 'No documents installed yet';
-      let fileCount = this.hasDocuments ? 1 : 0;
-
-      if (window.electronAPI && typeof window.electronAPI.getStorageStats === 'function') {
-        try {
-          const stats = await window.electronAPI.getStorageStats(this.storagePath);
-          usedMB = (stats.totalBytes / (1024 * 1024)).toFixed(1);
-          docsStatus = stats.fileCount > 0 ? `${stats.fileCount} local documents installed` : 'No documents installed yet';
-          fileCount = stats.fileCount;
-        } catch (e) {}
-      }
+      const stats = await window.electronAPI.getStorageStats(this.storagePath);
+      const usedMB = (stats.totalBytes / (1024 * 1024)).toFixed(1);
+      const docsStatus = stats.fileCount > 0 ? `${stats.fileCount} local documents installed` : 'No documents installed yet';
 
       container.innerHTML = `
         <div class="storage-stats-card" style="background: var(--hover); border: 1px solid var(--line); border-radius: 10px; padding: 1rem; margin-top: 0.5rem;">
@@ -294,8 +191,8 @@
               <div style="font-size: 1.25rem; font-weight: 700; color: var(--fg);">${usedMB} MB</div>
               <div style="font-size: 0.75rem; color: var(--fg3);">${docsStatus}</div>
             </div>
-            <span class="pack-status-badge ${fileCount > 0 ? 'downloaded' : ''}" style="padding: 4px 8px; border-radius: 6px; font-size: 0.75rem; background: ${fileCount > 0 ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)'}; color: ${fileCount > 0 ? '#22c55e' : '#ef4444'};">
-              ${fileCount > 0 ? '<i class="fas fa-check"></i> Ready' : '<i class="fas fa-exclamation-triangle"></i> Not Downloaded'}
+            <span class="pack-status-badge ${stats.fileCount > 0 ? 'downloaded' : ''}" style="padding: 4px 8px; border-radius: 6px; font-size: 0.75rem; background: ${stats.fileCount > 0 ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)'}; color: ${stats.fileCount > 0 ? '#22c55e' : '#ef4444'};">
+              ${stats.fileCount > 0 ? '<i class="fas fa-check"></i> Ready' : '<i class="fas fa-exclamation-triangle"></i> Not Downloaded'}
             </span>
           </div>
           
@@ -335,7 +232,7 @@
 
           <div style="display: flex; gap: 8px;">
             <button class="btn btn-primary btn-sm" onclick="window.DownloadManager.startFullPackDownload()" style="flex: 1;">
-              <i class="fas fa-cloud-download-alt"></i> ${fileCount > 0 ? 'Re-download / Switch Quality' : 'Download Document Pack'}
+              <i class="fas fa-cloud-download-alt"></i> ${stats.fileCount > 0 ? 'Re-download / Switch Quality' : 'Download Document Pack'}
             </button>
           </div>
         </div>
@@ -352,20 +249,14 @@
     },
 
     async relocateStorageFolder() {
-      if (window.electronAPI && typeof window.electronAPI.selectStorageFolder === 'function') {
-        const selected = await window.electronAPI.selectStorageFolder();
-        if (selected && selected !== this.storagePath) {
-          this.storagePath = selected;
-          localStorage.setItem('questionary-storage-path', selected);
-          this.hasDocuments = await window.electronAPI.checkDocumentsExist(selected);
-          this.renderSettingsStorageTab();
-          if (typeof window.showNotification === 'function') {
-            window.showNotification('Storage path updated.', 'success');
-          }
-        }
-      } else {
+      const selected = await window.electronAPI.selectStorageFolder();
+      if (selected && selected !== this.storagePath) {
+        this.storagePath = selected;
+        localStorage.setItem('questionary-storage-path', selected);
+        this.hasDocuments = await window.electronAPI.checkDocumentsExist(selected);
+        this.renderSettingsStorageTab();
         if (typeof window.showNotification === 'function') {
-          window.showNotification('Storage directory is automatically configured on this platform.', 'info');
+          window.showNotification('Storage path updated.', 'success');
         }
       }
     }

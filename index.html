@@ -5,12 +5,17 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Questionary</title>
+    
+    <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet" crossorigin="anonymous" referrerpolicy="no-referrer">
+    
+    <!-- Stylesheets -->
     <link rel="stylesheet" href="css/styles.css?v=220">
     <link rel="stylesheet" href="css/features.css?v=220">
+    
     <style>
         /* Mobile Safe Area & Android Touch Optimization */
         :root {
@@ -44,7 +49,6 @@
             display: none;
         }
 
-        /* Dashboard Stat Icons Backgrounds */
         .stat-icon {
             width: 40px !important;
             height: 40px !important;
@@ -61,9 +65,6 @@
         .stat-icon.recent { background: #3b82f6 !important; }
         .stat-icon.streak { background: #ef4444 !important; }
 
-        /* ================================================================
-           NAV-LINK & SIDEBAR VISIBILITY FIXES
-           ================================================================ */
         .hamburger-menu, #hamburgerMenu {
             display: flex !important;
             align-items: center !important;
@@ -118,7 +119,6 @@
             color: var(--accent, #cf6215) !important;
         }
 
-        /* Modal bottom sheet handle styling */
         .modal-sheet-handle {
             display: none;
             width: 40px;
@@ -128,9 +128,6 @@
             margin: -4px auto 14px auto;
         }
 
-        /* ================================================================
-           MOBILE RESPONSIVE OVERHAUL (< 768px)
-           ================================================================ */
         @media (max-width: 768px) {
             .header {
                 height: 54px !important;
@@ -448,7 +445,7 @@
             </div>
             
             <div class="header-actions-row">
-                <button class="update-check-btn" id="checkUpdatesBtn" title="Check for App Updates (Right-click to Force Re-sync)">
+                <button class="update-check-btn" id="checkUpdatesBtn" title="Check for App Updates">
                     <i class="fas fa-sync-alt"></i>
                 </button>
                 <button class="accessibility-toggle" id="accessibilityToggle" title="Accessibility Options">
@@ -1244,7 +1241,7 @@
         </section>
     </div>
 
-    <!-- Android & iOS Mobile Bottom Navigation Bar -->
+    <!-- Mobile Bottom Navigation Bar -->
     <nav class="mobile-bottom-nav" id="mobileBottomNav" aria-label="Mobile Bottom Navigation">
         <button class="mobile-bottom-nav-item active" data-view="home" id="mobileNavHome">
             <i class="fas fa-home"></i>
@@ -1288,7 +1285,7 @@
         </div>
     </div>
 
-    <!-- Modals (with Mobile Bottom Sheet Handle) -->
+    <!-- Modals -->
     <div class="modal-overlay" id="setupWizardModal">
         <div class="modal setup-wizard-card">
             <div class="modal-sheet-handle"></div>
@@ -1743,6 +1740,40 @@
         <i class="fas fa-stopwatch"></i>
     </button>
 </div>
+
+<!-- Android Back Button / Native Bridge Setup -->
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        // Handle Capacitor / Cordova native back button
+        document.addEventListener('backbutton', async (e) => {
+            e.preventDefault();
+            const modal = document.querySelector('.modal-overlay.active');
+            if (modal) {
+                modal.classList.remove('active');
+                return;
+            }
+            const pdfContainer = document.getElementById('pdfViewerContainer');
+            if (pdfContainer && pdfContainer.style.display !== 'none') {
+                if (typeof window.closePDF === 'function') window.closePDF();
+                return;
+            }
+            if (window.path && window.path.length > 0) {
+                if (typeof window.navigateToPath === 'function') {
+                    window.path.pop();
+                    await window.navigateToPath(window.path);
+                }
+                return;
+            }
+            if (window.currentView && window.currentView !== 'home') {
+                if (typeof window.showView === 'function') window.showView('home');
+                return;
+            }
+            if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.App) {
+                window.Capacitor.Plugins.App.exitApp();
+            }
+        });
+    });
+</script>
 
 <script src="js/hotUpdater.js?v=220"></script>
 <script src="js/contentUpdater.js?v=220"></script>

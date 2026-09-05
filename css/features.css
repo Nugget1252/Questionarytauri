@@ -650,7 +650,7 @@
 
 .sr-wb-canvas-wrap {
     flex: 1; min-width: 0; position: relative; background: #1e1e2e;
-    overflow: hidden; cursor: crosshair; /* clip the oversized canvas */
+    overflow: hidden; cursor: crosshair;
 }
 .sr-wb-canvas-wrap canvas {
     position: absolute; top: 0; left: 0;
@@ -658,7 +658,7 @@
     image-rendering: auto;
 }
 #srWbOverlay {
-    pointer-events: none; /* overlay is transparent to clicks */
+    pointer-events: none;
 }
 
 /* --- Zoom controls in toolbar --- */
