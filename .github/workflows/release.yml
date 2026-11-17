@@ -14,19 +14,19 @@ jobs:
         include:
           - platform: windows-latest
             artifact-name: desktop-windows
-            build-cmd: 'npx electron-builder --win'
+            build-cmd: 'npx electron-builder --win --publish never'
             artifact-path: 'dist/*.exe'
 
-          - platform: macos-14
+          - platform: macos-latest
             artifact-name: desktop-macos
-            build-cmd: 'npm install --no-save dmg-license && npx electron-builder --mac'
+            build-cmd: 'npm install --no-save dmg-license && npx electron-builder --mac --publish never'
             artifact-path: |
               dist/*.dmg
               dist/*.zip
 
           - platform: ubuntu-22.04
             artifact-name: desktop-linux
-            build-cmd: 'npx electron-builder --linux AppImage deb rpm'
+            build-cmd: 'npx electron-builder --linux AppImage deb rpm --publish never'
             artifact-path: |
               dist/*.AppImage
               dist/*.deb
@@ -50,7 +50,7 @@ jobs:
           sudo apt-get install -y rpm fakeroot xvfb libarchive-tools binutils
 
       - name: Prepare macOS Runner for DMG Packaging
-        if: matrix.platform == 'macos-14'
+        if: startsWith(matrix.platform, 'macos')
         run: |
           sudo mdutil -a -i off || true
           rm -rf dist
@@ -65,9 +65,9 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: false
 
       - name: Build Electron Binaries (macOS)
-        if: matrix.platform == 'macos-14'
+        if: startsWith(matrix.platform, 'macos')
         run: |
-          ${{ matrix.build-cmd }} || (sleep 5 && hdiutil info && npx electron-builder --mac)
+          ${{ matrix.build-cmd }} || (sleep 5 && hdiutil info && npx electron-builder --mac --publish never)
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
 
