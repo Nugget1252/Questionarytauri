@@ -2,7 +2,6 @@
   "appId": "com.dpsnt.questionary",
   "appName": "Questionary",
   "webDir": "www",
-  "bundledWebRuntime": false,
   "server": {
     "androidScheme": "https",
     "cleartext": true

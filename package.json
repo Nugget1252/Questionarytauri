@@ -2,8 +2,10 @@
   "name": "questionary",
   "version": "1.0.4",
   "description": "Questionary Desktop Study App",
+  "homepage": "https://github.com/questionary/questionary",
   "main": "main.js",
-  "author": "Questionary",
+  "author": "Questionary <support@questionary.app>",
+  "license": "MIT",
   "scripts": {
     "dev": "node server.js",
     "admin": "node admin-server.js",
@@ -46,7 +48,7 @@
     "asar": true,
     "directories": {
       "output": "dist",
-      "buildResources": "build"
+      "buildResources": "assets"
     },
     "files": [
       "index.html",
@@ -67,7 +69,7 @@
       "!admin-server.js",
       "node_modules/sql.js/**/*"
     ],
-    "icon": "build/icon.png",
+    "icon": "assets/logo.png",
     "linux": {
       "target": [
         "AppImage",
@@ -76,7 +78,7 @@
       ],
       "category": "Education",
       "maintainer": "Questionary <support@questionary.app>",
-      "icon": "build/icons",
+      "icon": "assets/icons",
       "desktop": {
         "Name": "Questionary",
         "StartupWMClass": "questionary",
@@ -117,20 +119,21 @@
           ]
         }
       ],
-      "icon": "build/icon.png"
+      "icon": "assets/logo.png"
     },
     "mac": {
       "target": [
         "dmg",
         "zip"
       ],
-      "icon": "build/icon.png",
+      "icon": "assets/logo.png",
       "category": "public.app-category.education",
       "identity": null
     },
     "dmg": {
       "sign": false,
-      "writeUpdateInfo": false
+      "writeUpdateInfo": false,
+      "format": "UDZO"
     },
     "nsis": {
       "oneClick": false,

@@ -6,24 +6,26 @@ on:
       - 'v*'
 
 jobs:
-  release-desktop:
-    permissions:
-      contents: write
+  build-desktop:
+    name: Build Desktop (${{ matrix.platform }})
     strategy:
       fail-fast: false
       matrix:
         include:
           - platform: windows-latest
+            artifact-name: desktop-windows
             build-cmd: 'npx electron-builder --win'
             artifact-path: 'dist/*.exe'
 
           - platform: macos-14
+            artifact-name: desktop-macos
             build-cmd: 'npm install --no-save dmg-license && npx electron-builder --mac'
             artifact-path: |
               dist/*.dmg
               dist/*.zip
 
           - platform: ubuntu-22.04
+            artifact-name: desktop-linux
             build-cmd: 'npx electron-builder --linux AppImage deb rpm'
             artifact-path: |
               dist/*.AppImage
@@ -45,7 +47,13 @@ jobs:
         if: matrix.platform == 'ubuntu-22.04'
         run: |
           sudo apt-get update
-          sudo apt-get install -y rpm fakeroot xvfb libarchive-tools
+          sudo apt-get install -y rpm fakeroot xvfb libarchive-tools binutils
+
+      - name: Prepare macOS Runner for DMG Packaging
+        if: matrix.platform == 'macos-14'
+        run: |
+          sudo mdutil -a -i off || true
+          rm -rf dist
 
       - name: Install Dependencies
         run: npm install --no-audit
@@ -54,30 +62,30 @@ jobs:
         if: matrix.platform == 'ubuntu-22.04'
         run: xvfb-run --auto-servernum --server-args="-screen 0 1280x960x24" ${{ matrix.build-cmd }}
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_IDENTITY_AUTO_DISCOVERY: false
 
-      - name: Build Electron Binaries (Windows / macOS)
-        if: matrix.platform != 'ubuntu-22.04'
+      - name: Build Electron Binaries (macOS)
+        if: matrix.platform == 'macos-14'
+        run: |
+          ${{ matrix.build-cmd }} || (sleep 5 && hdiutil info && npx electron-builder --mac)
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+
+      - name: Build Electron Binaries (Windows)
+        if: matrix.platform == 'windows-latest'
         run: ${{ matrix.build-cmd }}
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_IDENTITY_AUTO_DISCOVERY: false
 
-      - name: Upload Desktop Artifacts to Release
-        uses: softprops/action-gh-release@v2
+      - name: Upload Desktop Build Artifacts
+        uses: actions/upload-artifact@v4
         with:
-          tag_name: ${{ github.ref_name }}
-          files: ${{ matrix.artifact-path }}
-          draft: false
-          prerelease: false
-          generate_release_notes: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: ${{ matrix.artifact-name }}
+          path: ${{ matrix.artifact-path }}
+          if-no-files-found: error
 
-  release-android:
-    permissions:
-      contents: write
+  build-android:
+    name: Build Android APK
     runs-on: ubuntu-22.04
 
     steps:
@@ -97,27 +105,29 @@ jobs:
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-34 build-tools;34.0.0'
 
-      - name: Install Android Build Tools
+      - name: Accept Android SDK Licenses and Verify Tools
         run: |
-          $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager \
-            "build-tools;34.0.0" \
-            "platform-tools" \
-            "platforms;android-34"
+          SDK_ROOT="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          SDKMANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then
+            SDKMANAGER=$(find "$SDK_ROOT/cmdline-tools" -name sdkmanager -type f 2>/dev/null | head -n 1)
+          fi
+          yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
+          yes | "$SDKMANAGER" "platform-tools" "platforms;android-34" "build-tools;34.0.0"
 
       - name: Install Dependencies
         run: npm install --no-audit
 
       - name: Stage Web Assets for Capacitor
-        run: |
-          rm -rf www
-          mkdir -p www
-          cp index.html pdfviewer.html questionary.db www/ 2>/dev/null || true
-          cp -r assets css js www/ 2>/dev/null || true
+        run: npm run build:www
 
       - name: Setup and Sync Android Project
         run: |
-          npx cap add android || true
+          rm -rf android
+          npx cap add android
           npx cap sync android
 
       - name: Build Android Release APK
@@ -129,24 +139,67 @@ jobs:
       - name: Sign Android APK
         run: |
           mkdir -p release-apks
+          rm -f release.jks
           VERSION="${GITHUB_REF_NAME#v}"
+
+          SDK_ROOT="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          BUILD_TOOLS_DIR="$SDK_ROOT/build-tools/34.0.0"
+          if [ ! -d "$BUILD_TOOLS_DIR" ]; then
+            BUILD_TOOLS_DIR=$(ls -1d "$SDK_ROOT/build-tools/"* | sort -V | tail -n 1)
+          fi
+
+          UNSIGNED_APK=$(find android/app/build/outputs/apk/ -name "*.apk" | head -n 1)
+          if [ -z "$UNSIGNED_APK" ] || [ ! -f "$UNSIGNED_APK" ]; then
+            echo "Error: No APK generated by Gradle"
+            exit 1
+          fi
 
           keytool -genkey -v -keystore release.jks -keyalg RSA -keysize 2048 -validity 10000 \
             -alias android-release -storepass android -keypass android \
             -dname "CN=Questionary, OU=CI, O=Questionary, L=CI, S=CI, C=US"
 
-          APKSIGNER="$ANDROID_SDK_ROOT/build-tools/34.0.0/apksigner"
-          UNSIGNED_APK=$(find android/app/build/outputs/apk/ -name "*.apk" | head -n 1)
+          ALIGNED_APK="release-apks/app-aligned.apk"
+          SIGNED_APK="release-apks/Questionary-${VERSION}.apk"
 
-          if [ -f "$UNSIGNED_APK" ]; then
-            $APKSIGNER sign --ks release.jks --ks-pass pass:android --ks-key-alias android-release "$UNSIGNED_APK"
-            cp "$UNSIGNED_APK" "release-apks/Questionary-${VERSION}.apk"
-          fi
+          "$BUILD_TOOLS_DIR/zipalign" -p -f 4 "$UNSIGNED_APK" "$ALIGNED_APK"
+          "$BUILD_TOOLS_DIR/apksigner" sign \
+            --ks release.jks \
+            --ks-pass pass:android \
+            --ks-key-alias android-release \
+            --out "$SIGNED_APK" \
+            "$ALIGNED_APK"
+          "$BUILD_TOOLS_DIR/apksigner" verify "$SIGNED_APK"
+          rm -f "$ALIGNED_APK" release.jks
 
-      - name: Upload Android APK to Release
+      - name: Upload Android APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: 'release-apks/*.apk'
+          if-no-files-found: error
+
+  publish-release:
+    name: Publish GitHub Release
+    needs: [build-desktop, build-android]
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download All Build Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Create GitHub Release and Upload Assets
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          files: 'release-apks/*.apk'
+          files: release-assets/*
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
