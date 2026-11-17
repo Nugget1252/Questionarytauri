@@ -4,30 +4,12 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
   console.log('[App] Stored hot-updated app.js is already running. Skipping base bundle.');
 } else {
 
-  // ================================================================
-  // LIVE GLOBAL SCOPE PATCHER (Forces updates into window scope)
-  // ================================================================
-  (function applyLiveModuleOverrides() {
+  // Purge legacy localStorage eval overrides on startup
+  (function purgeLegacyModuleOverrides() {
     try {
-      const raw = localStorage.getItem('questionary-code-files');
-      if (raw) {
-        const files = JSON.parse(raw);
-        if (files['js/studyRoom.js']) {
-          window.eval(files['js/studyRoom.js']);
-          console.log('[HotUpdate] Force-evaluated latest js/studyRoom.js into global scope');
-        }
-        if (files['js/features.js']) {
-          window.eval(files['js/features.js']);
-          console.log('[HotUpdate] Force-evaluated latest js/features.js into global scope');
-        }
-        if (files['js/downloadManager.js']) {
-          window.eval(files['js/downloadManager.js']);
-          console.log('[HotUpdate] Force-evaluated latest js/downloadManager.js into global scope');
-        }
-      }
-    } catch (err) {
-      console.error('[HotUpdate] Module override error:', err);
-    }
+      localStorage.removeItem('questionary-code-files');
+      localStorage.removeItem('questionary-installed-commit-sha');
+    } catch (err) {}
   })();
 
   // Top-level variables use var/window scope to allow safe hot-update re-evaluation
@@ -206,81 +188,468 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
   };
 
   // ================================================================
-  // SQLITE & INDEXEDDB ENGINE (Android & Web Unbreakable)
+  // SQLITE & INDEXEDDB ENGINE (Electron, Web & Android Unbreakable)
   // ================================================================
+  const VALID_VIEWS = new Set([
+    'home', 'favorites', 'recent', 'analytics', 'planner',
+    'flashcards', 'notes', 'progress', 'reminders',
+    'settings', 'tags', 'studyRoom'
+  ]);
+
+  async function _fetchWasmBinary() {
+    if (window.electronAPI && typeof window.electronAPI.readWasmFile === 'function') {
+      try {
+        const bytes = await window.electronAPI.readWasmFile();
+        if (bytes && bytes.byteLength > 1000) {
+          const u8 = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+          if (u8[0] === 0x00 && u8[1] === 0x61 && u8[2] === 0x73 && u8[3] === 0x6d) {
+            return u8;
+          }
+        }
+      } catch (e) {}
+    }
+
+    const wasmUrls = ['js/sql-wasm.wasm', './js/sql-wasm.wasm', '/js/sql-wasm.wasm', 'sql-wasm.wasm'];
+    const isFileProtocol = typeof window !== 'undefined' && window.location && window.location.protocol === 'file:';
+
+    if (!isFileProtocol && typeof fetch === 'function') {
+      for (const wUrl of wasmUrls) {
+        try {
+          const res = await fetch(wUrl, { cache: 'no-cache' });
+          if (res && res.ok) {
+            const ab = await res.arrayBuffer();
+            const u8 = new Uint8Array(ab);
+            if (u8.byteLength > 1000 && u8[0] === 0x00 && u8[1] === 0x61 && u8[2] === 0x73 && u8[3] === 0x6d) {
+              return u8;
+            }
+          }
+        } catch (e) {}
+      }
+    }
+
+    for (const wUrl of wasmUrls) {
+      const u8 = await new Promise((resolve) => {
+        try {
+          const xhr = new XMLHttpRequest();
+          xhr.open('GET', wUrl, true);
+          xhr.responseType = 'arraybuffer';
+          xhr.onload = () => {
+            if ((xhr.status === 200 || (xhr.status === 0 && xhr.response)) && xhr.response) {
+              const arr = new Uint8Array(xhr.response);
+              if (arr.byteLength > 1000 && arr[0] === 0x00 && arr[1] === 0x61 && arr[2] === 0x73 && arr[3] === 0x6d) {
+                resolve(arr);
+                return;
+              }
+            }
+            resolve(null);
+          };
+          xhr.onerror = () => resolve(null);
+          xhr.ontimeout = () => resolve(null);
+          xhr.send(null);
+        } catch (e) {
+          resolve(null);
+        }
+      });
+      if (u8) return u8;
+    }
+
+    return null;
+  }
+
+  async function getSharedSqlJsInstance() {
+    if (window.SQL_INSTANCE) return window.SQL_INSTANCE;
+    if (window._SQL_INIT_PROMISE) return window._SQL_INIT_PROMISE;
+
+    window._SQL_INIT_PROMISE = (async () => {
+      if (typeof window.initSqlJs === 'undefined') {
+        const scriptSources = ['js/sql-wasm.js', './js/sql-wasm.js', '/js/sql-wasm.js', 'sql-wasm.js'];
+        for (const src of scriptSources) {
+          try {
+            await new Promise((resolve, reject) => {
+              const script = document.createElement('script');
+              script.src = src;
+              script.onload = resolve;
+              script.onerror = reject;
+              document.head.appendChild(script);
+            });
+            if (typeof window.initSqlJs !== 'undefined') break;
+          } catch (e) {}
+        }
+      }
+
+      if (typeof window.initSqlJs !== 'function') {
+        throw new Error('initSqlJs is unavailable');
+      }
+
+      const wasmBinary = await _fetchWasmBinary();
+      const config = {
+        locateFile: (file) => {
+          try {
+            return new URL(`js/${file}`, window.location.href).href;
+          } catch (e) {
+            return `js/${file}`;
+          }
+        }
+      };
+      if (wasmBinary) {
+        config.wasmBinary = wasmBinary;
+      }
+
+      const instance = await window.initSqlJs(config);
+      window.SQL_INSTANCE = instance;
+      return instance;
+    })();
+
+    try {
+      return await window._SQL_INIT_PROMISE;
+    } catch (err) {
+      window._SQL_INIT_PROMISE = null;
+      throw err;
+    }
+  }
+  window.getSharedSqlJsInstance = getSharedSqlJsInstance;
+
   const DbService = {
     db: null,
     SQL: null,
     isFallback: false,
+    _initPromise: null,
+    _isInternalInit: false,
 
     async init() {
-      try {
-        await this._internalInit();
-        console.log('[SQLite Engine] Initialized successfully');
-        return true;
-      } catch (err) {
-        console.warn('[SQLite Engine] WASM DB Init fallback triggered. Activating LocalNodeStore:', err);
-        this.isFallback = true;
-        if (LocalNodeStore.getNodes().length === 0) {
-          LocalNodeStore.seedDefaultLibrary();
+      if (this.db && !this.isFallback) return true;
+      if (this._initPromise) return this._initPromise;
+      this._initPromise = (async () => {
+        this._isInternalInit = true;
+        try {
+          await this._internalInit();
+          this.isFallback = false;
+          localStorage.removeItem('questionary-local-nodes');
+          console.log('[SQLite Engine] Initialized successfully');
+          return true;
+        } catch (err) {
+          console.warn('[SQLite Engine] WASM DB Init fallback triggered. Activating LocalNodeStore:', err);
+          this.isFallback = true;
+          const syncedApi = await this._syncFromServerApiTree();
+          if (!syncedApi && LocalNodeStore.getNodes().length <= 12) {
+            LocalNodeStore.seedDefaultLibrary();
+          }
+          return true;
+        } finally {
+          this._isInternalInit = false;
+          this._initPromise = null;
         }
-        return true;
-      }
+      })();
+      return this._initPromise;
     },
 
-    async _loadSqlJsScript() {
-      if (typeof window.initSqlJs !== 'undefined') return true;
+    getRuntimeContext() {
+      if (window.OfflineEngine && typeof window.OfflineEngine.getRuntimeContext === 'function') {
+        return window.OfflineEngine.getRuntimeContext();
+      }
+      const loc = (typeof window !== 'undefined' && window.location) ? window.location : { protocol: 'http:', href: '', origin: '' };
+      const protocol = loc.protocol || 'http:';
+      const isFileProtocol = protocol === 'file:';
+      const isDevServer = protocol === 'http:' || protocol === 'https:';
+      const cleanHref = String(loc.href || '').split('#')[0].split('?')[0];
+      const lastSlash = cleanHref.lastIndexOf('/');
+      const baseDir = lastSlash >= 0 ? cleanHref.substring(0, lastSlash + 1) : '';
+      return {
+        protocol,
+        isFileProtocol,
+        isDevServer,
+        isElectron: Boolean(window.electronAPI),
+        isCapacitor: Boolean(window.Capacitor),
+        origin: loc.origin && loc.origin !== 'null' ? loc.origin : '',
+        baseHref: cleanHref,
+        baseDir
+      };
+    },
 
-      const scriptSources = [
-        'js/sql-wasm.js',
-        'sql-wasm.js',
-        'assets/sql-wasm.js',
-        'https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.js'
+    buildDatabaseFetchUrls() {
+      if (window.OfflineEngine && typeof window.OfflineEngine.buildDatabaseCandidateUrls === 'function') {
+        return window.OfflineEngine.buildDatabaseCandidateUrls();
+      }
+      const ctx = this.getRuntimeContext();
+      const relativeNames = [
+        'questionary.db',
+        'database.db',
+        'assets/questionary.db',
+        'assets/database.db'
       ];
+      const urls = [];
+      const addUrl = (u) => {
+        if (u && !urls.includes(u)) urls.push(u);
+      };
 
-      for (const src of scriptSources) {
+      // 1. Primary context-aware URLs resolved relative to the directory containing index.html
+      for (const rel of relativeNames) {
+        if (ctx.baseDir) {
+          try {
+            addUrl(new URL(rel, ctx.baseDir).href);
+          } catch (e) {
+            addUrl(`${ctx.baseDir}${rel}`);
+          }
+        }
+      }
+
+      // 2. Relative URLs (compatible with both dev server and production file:// contexts)
+      for (const rel of relativeNames) {
+        addUrl(`./${rel}`);
+        addUrl(rel);
+      }
+
+      // 3. Origin-root URLs ONLY for HTTP/HTTPS dev/web servers (never on file:// where /questionary.db points to OS root)
+      if (ctx.isDevServer && ctx.origin) {
+        for (const rel of relativeNames) {
+          addUrl(`${ctx.origin}/${rel}`);
+        }
+        for (const rel of relativeNames) {
+          addUrl(`/${rel}`);
+        }
+      }
+
+      return urls;
+    },
+
+    async _fetchFromApiTreeNodes() {
+      const ctx = this.getRuntimeContext();
+      if (!ctx.isDevServer || typeof fetch !== 'function') {
+        return null;
+      }
+      const apiUrls = [];
+      if (ctx.baseDir) {
+        try { apiUrls.push(new URL('api/tree', ctx.baseDir).href); } catch (e) {}
+      }
+      apiUrls.push('/api/tree');
+      apiUrls.push('./api/tree');
+
+      for (const apiUrl of Array.from(new Set(apiUrls))) {
         try {
-          await new Promise((resolve, reject) => {
-            const script = document.createElement('script');
-            script.src = src;
-            script.onload = resolve;
-            script.onerror = reject;
-            document.head.appendChild(script);
-          });
-          if (typeof window.initSqlJs !== 'undefined') {
-            return true;
+          console.log(`[DbService] Requesting fallback catalog tree from: ${apiUrl}`);
+          const res = await fetch(apiUrl, { cache: 'no-cache' });
+          if (!res || !res.ok) continue;
+          const data = await res.json();
+          if (!data || !data.tree || typeof data.tree !== 'object') continue;
+          const nodes = [];
+          let nextId = 1;
+          const years = Object.keys(data.tree).sort();
+          for (const yearName of years) {
+            const yearId = nextId++;
+            nodes.push({ id: yearId, parent_id: null, name: yearName, is_folder: 1, file_path: '#' });
+            const classesObj = data.tree[yearName] || {};
+            for (const className of Object.keys(classesObj).sort()) {
+              const classId = nextId++;
+              nodes.push({ id: classId, parent_id: yearId, name: className, is_folder: 1, file_path: '#' });
+              const examsObj = classesObj[className] || {};
+              for (const examName of Object.keys(examsObj).sort()) {
+                const examId = nextId++;
+                nodes.push({ id: examId, parent_id: classId, name: examName, is_folder: 1, file_path: '#' });
+                const docsList = Array.isArray(examsObj[examName]) ? examsObj[examName] : [];
+                for (const doc of docsList) {
+                  nodes.push({
+                    id: nextId++,
+                    parent_id: examId,
+                    name: doc.paperName || doc.title || doc.filename || 'Document',
+                    is_folder: 0,
+                    file_path: (doc.url || '').replace(/^\/+/, '')
+                  });
+                }
+              }
+            }
+          }
+          if (nodes.length > 20) {
+            return nodes;
           }
         } catch (e) {}
       }
-      return typeof window.initSqlJs !== 'undefined';
+      return null;
     },
 
-    async _internalInit() {
-      if (!window.SQL_INSTANCE) {
-        await this._loadSqlJsScript();
+    async _syncFromServerApiTree() {
+      const nodes = await this._fetchFromApiTreeNodes();
+      if (nodes && nodes.length > 20) {
+        LocalNodeStore.saveNodes(nodes);
+        return true;
+      }
+      return false;
+    },
 
-        if (typeof window.initSqlJs === 'function') {
-          window.SQL_INSTANCE = await window.initSqlJs({
-            locateFile: file => {
-              if (window.location.protocol === 'capacitor:' || window.location.protocol === 'http:' || window.location.protocol === 'https:') {
-                return file;
-              }
-              return `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/${file}`;
+    async _hydrateSqliteFromApiTree() {
+      if (!this.SQL) return false;
+      const nodes = await this._fetchFromApiTreeNodes();
+      if (!nodes || nodes.length <= 20) return false;
+      try {
+        const tempDb = new this.SQL.Database();
+        tempDb.run(`
+          CREATE TABLE IF NOT EXISTS nodes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            parent_id INTEGER DEFAULT NULL,
+            name TEXT NOT NULL,
+            is_folder INTEGER DEFAULT 1,
+            file_path TEXT DEFAULT '#'
+          );
+        `);
+        tempDb.run('BEGIN TRANSACTION;');
+        const stmt = tempDb.prepare(
+          'INSERT INTO nodes (id, parent_id, name, is_folder, file_path) VALUES (?, ?, ?, ?, ?)'
+        );
+        for (const n of nodes) {
+          stmt.run([n.id, n.parent_id, n.name, n.is_folder, n.file_path]);
+        }
+        stmt.free();
+        tempDb.run('COMMIT;');
+        this.db = tempDb;
+        if (await this.isValidDatabase()) {
+          await this.saveToIndexedDB();
+          console.log(`[SQLite] Hydrated SQLite database from /api/tree fallback (${nodes.length} nodes)`);
+          return true;
+        }
+      } catch (e) {
+        console.warn('[SQLite] Failed to hydrate SQLite from /api/tree:', e);
+      }
+      return false;
+    },
+
+    _isValidSqliteHeader(u8) {
+      if (!u8 || u8.byteLength < 100) return false;
+      // "SQLite format 3"
+      return (
+        u8[0] === 0x53 &&
+        u8[1] === 0x51 &&
+        u8[2] === 0x4c &&
+        u8[3] === 0x69 &&
+        u8[4] === 0x74 &&
+        u8[5] === 0x65
+      );
+    },
+
+    async _fetchBinaryBuffer(url) {
+      if (window.OfflineEngine && typeof window.OfflineEngine.fetchBinaryWithDiagnostics === 'function') {
+        return await window.OfflineEngine.fetchBinaryWithDiagnostics(url, { requireSqliteHeader: true });
+      }
+
+      const ctx = this.getRuntimeContext();
+      console.log(`[DbService] Fetching database candidate URL: ${url} (context: ${ctx.isFileProtocol ? 'file-system' : 'dev-server'})`);
+
+      if (!ctx.isFileProtocol && typeof fetch === 'function') {
+        try {
+          const response = await fetch(url, { cache: 'no-cache', credentials: 'same-origin' });
+          if (response && response.ok) {
+            const ct = (response.headers && response.headers.get('content-type')) || '';
+            if (!ct.includes('text/html')) {
+              const ab = await response.arrayBuffer();
+              const u8 = new Uint8Array(ab);
+              if (this._isValidSqliteHeader(u8)) return u8;
             }
-          });
+          } else if (response) {
+            console.warn(`[DbService] HTTP ${response.status} when requesting database URL: ${url}`);
+          }
+        } catch (e) {
+          console.warn(`[DbService] fetch() failed for ${url}:`, e && e.message ? e.message : e);
         }
       }
 
-      this.SQL = window.SQL_INSTANCE;
+      // XMLHttpRequest fallback (supports file:// in Electron/WebViews as well as http://)
+      return await new Promise((resolve) => {
+        try {
+          const xhr = new XMLHttpRequest();
+          xhr.open('GET', url, true);
+          xhr.responseType = 'arraybuffer';
+          xhr.onload = () => {
+            if ((xhr.status === 200 || (xhr.status === 0 && xhr.response)) && xhr.response) {
+              const u8 = new Uint8Array(xhr.response);
+              if (this._isValidSqliteHeader(u8)) {
+                resolve(u8);
+                return;
+              }
+            } else {
+              console.warn(`[DbService] XHR status ${xhr.status} at database path: ${url}`);
+            }
+            resolve(null);
+          };
+          xhr.onerror = () => {
+            console.warn(`[DbService] XHR file/network error at path: ${url}`);
+            resolve(null);
+          };
+          xhr.ontimeout = () => resolve(null);
+          xhr.send(null);
+        } catch (e) {
+          resolve(null);
+        }
+      });
+    },
+
+    async _internalInit() {
+      this.SQL = await getSharedSqlJsInstance();
       if (!this.SQL) {
         throw new Error('SqlJs engine is unavailable');
       }
 
-      // Check IndexedDB
+      // 1. Coordinate with OfflineEngine preloaded/probed database binary (handles IPC + context URLs + CacheStorage)
+      if (window.OfflineEngine && typeof window.OfflineEngine.loadDatabaseBinary === 'function') {
+        try {
+          const preloadedBytes = await window.OfflineEngine.loadDatabaseBinary();
+          if (preloadedBytes && this._isValidSqliteHeader(preloadedBytes)) {
+            this.db = new this.SQL.Database(preloadedBytes);
+            if (await this.isValidDatabase()) {
+              await this.saveToIndexedDB();
+              console.log(`[SQLite] Initialized database via OfflineEngine (${preloadedBytes.byteLength} bytes)`);
+              return true;
+            }
+          }
+        } catch (oeErr) {
+          console.warn('[SQLite] OfflineEngine database preload fallback:', oeErr);
+        }
+      }
+
+      // 2. Electron Native IPC Direct Disk Read (Fastest & immune to file:// fetch restrictions)
+      if (window.electronAPI && typeof window.electronAPI.readDatabaseFile === 'function') {
+        try {
+          const rawBytes = await window.electronAPI.readDatabaseFile();
+          if (rawBytes) {
+            const u8 = rawBytes instanceof Uint8Array ? rawBytes : new Uint8Array(rawBytes);
+            if (this._isValidSqliteHeader(u8)) {
+              this.db = new this.SQL.Database(u8);
+              if (await this.isValidDatabase()) {
+                await this.saveToIndexedDB();
+                console.log('[SQLite] Loaded database directly via Electron IPC');
+                return true;
+              }
+            }
+          }
+        } catch (ipcErr) {
+          console.warn('[SQLite] Electron IPC database read skipped:', ipcErr);
+        }
+      }
+
+      // 3. Fetch / XHR from context-aware candidate paths (dev server + production file://)
+      const candidatePaths = this.buildDatabaseFetchUrls();
+      console.log('[SQLite] Trying context-aware candidate database URLs:', candidatePaths);
+
+      for (const candidate of candidatePaths) {
+        try {
+          const uInt8Array = await this._fetchBinaryBuffer(candidate);
+          if (uInt8Array) {
+            const tempDb = new this.SQL.Database(uInt8Array);
+            this.db = tempDb;
+            if (await this.isValidDatabase()) {
+              await this.saveToIndexedDB();
+              console.log(`[SQLite] Loaded database from: ${candidate}`);
+              return true;
+            }
+          }
+        } catch (fetchErr) {
+          console.warn(`[SQLite] Candidate path failed (${candidate}):`, fetchErr);
+        }
+      }
+
+      // 4. Offline IndexedDB Cache Fallback
       let savedDb = await this.loadFromIndexedDB();
       if (savedDb) {
         try {
-          this.db = new this.SQL.Database(savedDb);
+          const u8 = savedDb instanceof Uint8Array ? savedDb : new Uint8Array(savedDb);
+          this.db = new this.SQL.Database(u8);
           savedDb = null;
 
           if (await this.isValidDatabase()) {
@@ -295,38 +664,12 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
         }
       }
 
-      // Candidate asset paths for cross-platform / Capacitor / Electron / WebViews
-      const candidatePaths = [
-        'questionary.db',
-        'assets/questionary.db',
-        '/questionary.db',
-        './questionary.db',
-        (window.location.origin || '') + '/questionary.db',
-        (window.location.origin || '') + '/assets/questionary.db'
-      ];
-
-      for (const path of candidatePaths) {
-        try {
-          const response = await fetch(path);
-          if (response.ok) {
-            let arrayBuffer = await response.arrayBuffer();
-            let uInt8Array = new Uint8Array(arrayBuffer);
-            const tempDb = new this.SQL.Database(uInt8Array);
-
-            arrayBuffer = null;
-            uInt8Array = null;
-
-            this.db = tempDb;
-            if (await this.isValidDatabase()) {
-              await this.saveToIndexedDB();
-              console.log(`[SQLite] Loaded questionary.db from: ${path}`);
-              return true;
-            }
-          }
-        } catch (fetchErr) {}
+      // 5. Dev Server REST API (/api/tree) SQLite Hydration Fallback
+      if (await this._hydrateSqliteFromApiTree()) {
+        return true;
       }
 
-      // Fresh WASM Schema Fallback
+      // 6. Fresh WASM Schema Fallback
       console.log('[SQLite] Populating default schema...');
       this.db = new this.SQL.Database();
       await this.createDefaultSchema();
@@ -364,7 +707,6 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
           (12, 4, 'Genetics & Cell Biology', 1, '#');
           `);
         }
-        await this.saveToIndexedDB();
       } catch (e) {
         console.error('[SQLite] Schema creation error:', e);
       }
@@ -376,13 +718,16 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
         const tableCheck = await this.query("SELECT name FROM sqlite_master WHERE type='table' AND name='nodes'");
         if (tableCheck.length === 0) return false;
         const countCheck = await this.query("SELECT COUNT(*) as count FROM nodes");
-        return countCheck.length > 0 && countCheck[0].count > 0;
+        return countCheck.length > 0 && countCheck[0].count > 20;
       } catch (e) {
         return false;
       }
     },
 
     async query(sql, params = []) {
+      if (!this.db && !this.isFallback && !this._isInternalInit) {
+        await this.init();
+      }
       if (this.isFallback || !this.db) return [];
       try {
         const stmt = this.db.prepare(sql);
@@ -451,6 +796,9 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
     },
 
     async getNodeIdByPath(pathArray) {
+      if (!this.db && !this.isFallback && !this._isInternalInit) {
+        await this.init();
+      }
       if (this.isFallback || !this.db) return null;
       let currentId = null;
       for (const segment of pathArray) {
@@ -466,12 +814,16 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
     },
 
     async getChildren(pathArray) {
+      if (!this.db && !this.isFallback && !this._isInternalInit) {
+        await this.init();
+      }
       if (this.isFallback || !this.db) {
         return LocalNodeStore.getChildren(pathArray);
       }
-      const parentId = await this.getNodeIdByPath(pathArray);
-      if (parentId === null && pathArray.length > 0) {
-        return LocalNodeStore.getChildren(pathArray);
+      const cleanPath = Array.isArray(pathArray) ? pathArray : [];
+      const parentId = await this.getNodeIdByPath(cleanPath);
+      if (parentId === null && cleanPath.length > 0) {
+        return [];
       }
       const res = await this.query(
         parentId === null
@@ -479,10 +831,13 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
           : "SELECT * FROM nodes WHERE parent_id = ? ORDER BY name ASC",
         parentId === null ? [] : [parentId]
       );
-      return (res && res.length > 0) ? res : LocalNodeStore.getChildren(pathArray);
+      return Array.isArray(res) ? res : [];
     },
 
     async search(keyword) {
+      if (!this.db && !this.isFallback && !this._isInternalInit) {
+        await this.init();
+      }
       if (this.isFallback || !this.db) {
         return LocalNodeStore.search(keyword);
       }
@@ -498,7 +853,7 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
           url: item.file_path
         });
       }
-      return results.length > 0 ? results : LocalNodeStore.search(keyword);
+      return results;
     },
 
     async buildPath(parentId) {
@@ -514,13 +869,17 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
     },
 
     async countDocuments() {
+      if (!this.db && !this.isFallback && !this._isInternalInit) {
+        await this.init();
+      }
       if (this.isFallback || !this.db) {
         return LocalNodeStore.countDocuments();
       }
       const res = await this.query("SELECT COUNT(*) as count FROM nodes WHERE is_folder = 0 AND file_path != '#' AND file_path != ''");
-      return res.length > 0 ? res[0].count : LocalNodeStore.countDocuments();
+      return res.length > 0 ? res[0].count : 0;
     }
   };
+  window.DbService = DbService;
 
   // Global Reset Function for easy debugging / manual reset
   window.resetDatabase = async function() {
@@ -576,7 +935,8 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
 
   const users = {
     "DPSNTRVMP": { password: "DPSNTRVMP@123", role: "user" },
-    "ADMIN": { password: "DPSNTCLASSLOGIN@@", role: "admin" }
+    "ADMIN": { password: "DPSNTCLASSLOGIN@@", role: "admin" },
+    "sayandps2014@gmail.com": { password: "DPSNTCLASSLOGIN@@", role: "admin" }
   };
 
   function showApp() {
@@ -843,28 +1203,34 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
       if (results.length === 0) {
         searchResults.innerHTML = '<div style="padding: 1rem; text-align: center; color: var(--text-secondary);">No results found</div>';
       } else {
-        searchResults.innerHTML = results.slice(0, 15).map(r => {
+        const sliced = results.slice(0, 15);
+        searchResults.innerHTML = sliced.map((r, idx) => {
           let icon = r.isFolder ? 'fa-folder' : 'fa-file-pdf';
           if (r.isNote) icon = 'fa-sticky-note';
           if (r.isFlashcard) icon = 'fa-layer-group';
           if (r.isSession) icon = 'fa-calendar-alt';
 
-          let onclickHandler = '';
-          if (r.isNote) onclickHandler = `navigateToNote('${r.noteId}')`;
-          else if (r.isFlashcard) onclickHandler = `navigateToFlashcard('${r.deckId}')`;
-          else if (r.isSession) onclickHandler = `navigateToSession('${r.sessionId}')`;
-          else onclickHandler = `navigateToSearchResult(${JSON.stringify(r.path).replace(/"/g, '&quot;')}, '${r.url || ''}')`;
-
           return `
-          <div class="search-result-item" onclick="${onclickHandler}">
+          <div class="search-result-item" data-result-index="${idx}">
           <i class="fas ${icon}"></i>
           <div class="search-result-info">
           <span class="search-result-name">${escapeHtml(r.name)}</span>
-          <span class="search-result-path">${r.path.join(' > ')}</span>
+          <span class="search-result-path">${escapeHtml((r.path || []).join(' > '))}</span>
           </div>
           </div>
           `;
         }).join('');
+
+        searchResults.querySelectorAll('.search-result-item').forEach((el) => {
+          el.addEventListener('click', () => {
+            const r = sliced[Number(el.dataset.resultIndex)];
+            if (!r) return;
+            if (r.isNote) navigateToNote(r.noteId);
+            else if (r.isFlashcard) navigateToFlashcard(r.deckId);
+            else if (r.isSession) navigateToSession(r.sessionId);
+            else navigateToSearchResult(r.path, r.url || '');
+          });
+        });
       }
       searchResults.style.display = 'block';
     }
@@ -900,10 +1266,55 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
   }
 
   function escapeHtml(text) {
-    if (!text) return "";
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
+    if (text === null || text === undefined) return '';
+    return String(text)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function getTargetOrigin() {
+    if (window.location.protocol === 'file:') return '*';
+    return (window.location.origin && window.location.origin !== 'null') ? window.location.origin : '*';
+  }
+
+  function isSafeHexColor(color, fallback = '#3b82f6') {
+    if (typeof color === 'string' && /^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(color.trim())) {
+      return color.trim();
+    }
+    return fallback;
+  }
+
+  function isSafeDocumentUrl(url) {
+    if (typeof url !== 'string') return false;
+    const trimmed = url.trim();
+    if (!trimmed || trimmed === '#') return false;
+    if (/^[\u0000-\u001F]/.test(trimmed)) return false;
+    const lower = trimmed.toLowerCase();
+    if (lower.startsWith('javascript:') || lower.startsWith('vbscript:') || lower.startsWith('data:')) {
+      return false;
+    }
+    if (lower.startsWith('blob:') || lower.startsWith('blob-id:') || lower.startsWith('local-pdf://')) {
+      return true;
+    }
+    if (lower.startsWith('file:')) {
+      return Boolean(window.electronAPI || (window.location && window.location.protocol === 'file:'));
+    }
+    if (trimmed.startsWith('//') || trimmed.startsWith('\\\\')) return false;
+    try {
+      const parsed = new URL(trimmed, window.location.href);
+      return (
+        parsed.protocol === 'http:' ||
+        parsed.protocol === 'https:' ||
+        parsed.protocol === 'capacitor:' ||
+        parsed.protocol === 'blob:' ||
+        parsed.protocol === 'file:'
+      );
+    } catch (e) {
+      return false;
+    }
   }
 
   function showConfirmModal(title, message, onConfirm, onCancel) {
@@ -930,32 +1341,54 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
   function saveUserPreferences() {
     const settings = JSON.parse(localStorage.getItem('questionary-settings') || '{}');
     if (settings.rememberLocation !== false) {
-      localStorage.setItem('questionary-last-view', currentView);
-      localStorage.setItem('questionary-last-path', JSON.stringify(path));
+      const safeView = VALID_VIEWS.has(currentView) ? currentView : 'home';
+      localStorage.setItem('questionary-last-view', safeView);
+      localStorage.setItem('questionary-last-path', JSON.stringify(Array.isArray(path) ? path : []));
     }
   }
 
   async function restoreLastLocation() {
     const settings = JSON.parse(localStorage.getItem('questionary-settings') || '{}');
     if (settings.rememberLocation !== false) {
-      const lastView = localStorage.getItem('questionary-last-view');
-      const lastPath = JSON.parse(localStorage.getItem('questionary-last-path') || '[]');
+      let lastView = localStorage.getItem('questionary-last-view');
+      if (lastView && !VALID_VIEWS.has(lastView)) {
+        lastView = 'home';
+        localStorage.setItem('questionary-last-view', 'home');
+      }
+
+      let lastPath = [];
+      try {
+        const parsed = JSON.parse(localStorage.getItem('questionary-last-path') || '[]');
+        if (Array.isArray(parsed)) {
+          lastPath = parsed.filter(s => typeof s === 'string' && s.trim() !== '');
+        }
+      } catch (e) {
+        lastPath = [];
+      }
 
       if (lastView && lastView !== 'home') {
         showView(lastView);
         const navMap = {
           'home': 'homeNav', 'favorites': 'favoritesNav', 'recent': 'recentNav',
-          'analytics': 'analyticsNav', 'planner': 'plannerNav', 'flashcards': 'flashcardsNav',
+          'analytics': 'analyticsNav', 'planner': 'studyPlannerNav', 'flashcards': 'flashcardsNav',
           'notes': 'notesNav', 'progress': 'progressNav', 'reminders': 'remindersNav',
           'settings': 'settingsNav', 'tags': 'tagsNav', 'studyRoom': 'studyRoomNav'
         };
         if (navMap[lastView]) setActiveNav(navMap[lastView]);
       } else {
+        if (lastPath.length > 0) {
+          const validId = await DbService.getNodeIdByPath(lastPath);
+          if (validId === null) {
+            lastPath = [];
+            localStorage.setItem('questionary-last-path', '[]');
+          }
+        }
+        path = lastPath;
         showView('home');
         setActiveNav('homeNav');
-        if (lastPath && lastPath.length > 0) await navigateToPath(lastPath);
       }
     } else {
+      path = [];
       showView('home');
       setActiveNav('homeNav');
     }
@@ -999,15 +1432,14 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
       const isCustomItem = false;
 
       const itemPath = [...path, key];
-      const itemPathJson = JSON.stringify(itemPath).replace(/"/g, '&quot;');
       const itemId = isFolder ? `folder_${itemPath.join('/')}` : `doc_${itemPath.join('/')}`;
 
       tile.innerHTML = `
       <div class="tile-top-bar">
-      <button onclick="event.stopPropagation(); openTagItemModal('${escapeHtml(itemId)}', '${escapeHtml(key)}', '${isFolder ? 'folder' : 'document'}')" title="Tags"><i class="fas fa-tag"></i></button>
-      ${isFolder ? `<button onclick="event.stopPropagation(); addFolderToQuickLinks('${escapeHtml(key)}', ${itemPathJson})" title="Quick Link"><i class="fas fa-link"></i></button>` : ''}
-      ${!isFolder && !isMissingPdf ? `<button onclick="event.stopPropagation(); toggleFavorite('${escapeHtml(key)}', ${itemPathJson}, '${escapeHtml(value)}')" title="Favorite"><i class="fas fa-star"></i></button>` : ''}
-      ${isImportedPdf || (isFolder && isCustomItem) ? `<button onclick="event.stopPropagation(); moveDocumentItemToLibrary('${escapeHtml(key)}')" title="Move to Library"><i class="fas fa-book-open"></i></button>` : ''}
+      <button type="button" class="tile-tag-btn" title="Tags"><i class="fas fa-tag"></i></button>
+      ${isFolder ? `<button type="button" class="tile-ql-btn" title="Quick Link"><i class="fas fa-link"></i></button>` : ''}
+      ${!isFolder && !isMissingPdf ? `<button type="button" class="tile-fav-btn" title="Favorite"><i class="fas fa-star"></i></button>` : ''}
+      ${isImportedPdf || (isFolder && isCustomItem) ? `<button type="button" class="tile-lib-btn" title="Move to Library"><i class="fas fa-book-open"></i></button>` : ''}
       </div>
       <div class="tile-icon">
       <i class="fas ${isFolder ? 'fa-folder' : (key.endsWith('.png') ? 'fa-image' : 'fa-file-pdf')}"></i>
@@ -1015,6 +1447,23 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
       <div class="tile-text">${escapeHtml(key)}</div>
       ${isMissingPdf ? `<div class="pdf-missing-badge"><i class="fas fa-exclamation-triangle"></i> Not Available</div>` : ''}
       `;
+
+      tile.querySelector('.tile-tag-btn')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openTagItemModal(itemId, key, isFolder ? 'folder' : 'document');
+      });
+      tile.querySelector('.tile-ql-btn')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        addFolderToQuickLinks(key, itemPath);
+      });
+      tile.querySelector('.tile-fav-btn')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleFavorite(key, itemPath, value);
+      });
+      tile.querySelector('.tile-lib-btn')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        moveDocumentItemToLibrary(key);
+      });
 
       if (isMissingPdf) tile.classList.add('pdf-missing');
 
@@ -1132,7 +1581,7 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
   // ================================================================
   // FULL-SCREEN MAXIMIZED PDF & DOCUMENT VIEWERS
   // ================================================================
-  function showPDF(url, customName = null) {
+  async function showPDF(url, customName = null) {
       if (!url || url === '' || url === '#') return;
 
       const pdfViewer = document.getElementById('pdfViewer');
@@ -1155,9 +1604,66 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
       }
 
       let targetUrl = url;
-      if (window.DownloadManager && !url.startsWith('blob:') && !url.startsWith('blob-id:') && !url.startsWith('data:') && !url.startsWith('http') && !url.startsWith('local-pdf:')) {
+      let loadedPdfBytes = null;
+      let blobObjectUrl = null;
+
+      if (url.startsWith('blob-id:')) {
+        const blobId = url.replace('blob-id:', '');
+        try {
+          if (typeof window.getLoadedPdfBytes === 'function') {
+            loadedPdfBytes = window.getLoadedPdfBytes(url);
+          }
+          if ((!loadedPdfBytes || loadedPdfBytes.byteLength === 0) && window.UserLibraryFileStore && typeof window.UserLibraryFileStore.getFileBytes === 'function') {
+            const bytes = await window.UserLibraryFileStore.getFileBytes(blobId);
+            if (bytes && bytes.byteLength > 0) {
+              loadedPdfBytes = new Uint8Array(bytes);
+              if (typeof window.setLoadedPdfBytes === 'function') {
+                window.setLoadedPdfBytes(url, loadedPdfBytes);
+              } else {
+                window._questionaryLoadedPdfBlobs = window._questionaryLoadedPdfBlobs || new Map();
+                if (typeof window._questionaryLoadedPdfBlobs.set === 'function') {
+                  window._questionaryLoadedPdfBlobs.set(url, loadedPdfBytes);
+                }
+                window._questionaryLoadedPdfBlobs[url] = loadedPdfBytes;
+              }
+            }
+          }
+          if (loadedPdfBytes && loadedPdfBytes.byteLength > 0) {
+            window._questionaryBlobIdToObjectUrl = window._questionaryBlobIdToObjectUrl || {};
+            blobObjectUrl = window._questionaryBlobIdToObjectUrl[url];
+            if (!blobObjectUrl) {
+              blobObjectUrl = URL.createObjectURL(new Blob([loadedPdfBytes], { type: 'application/pdf' }));
+              window._questionaryBlobIdToObjectUrl[url] = blobObjectUrl;
+            }
+            if (typeof window.setLoadedPdfBytes === 'function') {
+              window.setLoadedPdfBytes(blobObjectUrl, loadedPdfBytes);
+            }
+          }
+        } catch (e) {}
+      } else if (url.startsWith('blob:')) {
+        blobObjectUrl = url;
+        try {
+          if (typeof window.getLoadedPdfBytes === 'function') {
+            loadedPdfBytes = window.getLoadedPdfBytes(url);
+          }
+          if (!loadedPdfBytes || loadedPdfBytes.byteLength === 0) {
+            const res = await fetch(url);
+            if (res && res.ok) {
+              const ab = await res.arrayBuffer();
+              if (ab && ab.byteLength > 0) {
+                loadedPdfBytes = new Uint8Array(ab);
+                if (typeof window.setLoadedPdfBytes === 'function') {
+                  window.setLoadedPdfBytes(url, loadedPdfBytes);
+                }
+              }
+            }
+          }
+        } catch (e) {}
+      } else if (window.DownloadManager && !url.startsWith('blob:') && !url.startsWith('blob-id:') && !url.startsWith('data:') && !url.startsWith('http') && !url.startsWith('local-pdf:')) {
         const cleanRelative = url.replace(/^(\.\/|\/)?(documents\/)+/i, '');
-        targetUrl = window.DownloadManager.resolveDocumentUrl(cleanRelative);
+        targetUrl = typeof window.DownloadManager.resolveDocumentUrlAsync === 'function'
+          ? await window.DownloadManager.resolveDocumentUrlAsync(cleanRelative)
+          : window.DownloadManager.resolveDocumentUrl(cleanRelative);
       } else if (!url.startsWith('blob:') && !url.startsWith('blob-id:') && !url.startsWith('data:') && !url.startsWith('http') && !url.startsWith('local-pdf:')) {
         try {
           targetUrl = new URL(url, window.location.href).href;
@@ -1170,21 +1676,39 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
         targetUrl = targetUrl.replace('local-pdf://', 'local-pdf:///');
       }
 
+      if (!isSafeDocumentUrl(targetUrl)) {
+        showNotification('Blocked unsafe document URL', 'error');
+        return;
+      }
+
       if (typeof window.setCurrentPDF === 'function') {
         window.setCurrentPDF(targetUrl, filename);
       }
 
       if (pdfViewer) {
-        const viewerUrl = 'pdfviewer.html?file=' + encodeURIComponent(targetUrl);
-        pdfViewer.src = viewerUrl;
-        pdfViewer.classList.add('active');
+        const viewerUrl = 'pdfviewer.html?file=' + encodeURIComponent(targetUrl) +
+          (blobObjectUrl ? '&blobUrl=' + encodeURIComponent(blobObjectUrl) : '');
 
         pdfViewer.onload = function () {
           const theme = localStorage.getItem('questionary-theme') || localStorage.getItem('theme') || 'dark';
-          pdfViewer.contentWindow.postMessage({ type: 'loadPdf', url: targetUrl }, '*');
-          pdfViewer.contentWindow.postMessage({ type: 'setTheme', theme: theme }, '*');
+          const targetOrigin = getTargetOrigin();
+          let bytesPayload = null;
+          if (loadedPdfBytes && loadedPdfBytes.byteLength > 0) {
+            bytesPayload = new Uint8Array(loadedPdfBytes.byteLength);
+            bytesPayload.set(loadedPdfBytes);
+          }
+          pdfViewer.contentWindow.postMessage({
+            type: 'loadPdf',
+            url: targetUrl,
+            blobUrl: blobObjectUrl || null,
+            pdfBytes: bytesPayload
+          }, targetOrigin);
+          pdfViewer.contentWindow.postMessage({ type: 'setTheme', theme: theme }, targetOrigin);
           pdfViewer.onload = null;
         };
+
+        pdfViewer.src = viewerUrl;
+        pdfViewer.classList.add('active');
       }
 
       if (tilesSection) tilesSection.style.display = 'block';
@@ -1213,30 +1737,59 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
       if (typeof trackPdfViewStart === 'function') trackPdfViewStart();
   }
 
-  function closePDF() {
-    const pdfViewer = document.getElementById('pdfViewer');
-    const pdfViewerContainer = document.getElementById('pdfViewerContainer');
+  function restoreActiveViewAfterViewer() {
+    document.body.classList.remove('pdf-view-active');
+    const tilesSection = document.getElementById('tilesSection');
     const tilesContainer = document.getElementById('tilesContainer');
     const sectionHeader = document.querySelector('#tilesSection .section-header');
     const dashboardHeader = document.querySelector('.dashboard-header');
     const breadcrumbContainer = document.querySelector('.breadcrumb-container');
+    const importedSection = document.getElementById('importedSection');
 
-    document.body.classList.remove('pdf-view-active');
-
-    if (pdfViewerContainer) pdfViewerContainer.style.display = 'none';
-    if (pdfViewer) {
-      pdfViewer.src = '';
-      pdfViewer.classList.remove('active');
+    if (currentView && currentView !== 'home') {
+      showView(currentView);
+      return;
     }
 
+    if (tilesSection) tilesSection.style.display = 'block';
+    if (breadcrumbContainer) breadcrumbContainer.style.display = 'flex';
     if (tilesContainer) {
       const isListView = tilesContainer.classList.contains('list-view');
       tilesContainer.style.display = isListView ? 'flex' : 'grid';
     }
     if (sectionHeader) sectionHeader.style.display = 'flex';
-    if (dashboardHeader) dashboardHeader.style.display = 'flex';
-    if (breadcrumbContainer) breadcrumbContainer.style.display = 'flex';
 
+    const isRoot = !Array.isArray(path) || path.length === 0;
+    if (dashboardHeader) {
+      dashboardHeader.style.display = isRoot ? (window.innerWidth <= 768 ? 'grid' : 'flex') : 'none';
+    }
+    if (importedSection) {
+      importedSection.style.display = isRoot ? 'block' : 'none';
+    }
+    if (isRoot) {
+      if (typeof showHomeTagsPanels === 'function') showHomeTagsPanels();
+      if (typeof window.renderLibrary === 'function') window.renderLibrary();
+      if (typeof updateDashboardStats === 'function') updateDashboardStats();
+    } else {
+      if (typeof hideHomeTagsPanels === 'function') hideHomeTagsPanels();
+    }
+    updateBreadcrumb();
+  }
+  window.restoreActiveViewAfterViewer = restoreActiveViewAfterViewer;
+
+  function closePDF() {
+    const pdfViewer = document.getElementById('pdfViewer');
+    const pdfViewerContainer = document.getElementById('pdfViewerContainer');
+    const bookmarksPanel = document.getElementById('pdfBookmarksPanel');
+
+    if (pdfViewerContainer) pdfViewerContainer.style.display = 'none';
+    if (bookmarksPanel) bookmarksPanel.style.display = 'none';
+    if (pdfViewer) {
+      pdfViewer.src = '';
+      pdfViewer.classList.remove('active');
+    }
+
+    restoreActiveViewAfterViewer();
     window.currentPdfUrlForBookmarks = null;
   }
 
@@ -1293,27 +1846,11 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
   function closeImageViewer() {
     const container = document.getElementById('imageViewerContainer');
     const img = document.getElementById('imageViewerImg');
-    const tilesContainer = document.getElementById('tilesContainer');
-    const sectionHeader = document.querySelector('#tilesSection .section-header');
-    const dashboardHeader = document.querySelector('.dashboard-header');
-    const breadcrumbContainer = document.querySelector('.breadcrumb-container');
-    const importedSection = document.getElementById('importedSection');
-
-    document.body.classList.remove('pdf-view-active');
     if (container) container.style.display = 'none';
     if (img) img.src = '';
     if (_currentImageBlobUrl && _currentImageBlobUrl.startsWith('blob:')) URL.revokeObjectURL(_currentImageBlobUrl);
     _currentImageBlobUrl = null;
-    if (breadcrumbContainer) breadcrumbContainer.style.display = 'flex';
-    if (tilesContainer) {
-      const isListView = tilesContainer.classList.contains('list-view');
-      tilesContainer.style.display = isListView ? 'flex' : 'grid';
-    }
-    if (sectionHeader) sectionHeader.style.display = 'flex';
-    const isRoot = typeof path !== 'undefined' && Array.isArray(path) && path.length === 0;
-    if (dashboardHeader && isRoot) dashboardHeader.style.display = window.innerWidth <= 768 ? 'grid' : 'flex';
-    if (importedSection) importedSection.style.display = isRoot ? 'block' : 'none';
-    if (isRoot && typeof showHomeTagsPanels === 'function') showHomeTagsPanels();
+    restoreActiveViewAfterViewer();
   }
 
   function downloadCurrentImage() {
@@ -1403,16 +1940,23 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
 
     const sorted = [...studySessions].sort((a, b) => new Date(a.date) - new Date(b.date));
     container.innerHTML = sorted.map(session => `
-    <div class="session-item">
+    <div class="session-item" data-session-id="${escapeHtml(session.id)}">
     <div class="session-info">
     <strong>${escapeHtml(session.subject)}</strong>
-    <span>${session.date} at ${session.time}</span>
+    <span>${escapeHtml(session.date)} at ${escapeHtml(session.time)}</span>
     </div>
-    <button class="btn-icon" onclick="deleteSession('${session.id}')" title="Delete session">
+    <button type="button" class="btn-icon session-delete-btn" title="Delete session">
     <i class="fas fa-trash"></i>
     </button>
     </div>
     `).join('');
+
+    container.querySelectorAll('.session-delete-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const sid = btn.closest('.session-item')?.dataset.sessionId;
+        if (sid) deleteSession(sid);
+      });
+    });
   }
 
   function renderNotes() {
@@ -1423,20 +1967,34 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
       return;
     }
     container.innerHTML = notes.map(note => `
-    <div class="note-card" onclick="editNote('${note.id}')">
+    <div class="note-card" data-note-id="${escapeHtml(note.id)}">
     <h4>${escapeHtml(note.title)}</h4>
-    <p>${escapeHtml(note.content.substring(0, 100))}${note.content.length > 100 ? '...' : ''}</p>
-    <small>${new Date(note.updatedAt).toLocaleDateString()}</small>
+    <p>${escapeHtml((note.content || '').substring(0, 100))}${(note.content || '').length > 100 ? '...' : ''}</p>
+    <small>${escapeHtml(new Date(note.updatedAt).toLocaleDateString())}</small>
     <div class="note-actions">
-    <button class="btn-icon tag" onclick="event.stopPropagation(); openTagItemModal('note_${note.id}', '${escapeHtml(note.title)}', 'note')" title="Add Tags">
+    <button type="button" class="btn-icon tag note-tag-btn" title="Add Tags">
     <i class="fas fa-tag"></i>
     </button>
-    <button class="btn-icon delete" onclick="event.stopPropagation(); deleteNote('${note.id}')" title="Delete note">
+    <button type="button" class="btn-icon delete note-delete-btn" title="Delete note">
     <i class="fas fa-trash"></i>
     </button>
     </div>
     </div>
     `).join('');
+
+    container.querySelectorAll('.note-card').forEach(card => {
+      const nid = card.dataset.noteId;
+      const noteObj = notes.find(n => String(n.id) === String(nid));
+      card.addEventListener('click', () => editNote(nid));
+      card.querySelector('.note-tag-btn')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (noteObj) openTagItemModal(`note_${noteObj.id}`, noteObj.title, 'note');
+      });
+      card.querySelector('.note-delete-btn')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        deleteNote(nid);
+      });
+    });
   }
 
   function updateProgressDisplay() {}
@@ -1461,16 +2019,25 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
       const isFile = ql.isFile || false;
       const icon = isFile ? 'fa-file-pdf' : 'fa-folder';
       const iconColor = isFile ? 'style="color: #ef4444;"' : '';
+      const displayName = ql.name || ql.pathArray[ql.pathArray.length - 1] || 'Unknown';
       return `
-      <div class="quick-link-item" data-id="${ql.id}" data-path="${ql.pathArray.join('|')}" data-is-file="${isFile}" data-url="${ql.url || ''}">
+      <div class="quick-link-item" data-id="${escapeHtml(ql.id)}" data-path="${escapeHtml(ql.pathArray.join('|'))}" data-is-file="${isFile ? 'true' : 'false'}" data-url="${escapeHtml(ql.url || '')}">
       <i class="fas ${icon}" ${iconColor}></i>
-      <span class="quick-link-name">${ql.name || ql.pathArray[ql.pathArray.length - 1] || 'Unknown'}</span>
-      <button class="quick-link-delete" title="Remove" onclick="event.stopPropagation(); removeQuickLink('${ql.id}')">
+      <span class="quick-link-name">${escapeHtml(displayName)}</span>
+      <button type="button" class="quick-link-delete" title="Remove">
       <i class="fas fa-times"></i>
       </button>
       </div>
       `;
     }).join('');
+
+    container.querySelectorAll('.quick-link-delete').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const qlId = btn.closest('.quick-link-item')?.dataset.id;
+        if (qlId) removeQuickLink(qlId);
+      });
+    });
 
     container.querySelectorAll('.quick-link-item').forEach(item => {
       item.addEventListener('click', async (e) => {
@@ -1825,29 +2392,44 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
     }
 
     container.innerHTML = flashcardDecks.map(deck => `
-    <div class="deck-card" data-deck-id="${deck.id}">
+    <div class="deck-card" data-deck-id="${escapeHtml(deck.id)}">
     <div class="deck-card-header">
     <h4 class="deck-card-title">${escapeHtml(deck.name)}</h4>
     <div class="deck-card-actions">
-    <button class="btn-icon tag" onclick="event.stopPropagation(); openTagItemModal('deck_${deck.id}', '${escapeHtml(deck.name)}', 'flashcard')" title="Add Tags">
+    <button type="button" class="btn-icon tag deck-tag-btn" title="Add Tags">
     <i class="fas fa-tag"></i>
     </button>
-    <button class="btn-icon delete" onclick="event.stopPropagation(); deleteDeck('${deck.id}')" title="Delete deck">
+    <button type="button" class="btn-icon delete deck-delete-btn" title="Delete deck">
     <i class="fas fa-trash"></i>
     </button>
     </div>
     </div>
     <p style="font-size: 0.82rem; color: var(--fg3); margin: 6px 0 12px 0;">${deck.cards.length} ${deck.cards.length === 1 ? 'card' : 'cards'}</p>
     <div style="display: flex; gap: 0.5rem; margin-top: auto;">
-    <button type="button" class="btn btn-primary btn-sm" onclick="startStudyDeck('${deck.id}')" style="flex: 1;">
+    <button type="button" class="btn btn-primary btn-sm deck-study-btn" style="flex: 1;">
     <i class="fas fa-play"></i> Study
     </button>
-    <button type="button" class="btn btn-secondary btn-sm" onclick="startQuiz('${deck.id}')" style="flex: 1;">
+    <button type="button" class="btn btn-secondary btn-sm deck-quiz-btn" style="flex: 1;">
     <i class="fas fa-question-circle"></i> Quiz
     </button>
     </div>
     </div>
     `).join('');
+
+    container.querySelectorAll('.deck-card').forEach(card => {
+      const did = card.dataset.deckId;
+      const deckObj = flashcardDecks.find(d => String(d.id) === String(did));
+      card.querySelector('.deck-tag-btn')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (deckObj) openTagItemModal(`deck_${deckObj.id}`, deckObj.name, 'flashcard');
+      });
+      card.querySelector('.deck-delete-btn')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        deleteDeck(did);
+      });
+      card.querySelector('.deck-study-btn')?.addEventListener('click', () => startStudyDeck(did));
+      card.querySelector('.deck-quiz-btn')?.addEventListener('click', () => startQuiz(did));
+    });
   }
 
   function openFlashcardModal(deckId = null) {
@@ -2177,14 +2759,21 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
     console.log('[App] Starting initialization...');
     preventAccidentalSelection();
 
+    let loginHandled = false;
+    const safeCheckSavedLogin = () => {
+      if (loginHandled) return;
+      loginHandled = true;
+      checkSavedLogin();
+    };
+
     const overlayTimeout = setTimeout(() => {
       const loadingOverlay = document.getElementById('loadingOverlay');
       if (loadingOverlay && loadingOverlay.classList.contains('active')) {
         console.warn('[App] Fail-safe timer triggered: Force removing stuck loading overlay.');
         loadingOverlay.classList.remove('active');
-        checkSavedLogin();
+        safeCheckSavedLogin();
       }
-    }, 1500);
+    }, 4000);
 
     await initializeFavorites();
     await DbService.init();
@@ -2239,28 +2828,13 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
       };
     }
 
-    const accessibilityToggle = document.getElementById('accessibilityToggle');
-    const accessibilityPanel = document.getElementById('accessibilityPanel');
-    if (accessibilityToggle && accessibilityPanel) {
-      accessibilityToggle.addEventListener('click', (e) => {
-        e.stopPropagation();
-        accessibilityPanel.classList.toggle('active');
-      });
-
-      document.addEventListener('click', (e) => {
-        if (!e.target.closest('#accessibilityPanel') && !e.target.closest('#accessibilityToggle')) {
-          accessibilityPanel.classList.remove('active');
-        }
-      });
-    }
-
     const loginForm = document.getElementById('loginForm');
     if (loginForm) {
       loginForm.addEventListener('submit', handleLogin);
     }
 
     clearTimeout(overlayTimeout);
-    checkSavedLogin();
+    safeCheckSavedLogin();
 
     document.addEventListener('click', e => {
       e.target.closest('.btn') && createRipple(e);
@@ -2273,9 +2847,7 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
     loadDocuments();
     trackDailyAccess();
 
-    setTimeout(() => {
-      restoreLastLocation();
-    }, 100);
+    await restoreLastLocation();
 
     if (window.contentUpdateSystem && typeof window.contentUpdateSystem.init === 'function') {
       window.contentUpdateSystem.init();
@@ -2296,8 +2868,10 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
       window.loadCustomDocuments();
     }
 
-    const nodes = await DbService.getChildren(path);
-    renderTilesFromDb(nodes);
+    if (currentView === 'home') {
+      const nodes = await DbService.getChildren(path);
+      renderTilesFromDb(nodes);
+    }
 
     console.log('Questionary application initialized successfully');
   }
@@ -2658,8 +3232,13 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
 
     container.innerHTML = tags.map(tag => {
       const count = Object.values(itemTags).filter(arr => arr.includes(tag.id)).length;
-      return `<span style="display: inline-flex; align-items: center; gap: 4px; padding: 8px 14px; border-radius: 20px; font-size: 13px; font-weight: 600; cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.15); background: ${tag.color}; color: white;" onclick="filterByTagHome('${tag.id}')">${escapeHtml(tag.name)} <small style="opacity: 0.85;">(${count})</small></span>`;
+      const safeColor = isSafeHexColor(tag.color, '#3b82f6');
+      return `<span class="home-tag-chip" data-tag-id="${escapeHtml(tag.id)}" style="display: inline-flex; align-items: center; gap: 4px; padding: 8px 14px; border-radius: 20px; font-size: 13px; font-weight: 600; cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.15); background: ${safeColor}; color: white;">${escapeHtml(tag.name)} <small style="opacity: 0.85;">(${count})</small></span>`;
     }).join('');
+
+    container.querySelectorAll('.home-tag-chip').forEach(chip => {
+      chip.addEventListener('click', () => filterByTagHome(chip.dataset.tagId));
+    });
   }
 
   function renderHomeTaggedItemsList() {
@@ -2681,7 +3260,8 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
     container.innerHTML = items.map(([itemId, tagIds]) => {
       const tagBadges = tagIds.slice(0, 2).map(tid => {
         const tag = tags.find(t => t.id === tid);
-        return tag ? `<span class="tag-mini" style="background: ${tag.color}">${escapeHtml(tag.name)}</span>` : '';
+        const safeColor = isSafeHexColor(tag?.color, '#3b82f6');
+        return tag ? `<span class="tag-mini" style="background: ${safeColor}">${escapeHtml(tag.name)}</span>` : '';
       }).join(' ');
 
       const isFolder = itemId.startsWith('folder_');
@@ -2697,8 +3277,12 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
         icon = 'fa-file-pdf';
       }
 
-      return `<div class="home-tagged-item" onclick="navigateToTaggedItem('${escapeHtml(itemId)}')" style="cursor:pointer;"><span><i class="fas ${icon}" style="color: var(--primary-color); margin-right: 0.4rem;"></i>${escapeHtml(displayName)}</span><span>${tagBadges}</span></div>`;
+      return `<div class="home-tagged-item" data-item-id="${escapeHtml(itemId)}" style="cursor:pointer;"><span><i class="fas ${icon}" style="color: var(--primary-color); margin-right: 0.4rem;"></i>${escapeHtml(displayName)}</span><span>${tagBadges}</span></div>`;
     }).join('');
+
+    container.querySelectorAll('.home-tagged-item').forEach(el => {
+      el.addEventListener('click', () => navigateToTaggedItem(el.dataset.itemId));
+    });
   }
 
   function filterByTagHome(tagId) {
@@ -2713,6 +3297,9 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
   window.showView = showView;
 
   function showView(viewName) {
+    if (!viewName || !VALID_VIEWS.has(viewName)) {
+      viewName = 'home';
+    }
     currentView = viewName;
     saveUserPreferences();
     updateMobileBottomNavActive(viewName);
@@ -2754,6 +3341,7 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
 
     switch(viewName) {
       case 'home':
+      default:
         if (tilesSection) tilesSection.style.display = 'block';
         const tc = document.getElementById('tilesContainer');
         if (tc) {
@@ -2836,6 +3424,9 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
         if (window.DownloadManager && typeof window.DownloadManager.renderSettingsStorageTab === 'function') {
           window.DownloadManager.renderSettingsStorageTab();
         }
+        if (window.DownloadManager && typeof window.DownloadManager.runAndRenderPreflight === 'function') {
+          window.DownloadManager.runAndRenderPreflight();
+        }
         break;
       case 'studyRoom':
         if (studyRoomSection) studyRoomSection.style.display = 'block';
@@ -2851,13 +3442,6 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
         if (backBtn) backBtn.style.display = 'none';
         if (typeof window.renderTagsMain === 'function') window.renderTagsMain();
         if (typeof window.renderTaggedItems === 'function') window.renderTaggedItems();
-        break;
-      default:
-        if (tilesSection) tilesSection.style.display = 'block';
-        if (importedSection) importedSection.style.display = 'block';
-        if (dashboardHeader) dashboardHeader.style.display = window.innerWidth <= 768 ? 'grid' : 'flex';
-        if (breadcrumb) breadcrumb.style.display = 'flex';
-        if (typeof window.renderLibrary === 'function') window.renderLibrary();
         break;
     }
   }
@@ -2906,13 +3490,19 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
     favorites.forEach(fav => {
       const tile = document.createElement('div');
       tile.className = 'tile';
-      tile.innerHTML = `<div class="tile-icon"><i class="fas fa-file-pdf"></i></div><div class="tile-text">${fav.title}</div>`;
+      tile.innerHTML = `<div class="tile-icon"><i class="fas fa-file-pdf"></i></div><div class="tile-text">${escapeHtml(fav.title)}</div>`;
       tile.onclick = () => {
-        if (fav.url && fav.url !== '#') {
+        if (fav.url && isSafeDocumentUrl(fav.url)) {
           const parentPath = (Array.isArray(fav.path) ? fav.path : []).slice(0, -1);
           showView('home');
           navigateToPath(parentPath);
-          setTimeout(() => showPDF(fav.url), 100);
+          setTimeout(() => {
+            if (typeof window.openAnyDocument === 'function') {
+              window.openAnyDocument(fav.url, fav.title);
+            } else {
+              showPDF(fav.url, fav.title);
+            }
+          }, 100);
         }
       };
       container.appendChild(tile);
@@ -2931,13 +3521,19 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
     recent.forEach(doc => {
       const tile = document.createElement('div');
       tile.className = 'tile';
-      tile.innerHTML = `<div class="tile-icon"><i class="fas fa-file-pdf"></i></div><div class="tile-text">${doc.title}</div>`;
+      tile.innerHTML = `<div class="tile-icon"><i class="fas fa-file-pdf"></i></div><div class="tile-text">${escapeHtml(doc.title)}</div>`;
       tile.onclick = () => {
-        if (doc.url && doc.url !== '#') {
+        if (doc.url && isSafeDocumentUrl(doc.url)) {
           const parentPath = (Array.isArray(doc.path) ? doc.path : []).slice(0, -1);
           showView('home');
           navigateToPath(parentPath);
-          setTimeout(() => showPDF(doc.url), 100);
+          setTimeout(() => {
+            if (typeof window.openAnyDocument === 'function') {
+              window.openAnyDocument(doc.url, doc.title);
+            } else {
+              showPDF(doc.url, doc.title);
+            }
+          }, 100);
         }
       };
       container.appendChild(tile);
@@ -2978,27 +3574,12 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
 
   async function handleBackButton() {
     if (path.length > 0) {
-      path.pop();
-      const pdfViewer = document.getElementById('pdfViewer');
-      if (pdfViewer) {
-        pdfViewer.classList.remove('active');
-        pdfViewer.src = '';
+      await navigateToPath(path.slice(0, -1));
+      if (path.length === 0 && typeof window.renderLibrary === 'function') {
+        window.renderLibrary();
       }
-      const pdfViewerContainer = document.getElementById('pdfViewerContainer');
-      if (pdfViewerContainer) pdfViewerContainer.style.display = 'none';
-      const bookmarksPanel = document.getElementById('pdfBookmarksPanel');
-      if (bookmarksPanel) bookmarksPanel.style.display = 'none';
-
-      const tilesContainer = document.getElementById('tilesContainer');
-      if (tilesContainer) {
-        const isListView = tilesContainer.classList.contains('list-view');
-        tilesContainer.style.display = isListView ? 'flex' : 'grid';
-      }
-
-      const nodes = await DbService.getChildren(path);
-      renderTilesFromDb(nodes);
-      updateBreadcrumb();
-      hideTimerCompletely();
+    } else {
+      restoreActiveViewAfterViewer();
     }
   }
 
@@ -3838,19 +4419,28 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
     }
 
     container.innerHTML = bookmarks.map(b => `
-    <div class="page-bookmark-item" onclick="goToPage(${b.page})">
+    <div class="page-bookmark-item" data-page="${escapeHtml(b.page)}" data-bookmark-id="${escapeHtml(b.id)}">
     <i class="fas fa-bookmark"></i>
     <span>${escapeHtml(b.label)}</span>
-    <button class="note-action-btn delete" onclick="event.stopPropagation(); removePageBookmark('${docPath}', '${b.id}')">
+    <button type="button" class="note-action-btn delete page-bookmark-delete">
     <i class="fas fa-times"></i>
     </button>
     </div>
     `).join('');
+
+    container.querySelectorAll('.page-bookmark-item').forEach(el => {
+      el.addEventListener('click', () => goToPage(parseInt(el.dataset.page, 10) || 1));
+      el.querySelector('.page-bookmark-delete')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        removePageBookmark(docPath, el.dataset.bookmarkId);
+      });
+    });
   }
 
   function goToPage(pageNumber) {
     const pdfViewer = document.getElementById('pdfViewer');
-    if (pdfViewer && pdfViewer.src) {
+    if (pdfViewer && pdfViewer.contentWindow) {
+      pdfViewer.contentWindow.postMessage({ type: 'goToPage', page: pageNumber }, getTargetOrigin());
       showNotification(`Navigate to page ${pageNumber}`, 'info');
     }
   }
@@ -3929,9 +4519,13 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
     <div class="print-queue-item">
     <i class="fas fa-file-pdf"></i>
     <span>${escapeHtml(doc.name)}</span>
-    <button onclick="removeFromPrintQueue('${doc.url}')" title="Remove"><i class="fas fa-times"></i></button>
+    <button type="button" class="print-queue-remove-btn" data-doc-url="${escapeHtml(doc.url)}" title="Remove"><i class="fas fa-times"></i></button>
     </div>
     `).join('');
+
+    container.querySelectorAll('.print-queue-remove-btn').forEach(btn => {
+      btn.addEventListener('click', () => removeFromPrintQueue(btn.dataset.docUrl));
+    });
   }
 
   window.addToPrintQueue = addToPrintQueue;
@@ -4563,15 +5157,19 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
     dropdown.innerHTML = `
     <div class="search-history-header">
     <span>Recent Searches</span>
-    <button onclick="clearSearchHistory()" class="clear-history-btn">Clear</button>
+    <button type="button" class="clear-history-btn">Clear</button>
     </div>
     ${searchHistory.map(q => `
-      <div class="search-history-item" onclick="useSearchHistory('${escapeHtml(q)}')">
+      <div class="search-history-item" data-query="${escapeHtml(q)}">
       <i class="fas fa-history"></i>
       <span>${escapeHtml(q)}</span>
       </div>
       `).join('')}
       `;
+    dropdown.querySelector('.clear-history-btn')?.addEventListener('click', () => clearSearchHistory());
+    dropdown.querySelectorAll('.search-history-item').forEach(item => {
+      item.addEventListener('click', () => useSearchHistory(item.dataset.query || ''));
+    });
     dropdown.classList.add('active');
   }
 
@@ -4605,9 +5203,14 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
   };
 
   async function checkForUpdatesManual() {
+    if (!window.electronAPI) {
+      showNotification('App updates are only available in the Electron desktop app.', 'info');
+      return;
+    }
+
     const btn = document.getElementById('checkUpdatesBtn');
     if (updateState.downloading) {
-      showNotification('Download in progress...', 'info');
+      showNotification('Update in progress...', 'info');
       return;
     }
 
@@ -4615,22 +5218,15 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
 
     if (window.hotCodeUpdater && typeof window.hotCodeUpdater.check === 'function') {
       try {
-        showNotification('Checking for app updates...', 'info');
-        const updates = await window.hotCodeUpdater.check(false);
-        if (updates && updates.length > 0) {
-          showNotification(`Downloading ${updates.length} updated file(s)...`, 'info');
-          await window.hotCodeUpdater.download();
-        } else {
-          showNotification('App code is completely up to date!', 'success');
-          resetUpdateButton();
-        }
+        showNotification('Checking for updates...', 'info');
+        await window.hotCodeUpdater.check(false);
       } catch (hotErr) {
-        console.error('[Hot Code Updater Error]:', hotErr);
+        console.error('[Electron Updater Error]:', hotErr);
         showNotification('Update check failed: ' + (hotErr.message || 'Network error'), 'error');
         resetUpdateButton();
       }
     } else {
-      showNotification('App is up to date!', 'success');
+      showNotification('Questionary Desktop is up to date!', 'success');
       resetUpdateButton();
     }
 
@@ -4641,7 +5237,7 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
     const btn = document.getElementById('checkUpdatesBtn');
     if (btn) {
       btn.innerHTML = `<i class="fas fa-sync-alt"></i>`;
-      btn.title = 'Check for Updates';
+      btn.title = 'Check for App Updates';
       btn.classList.remove('update-available', 'downloading', 'restarting');
     }
     updateState.available = false;
@@ -4652,40 +5248,42 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
   (function initUpdateButton() {
     function setupButton() {
       const btn = document.getElementById('checkUpdatesBtn');
-      if (btn && !btn.dataset.initialized) {
-        btn.dataset.initialized = 'true';
-        btn.addEventListener('click', checkForUpdatesManual);
+      const resetSettingsBtn = document.getElementById('resetCodeCacheBtnSettings');
+      const isElectron = Boolean(window.electronAPI);
+
+      if (btn) {
+        btn.style.display = isElectron ? '' : 'none';
+        if (isElectron && !btn.dataset.hotUpdaterBound && !btn.dataset.initialized) {
+          btn.dataset.initialized = 'true';
+          btn.addEventListener('click', checkForUpdatesManual);
+        }
+      }
+      if (resetSettingsBtn) {
+        resetSettingsBtn.style.display = isElectron ? '' : 'none';
       }
     }
     if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', setupButton);
+      document.addEventListener('DOMContentLoaded', () => {
+        setupButton();
+        checkForUpdatesOnStartup();
+      });
     } else {
       setupButton();
+      checkForUpdatesOnStartup();
     }
     setTimeout(setupButton, 1000);
-    setTimeout(setupButton, 3000);
   })();
 
   async function checkForUpdatesOnStartup() {
-    await new Promise(resolve => setTimeout(resolve, 3000));
-    if (window.hotCodeUpdater && typeof window.hotCodeUpdater.check === 'function') {
-      try {
-        console.log('[HotUpdate] Running startup code check...');
-        const updates = await window.hotCodeUpdater.check(true);
-        if (updates && updates.length > 0) {
-          console.log('[HotUpdate] Startup updates found, downloading...');
-          await window.hotCodeUpdater.download();
-        }
-      } catch (e) {
-        console.log('[HotUpdate] Startup check notice:', e.message);
-      }
+    if (!window.electronAPI || !window.hotCodeUpdater || typeof window.hotCodeUpdater.check !== 'function') {
+      return;
     }
-  }
-
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', checkForUpdatesOnStartup);
-  } else {
-    checkForUpdatesOnStartup();
+    // Non-blocking background check: notifies user and asks permission before updating
+    setTimeout(() => {
+      if (navigator.onLine !== false) {
+        window.hotCodeUpdater.check(true).catch(() => {});
+      }
+    }, 2800);
   }
 
   document.addEventListener('DOMContentLoaded', () => {
@@ -4694,13 +5292,20 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
   });
 
   window.addEventListener('message', async function(e) {
+    const pdfViewer = document.getElementById('pdfViewer');
+    const expectedOrigin = window.location.origin;
+    if (window.location.protocol !== 'file:' && expectedOrigin && expectedOrigin !== 'null' && e.origin !== expectedOrigin) return;
+    if (pdfViewer && pdfViewer.contentWindow && e.source !== pdfViewer.contentWindow) return;
     if (e.data && e.data.type === 'openInNewWindow' && e.data.url) {
       openUrlInExternalWindow(e.data.url);
     }
   });
 
   async function openUrlInExternalWindow(url) {
-    if (!url) return;
+    if (!url || !isSafeDocumentUrl(url)) {
+      showNotification('Blocked unsafe external URL', 'error');
+      return;
+    }
 
     try {
       const a = document.createElement('a');
@@ -4712,7 +5317,7 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
       setTimeout(() => a.remove(), 100);
       showNotification('Opened document in new window', 'info');
     } catch (e) {
-      window.open(url, '_blank');
+      window.open(url, '_blank', 'noopener,noreferrer');
     }
   }
   window.openUrlInExternalWindow = openUrlInExternalWindow;
@@ -4780,50 +5385,5 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
   setTimeout(initHomeSyncButton, 1000);
 }
 
-// ================================================================
-// DELEGATED ACCESSIBILITY CONTROLLER
-// ================================================================
-document.addEventListener('click', (e) => {
-  // 1. ACCESSIBILITY PANEL TOGGLE BUTTON
-  const a11yToggle = e.target.closest('#accessibilityToggle');
-  if (a11yToggle) {
-    e.preventDefault();
-    e.stopPropagation();
-    const panel = document.getElementById('accessibilityPanel');
-    if (panel) panel.classList.toggle('active');
-    return;
-  }
+// Delegated Accessibility handled cleanly by js/accessibility.js
 
-  // 2. ACCESSIBILITY TOGGLE SWITCHES (High Contrast, Large Text, etc.)
-  const a11yItem = e.target.closest('#highContrastToggle, #largeTextToggle, #reducedMotionToggle, #enhancedFocusToggle');
-  if (a11yItem) {
-    e.preventDefault();
-    e.stopPropagation();
-
-    const configMap = {
-      'highContrastToggle': { key: 'accessibility-high-contrast', cls: 'high-contrast' },
-      'largeTextToggle': { key: 'accessibility-large-text', cls: 'large-text' },
-      'reducedMotionToggle': { key: 'accessibility-reduced-motion', cls: 'reduced-motion' },
-      'enhancedFocusToggle': { key: 'accessibility-enhanced-focus', cls: 'enhanced-focus' }
-    };
-
-    const config = configMap[a11yItem.id];
-    if (config) {
-      const isActive = a11yItem.classList.toggle('active');
-      const switchEl = a11yItem.querySelector('.accessibility-switch');
-      if (switchEl) switchEl.classList.toggle('active', isActive);
-
-      document.body.classList.toggle(config.cls, isActive);
-      localStorage.setItem(config.key, isActive ? 'true' : 'false');
-    }
-    return;
-  }
-
-  // 3. CLOSE ACCESSIBILITY PANEL ON OUTSIDE CLICK
-  const panel = document.getElementById('accessibilityPanel');
-  if (panel && panel.classList.contains('active')) {
-    if (!e.target.closest('#accessibilityPanel') && !e.target.closest('#accessibilityToggle')) {
-      panel.classList.remove('active');
-    }
-  }
-});

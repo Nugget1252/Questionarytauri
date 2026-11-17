@@ -1,0 +1,12 @@
+[
+  {
+    "id": "update_v240_launch",
+    "title": "Questionary v2.4.0: Major Academic Overhaul!",
+    "category": "Feature Update",
+    "version": "v2.4.0",
+    "author": "Sayan",
+    "date": 1794581243160,
+    "excerpt": "Massive study upgrades: 3D Flashcards with ICSE decks, Rich Markdown Notes with split preview, Lo-Fi Study Room soundscapes, and Accessibility tools.",
+    "content": "### Welcome to Questionary v2.4.0!\n\nWe are excited to deliver this comprehensive overhaul designed for high performance:\n\n1. **Interactive 3D Flashcards**:\n   - Modern 3D flip card animations with keyboard shortcuts (Space to flip, 1-4 for Spaced Repetition SRS).\n   - Pre-loaded with official high-yield ICSE Class 10 study decks (Physics, Chemistry, Biology, Java OOPs).\n   - Audio text-to-speech speaker to listen to definitions and formulas out loud.\n   - Interactive Quiz mode with instant multiple choice scoring!\n\n2. **Advanced Notes with Markdown & Split Preview**:\n   - Full Markdown editor with live formatting toolbar (Bold, Italic, Code, Formulas, Quotes, Lists).\n   - Split preview toggle, pin to top for favorite notes, and one-click markdown (.md) export.\n\n3. **Study Room & Focus Workstation**:\n   - Circular Pomodoro focus timer with custom work/break intervals and gentle audio chimes.\n   - Procedural Web Audio Lo-Fi soundscape mixer: Gentle Rain, Ocean Waves, Cafe chatter, Campfire, and 10Hz Alpha Binaural Beats (100% offline).\n   - Real-time study goals checklist and daily focus stats.\n\n4. **Universal Accessibility**:\n   - High-contrast visual modes, dyslexia-friendly typography, customizable text sizing, and focus ruler."
+  }
+]

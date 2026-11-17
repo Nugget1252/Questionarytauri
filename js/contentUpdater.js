@@ -69,6 +69,9 @@ function saveDownloadedDocs(docs) {
 }
 
 async function fetchRemoteManifest() {
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        return null;
+    }
     try {
         if (window.__TAURI__ && window.__TAURI__.http) {
             const response = await window.__TAURI__.http.fetch(CONTENT_MANIFEST_URL, {
@@ -79,13 +82,21 @@ async function fetchRemoteManifest() {
                 return await response.json();
             }
         } else {
-            const response = await fetch(CONTENT_MANIFEST_URL + '?t=' + Date.now());
-            if (response.ok) {
-                return await response.json();
+            const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+            const timeoutId = controller ? setTimeout(() => controller.abort(), 6000) : null;
+            try {
+                const response = await fetch(CONTENT_MANIFEST_URL + '?t=' + Date.now(), {
+                    signal: controller ? controller.signal : undefined
+                });
+                if (response.ok) {
+                    return await response.json();
+                }
+            } finally {
+                if (timeoutId) clearTimeout(timeoutId);
             }
         }
     } catch (error) {
-        console.error('Error fetching remote content manifest:', error);
+        console.warn('[ContentUpdater] Remote manifest skipped/offline:', error && error.message ? error.message : error);
     }
     return null;
 }
@@ -128,20 +139,33 @@ function findPendingDownloads(localManifest, remoteManifest) {
 }
 
 async function checkForContentUpdates(silent = false) {
+    if (!window.electronAPI && !window.__TAURI__) {
+        updateContentUpdateUI('idle');
+        return null;
+    }
+
     if (contentUpdateState.checking || contentUpdateState.downloading) {
         return null;
     }
-    
+
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        if (!silent && typeof showNotification === 'function') {
+            showNotification('Offline mode — connect to the internet to check for new document updates.', 'info');
+        }
+        updateContentUpdateUI('idle');
+        return null;
+    }
+
     contentUpdateState.checking = true;
     updateContentUpdateUI('checking');
-    
+
     try {
         if (!silent) {
             showNotification('Checking for new content...', 'info');
         }
-        
+
         const remoteManifest = await fetchRemoteManifest();
-        
+
         if (!remoteManifest) {
             contentUpdateState.checking = false;
             updateContentUpdateUI('idle');
@@ -299,7 +323,7 @@ function updateContentDownloadProgress() {
         : 0;
     
     if (progressFill) progressFill.style.width = `${progress}%`;
-    if (progressText) progressText.textContent = `${contentContentUpdateState.completedFiles}/${contentUpdateState.totalFiles} files (${contentUpdateState.currentFile})`;
+    if (progressText) progressText.textContent = `${contentUpdateState.completedFiles}/${contentUpdateState.totalFiles} files (${contentUpdateState.currentFile})`;
 }
 
 function showContentProgressBar() {
@@ -323,12 +347,15 @@ function formatBytesContent(bytes) {
 }
 
 async function handleContentUpdateClick() {
-    if (window.hotCodeUpdater && typeof window.hotCodeUpdater.check === 'function') {
-        const pending = await window.hotCodeUpdater.check(false);
-        if (pending && pending.length > 0) {
-            await window.hotCodeUpdater.download();
-            return;
+    if (!window.electronAPI && !window.__TAURI__) {
+        if (typeof showNotification === 'function') {
+            showNotification('App updates are available in the Electron desktop app.', 'info');
         }
+        return;
+    }
+    if (window.hotCodeUpdater && typeof window.hotCodeUpdater.check === 'function') {
+        await window.hotCodeUpdater.check(false);
+        return;
     }
     await checkForContentUpdates(false);
 }

@@ -1,0 +1,8 @@
+{
+  "name": "Questionary",
+  "description": "Questionary - Comprehensive past year question paper library, PDF viewer, exam prep, study planner, flashcards, notes, and interactive study room for Class 9 and 10 students.",
+  "permissions": [],
+  "capabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

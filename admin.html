@@ -1,0 +1,1271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Questionary Administration Portal</title>
+    <meta name="robots" content="noindex, nofollow">
+    <link rel="icon" type="image/png" href="app-icon.png">
+    <link rel="stylesheet" href="css/vendor/fontawesome/css/all.min.css">
+    <script src="js/vendor/purify.min.js"></script>
+    <link rel="stylesheet" href="fonts/fonts.css">
+    <style>
+        :root {
+            --bg-base: #0b0c0e;
+            --bg-surface: #131518;
+            --bg-card: #1a1d22;
+            --bg-hover: #22262d;
+            --border: #282c34;
+            --border-light: #343943;
+            --accent: #cf6215;
+            --accent-hover: #e06d19;
+            --accent-glow: rgba(207, 98, 21, 0.18);
+            --fg-primary: #f8fafc;
+            --fg-secondary: #94a3b8;
+            --fg-muted: #64748b;
+            --success: #10b981;
+            --danger: #ef4444;
+            --info: #3b82f6;
+            --warning: #f59e0b;
+            --radius-sm: 6px;
+            --radius-md: 10px;
+            --radius-lg: 14px;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-base);
+            color: var(--fg-primary);
+            min-height: 100vh;
+            display: flex;
+            overflow-x: hidden;
+        }
+
+        /* Sidebar */
+        .admin-sidebar {
+            width: 260px;
+            background: var(--bg-surface);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            position: fixed;
+            top: 0;
+            left: 0;
+            bottom: 0;
+            z-index: 100;
+        }
+
+        .sidebar-brand {
+            padding: 1.25rem 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .brand-badge {
+            width: 38px;
+            height: 38px;
+            border-radius: var(--radius-md);
+            background: linear-gradient(135deg, var(--accent), #e06d19);
+            color: #fff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.1rem;
+            box-shadow: 0 4px 12px var(--accent-glow);
+        }
+
+        .brand-text h1 {
+            font-size: 0.95rem;
+            font-weight: 800;
+            letter-spacing: -0.2px;
+            color: #fff;
+        }
+
+        .brand-text span {
+            font-size: 0.7rem;
+            font-weight: 600;
+            color: var(--accent);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .sidebar-nav {
+            padding: 1rem 0.75rem;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            flex: 1;
+            overflow-y: auto;
+        }
+
+        .nav-label {
+            font-size: 0.65rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--fg-muted);
+            padding: 0.75rem 0.75rem 0.35rem;
+        }
+
+        .nav-link {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 0.7rem 0.85rem;
+            border-radius: var(--radius-sm);
+            color: var(--fg-secondary);
+            font-size: 0.84rem;
+            font-weight: 600;
+            cursor: pointer;
+            text-decoration: none;
+            transition: all 0.15s ease;
+        }
+
+        .nav-link i {
+            font-size: 0.95rem;
+            width: 20px;
+            text-align: center;
+            color: var(--fg-muted);
+            transition: color 0.15s ease;
+        }
+
+        .nav-link:hover {
+            background: var(--bg-hover);
+            color: var(--fg-primary);
+        }
+
+        .nav-link:hover i {
+            color: var(--accent);
+        }
+
+        .nav-link.active {
+            background: var(--accent-glow);
+            color: var(--accent);
+            font-weight: 700;
+        }
+
+        .nav-link.active i {
+            color: var(--accent);
+        }
+
+        .sidebar-footer {
+            padding: 1rem;
+            border-top: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            background: rgba(0, 0, 0, 0.15);
+        }
+
+        .admin-user-pill {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 10px;
+            border-radius: var(--radius-sm);
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+        }
+
+        .user-avatar {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: var(--border-light);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.8rem;
+            color: var(--accent);
+        }
+
+        .user-info {
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+        }
+
+        .user-name {
+            font-size: 0.78rem;
+            font-weight: 700;
+            color: var(--fg-primary);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .user-role {
+            font-size: 0.65rem;
+            color: var(--success);
+            font-weight: 600;
+        }
+
+        .btn-portal-return {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 8px;
+            border-radius: var(--radius-sm);
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--fg-secondary);
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-decoration: none;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .btn-portal-return:hover {
+            background: var(--bg-hover);
+            color: var(--fg-primary);
+            border-color: var(--border-light);
+        }
+
+        /* Main Workspace */
+        .admin-main {
+            margin-left: 260px;
+            flex: 1;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .admin-topbar {
+            height: 64px;
+            padding: 0 2rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: var(--bg-surface);
+            border-bottom: 1px solid var(--border);
+            position: sticky;
+            top: 0;
+            z-index: 90;
+        }
+
+        .topbar-title {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .topbar-title h2 {
+            font-size: 1.1rem;
+            font-weight: 700;
+        }
+
+        .badge-status {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 3px 8px;
+            border-radius: 999px;
+            font-size: 0.7rem;
+            font-weight: 700;
+            background: rgba(16, 185, 129, 0.12);
+            color: var(--success);
+            border: 1px solid rgba(16, 185, 129, 0.25);
+        }
+
+        .badge-status-icon {
+            font-size: 0.72rem;
+            color: var(--success);
+        }
+
+        .drop-upload-zone {
+            border: 2px dashed var(--border-light);
+            border-radius: var(--radius-md);
+            padding: 1.5rem 1rem;
+            text-align: center;
+            background: var(--bg-card);
+            cursor: pointer;
+            transition: border-color 0.15s ease, background 0.15s ease;
+        }
+        .drop-upload-zone:hover, .drop-upload-zone.dragover {
+            border-color: var(--accent);
+            background: var(--accent-glow);
+        }
+        .easy-pdf-item {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            gap: 8px;
+            align-items: center;
+            padding: 8px 10px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            background: var(--bg-card);
+        }
+
+        .topbar-actions {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .content-container {
+            padding: 1.75rem 2rem;
+            flex: 1;
+        }
+
+        /* Tab Sections */
+        .tab-section {
+            display: none;
+            animation: fadeIn 0.2s ease-in-out forwards;
+        }
+
+        .tab-section.active {
+            display: block;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(4px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Cards & Grids */
+        .stat-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 1rem;
+            margin-bottom: 1.75rem;
+        }
+
+        .metric-card {
+            background: var(--bg-surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            padding: 1.25rem;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            transition: border-color 0.15s ease, transform 0.15s ease;
+        }
+
+        .metric-card:hover {
+            border-color: var(--border-light);
+            transform: translateY(-1px);
+        }
+
+        .metric-icon {
+            width: 48px;
+            height: 48px;
+            border-radius: var(--radius-md);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.3rem;
+        }
+
+        .metric-info {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .metric-value {
+            font-size: 1.4rem;
+            font-weight: 800;
+            color: var(--fg-primary);
+            line-height: 1.2;
+        }
+
+        .metric-label {
+            font-size: 0.74rem;
+            font-weight: 600;
+            color: var(--fg-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .panel-card {
+            background: var(--bg-surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            overflow: hidden;
+            margin-bottom: 1.5rem;
+        }
+
+        .panel-header {
+            padding: 1.2rem 1.5rem;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: rgba(255, 255, 255, 0.015);
+        }
+
+        .panel-header h3 {
+            font-size: 0.95rem;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .panel-body {
+            padding: 1.5rem;
+        }
+
+        /* Buttons & Inputs */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 8px 16px;
+            border-radius: var(--radius-sm);
+            font-size: 0.82rem;
+            font-weight: 600;
+            cursor: pointer;
+            border: 1px solid transparent;
+            transition: all 0.15s ease;
+        }
+
+        .btn-primary {
+            background: var(--accent);
+            color: #fff;
+        }
+
+        .btn-primary:hover {
+            background: var(--accent-hover);
+        }
+
+        .btn-secondary {
+            background: var(--bg-card);
+            border-color: var(--border);
+            color: var(--fg-primary);
+        }
+
+        .btn-secondary:hover {
+            background: var(--bg-hover);
+            border-color: var(--border-light);
+        }
+
+        .btn-success {
+            background: var(--success);
+            color: #fff;
+        }
+
+        .btn-danger {
+            background: var(--danger);
+            color: #fff;
+        }
+
+        .btn-sm {
+            padding: 6px 12px;
+            font-size: 0.76rem;
+        }
+
+        .btn-icon {
+            width: 32px;
+            height: 32px;
+            padding: 0;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: var(--radius-sm);
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            color: var(--fg-secondary);
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .btn-icon:hover {
+            background: var(--bg-hover);
+            color: var(--fg-primary);
+            border-color: var(--border-light);
+        }
+
+        .btn-icon.delete:hover {
+            background: rgba(239, 68, 68, 0.15);
+            color: var(--danger);
+            border-color: rgba(239, 68, 68, 0.3);
+        }
+
+        .form-group {
+            margin-bottom: 1rem;
+        }
+
+        .form-label {
+            display: block;
+            font-size: 0.78rem;
+            font-weight: 600;
+            color: var(--fg-secondary);
+            margin-bottom: 6px;
+        }
+
+        .form-input, .form-select, .form-textarea {
+            width: 100%;
+            padding: 9px 12px;
+            border-radius: var(--radius-sm);
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            color: var(--fg-primary);
+            font-size: 0.84rem;
+            outline: none;
+            transition: border-color 0.15s ease, box-shadow 0.15s ease;
+        }
+
+        .form-input:focus, .form-select:focus, .form-textarea:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 2px var(--accent-glow);
+        }
+
+        .form-textarea {
+            font-family: 'JetBrains Mono', monospace;
+            line-height: 1.5;
+            resize: vertical;
+        }
+
+        /* Tables */
+        .table-responsive {
+            width: 100%;
+            overflow-x: auto;
+            border-radius: var(--radius-sm);
+            border: 1px solid var(--border);
+        }
+
+        .admin-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.82rem;
+            text-align: left;
+        }
+
+        .admin-table th {
+            background: var(--bg-card);
+            padding: 10px 14px;
+            font-weight: 700;
+            color: var(--fg-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            font-size: 0.7rem;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .admin-table td {
+            padding: 10px 14px;
+            border-bottom: 1px solid var(--border);
+            color: var(--fg-primary);
+        }
+
+        .admin-table tr:hover td {
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .admin-table code {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.75rem;
+            background: rgba(0, 0, 0, 0.3);
+            padding: 2px 6px;
+            border-radius: 4px;
+            color: var(--fg-secondary);
+        }
+
+        .type-pill {
+            font-size: 0.7rem;
+            font-weight: 700;
+            padding: 3px 8px;
+            border-radius: 4px;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .type-pill.folder {
+            background: rgba(207, 98, 21, 0.15);
+            color: var(--accent);
+        }
+
+        .type-pill.doc {
+            background: rgba(59, 130, 246, 0.15);
+            color: var(--info);
+        }
+
+        /* Modal Overlay */
+        .admin-modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.75);
+            backdrop-filter: blur(8px);
+            z-index: 1000;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 1.5rem;
+        }
+
+        .admin-modal-overlay.active {
+            display: flex;
+        }
+
+        .modal-card {
+            background: var(--bg-surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            width: 100%;
+            max-width: 580px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+            animation: modalPop 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+            overflow: hidden;
+        }
+
+        @keyframes modalPop {
+            from { transform: scale(0.96); opacity: 0; }
+            to { transform: scale(1); opacity: 1; }
+        }
+
+        .modal-card-header {
+            padding: 1.25rem 1.5rem;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .modal-card-header h3 {
+            font-size: 1rem;
+            font-weight: 700;
+        }
+
+        .modal-card-body {
+            padding: 1.5rem;
+            max-height: 70vh;
+            overflow-y: auto;
+        }
+
+        .modal-card-footer {
+            padding: 1rem 1.5rem;
+            border-top: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 10px;
+            background: rgba(0, 0, 0, 0.15);
+        }
+
+        /* Notification Toast */
+        .admin-toast {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            padding: 12px 18px;
+            border-radius: var(--radius-sm);
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            color: #fff;
+            font-size: 0.85rem;
+            font-weight: 600;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            z-index: 2000;
+            opacity: 0;
+            transform: translateY(10px);
+            transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+            pointer-events: none;
+        }
+
+        .admin-toast.show {
+            opacity: 1;
+            transform: translateY(0);
+            pointer-events: auto;
+        }
+
+        /* Auth Gate Screen */
+        .auth-gate {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: var(--bg-base);
+            z-index: 9999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 1rem;
+        }
+
+        .auth-box {
+            background: var(--bg-surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            width: 100%;
+            max-width: 420px;
+            padding: 2.25rem 2rem;
+            text-align: center;
+            box-shadow: 0 25px 50px rgba(0, 0, 0, 0.6);
+        }
+
+        .auth-icon {
+            width: 64px;
+            height: 64px;
+            border-radius: var(--radius-lg);
+            background: var(--accent-glow);
+            color: var(--accent);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2rem;
+            margin-bottom: 1.25rem;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Security Auth Gate -->
+    <div id="adminAuthGate" class="auth-gate" style="display:flex;">
+        <div class="auth-box">
+            <div class="auth-icon"><i class="fas fa-user-shield"></i></div>
+            <h2 style="font-size: 1.3rem; font-weight: 800; margin-bottom: 6px;">Questionary Admin Access</h2>
+            <p style="font-size: 0.82rem; color: var(--fg-secondary); margin-bottom: 1.5rem;">
+                Isolated Admin Console. Enter your server-verified passphrase to continue.
+            </p>
+            <form id="adminAuthForm" onsubmit="return false;">
+                <div class="form-group" style="text-align: left;">
+                    <label class="form-label" for="authPassInput">Admin Passphrase</label>
+                    <input type="password" id="authPassInput" class="form-input" placeholder="Enter admin passphrase" autocomplete="current-password" required autofocus>
+                </div>
+                <div id="authErrorMsg" style="display:none; font-size:0.78rem; color:var(--danger); margin-bottom:10px; text-align:left; background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3); padding:8px 10px; border-radius:6px;"></div>
+                <button type="submit" class="btn btn-primary" id="btnUnlockAdmin" style="width: 100%; padding: 10px; margin-top: 4px;">
+                    <i class="fas fa-key"></i> Unlock Dashboard
+                </button>
+            </form>
+            <a id="authReturnStudentLink" href="http://localhost:3000" target="_blank" rel="noopener noreferrer" style="display: block; margin-top: 14px; font-size: 0.78rem; color: var(--fg-muted); text-decoration: none;">
+                <i class="fas fa-external-link-alt"></i> Open Student Site
+            </a>
+        </div>
+    </div>
+
+    <!-- Admin Sidebar -->
+    <aside class="admin-sidebar">
+        <div class="sidebar-brand">
+            <div class="brand-badge"><i class="fas fa-shield-alt"></i></div>
+            <div class="brand-text">
+                <h1>Questionary</h1>
+                <span>Admin Console</span>
+            </div>
+        </div>
+
+        <nav class="sidebar-nav">
+            <div class="nav-label">Main Controls</div>
+            <a class="nav-link active" data-tab="dashboard">
+                <i class="fas fa-chart-pie"></i>
+                <span>Dashboard</span>
+            </a>
+            <a class="nav-link" data-tab="database">
+                <i class="fas fa-database"></i>
+                <span>Database Manager</span>
+            </a>
+            <a class="nav-link" data-tab="sql">
+                <i class="fas fa-terminal"></i>
+                <span>SQL Studio</span>
+            </a>
+            <a class="nav-link" data-tab="announcements">
+                <i class="fas fa-bullhorn"></i>
+                <span>Updates & Broadcast</span>
+            </a>
+            <a class="nav-link" data-tab="documents">
+                <i class="fas fa-file-pdf"></i>
+                <span>Document Library</span>
+            </a>
+
+            <div class="nav-label" style="margin-top: 1rem;">System</div>
+            <a class="nav-link" data-tab="system">
+                <i class="fas fa-server"></i>
+                <span>Server & Health</span>
+            </a>
+        </nav>
+
+        <div class="sidebar-footer">
+            <div class="admin-user-pill">
+                <div class="user-avatar"><i class="fas fa-user"></i></div>
+                <div class="user-info">
+                    <span class="user-name">sayandps2014@gmail.com</span>
+                    <span class="user-role"><i class="fas fa-check-circle"></i> Super Admin</span>
+                </div>
+            </div>
+            <a id="sidebarStudentLink" href="http://localhost:3000" target="_blank" rel="noopener noreferrer" class="btn-portal-return">
+                <i class="fas fa-external-link-alt"></i> View Student Site
+            </a>
+            <button type="button" class="btn-portal-return" id="btnLockConsole" style="border: none; background: transparent;">
+                <i class="fas fa-lock"></i> Lock Console
+            </button>
+        </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <main class="admin-main">
+        <header class="admin-topbar">
+            <div class="topbar-title">
+                <h2 id="currentTabTitle">System Dashboard</h2>
+                <span class="badge-status">
+                    <i class="fas fa-shield-alt badge-status-icon"></i>
+                    <span id="adminOriginBadge">ISOLATED ADMIN SITE</span>
+                </span>
+            </div>
+            <div class="topbar-actions">
+                <button type="button" class="btn btn-secondary btn-sm" id="btnRefreshTab">
+                    <i class="fas fa-sync-alt"></i> Refresh Data
+                </button>
+                <button type="button" class="btn btn-primary btn-sm" id="btnGlobalQuickAction">
+                    <i class="fas fa-plus"></i> Quick Action
+                </button>
+            </div>
+        </header>
+
+        <div class="content-container">
+
+            <!-- TAB 1: DASHBOARD -->
+            <section id="tab-dashboard" class="tab-section active">
+                <div class="stat-grid">
+                    <div class="metric-card">
+                        <div class="metric-icon" style="background: rgba(207,98,21,0.15); color: var(--accent);">
+                            <i class="fas fa-file-pdf"></i>
+                        </div>
+                        <div class="metric-info">
+                            <span class="metric-value" id="statTotalPapers">148</span>
+                            <span class="metric-label">Indexed Exam Papers</span>
+                        </div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-icon" style="background: rgba(59,130,246,0.15); color: var(--info);">
+                            <i class="fas fa-sitemap"></i>
+                        </div>
+                        <div class="metric-info">
+                            <span class="metric-value" id="statTotalNodes">--</span>
+                            <span class="metric-label">SQLite Nodes</span>
+                        </div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-icon" style="background: rgba(16,185,129,0.15); color: var(--success);">
+                            <i class="fas fa-bullhorn"></i>
+                        </div>
+                        <div class="metric-info">
+                            <span class="metric-value" id="statTotalAnnouncements">1</span>
+                            <span class="metric-label">Live Announcements</span>
+                        </div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-icon" style="background: rgba(245,158,11,0.15); color: var(--warning);">
+                            <i class="fas fa-hdd"></i>
+                        </div>
+                        <div class="metric-info">
+                            <span class="metric-value" id="statDbSize">-- KB</span>
+                            <span class="metric-label">Database File Size</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1.5fr 1fr; gap: 1.5rem;">
+                    <div class="panel-card">
+                        <div class="panel-header">
+                            <h3><i class="fas fa-history" style="color: var(--accent);"></i> Recent Database Activity</h3>
+                            <button class="btn btn-secondary btn-sm" onclick="AdminApp.switchTab('database')">View Manager</button>
+                        </div>
+                        <div class="panel-body" style="padding: 0;">
+                            <div class="table-responsive" style="border: none;">
+                                <table class="admin-table">
+                                    <thead>
+                                        <tr>
+                                            <th>ID</th>
+                                            <th>Name</th>
+                                            <th>Type</th>
+                                            <th>Path</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="dashboardRecentNodesBody">
+                                        <tr><td colspan="4" style="text-align:center; padding:1.5rem; color:var(--fg-muted);">Loading SQLite records...</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="panel-card">
+                        <div class="panel-header">
+                            <h3><i class="fas fa-newspaper" style="color: var(--accent);"></i> Active Broadcasts</h3>
+                            <button class="btn btn-secondary btn-sm" onclick="AdminApp.switchTab('announcements')">New Post</button>
+                        </div>
+                        <div class="panel-body" id="dashboardBroadcastsList" style="display: flex; flex-direction: column; gap: 10px;">
+                            <div style="color:var(--fg-muted); font-size:0.8rem; text-align:center; padding:1.5rem;">Loading announcements...</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB 2: DATABASE MANAGER -->
+            <section id="tab-database" class="tab-section">
+                <div class="panel-card">
+                    <div class="panel-header" style="flex-wrap: wrap; gap: 12px;">
+                        <div>
+                            <h3><i class="fas fa-database" style="color: var(--accent);"></i> SQLite Hierarchy &amp; PDF Editor</h3>
+                            <p style="font-size: 0.72rem; color: var(--fg-secondary); margin-top: 3px;">
+                                Easily upload PDFs into Year / Class / Exam folders and download <code>database.db</code> for your next update.
+                            </p>
+                        </div>
+                        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                            <button class="btn btn-primary btn-sm" id="btnEasyAddPdf">
+                                <i class="fas fa-file-upload"></i> Add / Upload PDF
+                            </button>
+                            <label for="importDbInput" class="btn btn-secondary btn-sm" style="cursor: pointer;">
+                                <i class="fas fa-folder-open"></i> Import .db
+                            </label>
+                            <input type="file" id="importDbInput" accept=".db,.sqlite,.sqlite3" style="display:none;">
+                            <button class="btn btn-success btn-sm" id="btnDownloadDatabaseDb" title="Download ready-to-push database.db">
+                                <i class="fas fa-download"></i> Download database.db
+                            </button>
+                            <button class="btn btn-secondary btn-sm" id="btnExportDbFile" title="Download questionary.db">
+                                <i class="fas fa-file-export"></i> questionary.db
+                            </button>
+                            <button class="btn btn-secondary btn-sm" id="btnPersistDbToServer" style="color: var(--success); border-color: rgba(16,185,129,0.3);">
+                                <i class="fas fa-save"></i> Save to Disk
+                            </button>
+                            <button class="btn btn-secondary btn-sm" id="btnAddNodeModalBtn">
+                                <i class="fas fa-plus"></i> Add Node
+                            </button>
+                        </div>
+                    </div>
+                    <div class="panel-body">
+                        <!-- Filters & Search Toolbar -->
+                        <div style="display: flex; gap: 12px; margin-bottom: 1.25rem; flex-wrap: wrap;">
+                            <div style="flex: 1; min-width: 250px; position: relative;">
+                                <input type="text" id="nodeSearchInput" class="form-input" placeholder="Search by Node ID, Name, Folder Path, or File..." style="padding-left: 36px;">
+                                <i class="fas fa-search" style="position: absolute; left: 12px; top: 11px; color: var(--fg-muted); font-size: 0.85rem;"></i>
+                            </div>
+                            <select id="nodeTypeFilter" class="form-select" style="width: 170px;">
+                                <option value="all">All Types</option>
+                                <option value="folder">Folders Only</option>
+                                <option value="document">Documents Only</option>
+                            </select>
+                        </div>
+
+                        <!-- Data Table -->
+                        <div class="table-responsive">
+                            <table class="admin-table">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 65px;">ID</th>
+                                        <th>Node Name</th>
+                                        <th>Folder Path</th>
+                                        <th style="width: 110px;">Kind</th>
+                                        <th>File Path / Target</th>
+                                        <th style="width: 100px; text-align: right;">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="adminNodesTbody">
+                                    <tr><td colspan="6" style="text-align:center; padding: 2rem; color: var(--fg-muted);">Initializing SQLite WASM engine...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB 3: SQL STUDIO -->
+            <section id="tab-sql" class="tab-section">
+                <div class="panel-card">
+                    <div class="panel-header">
+                        <h3><i class="fas fa-terminal" style="color: var(--accent);"></i> Interactive SQL Console</h3>
+                        <div style="display: flex; gap: 8px;">
+                            <button class="btn btn-secondary btn-sm" id="btnExportSqlCsv">
+                                <i class="fas fa-file-csv"></i> Export Results (CSV)
+                            </button>
+                            <button class="btn btn-primary btn-sm" id="btnRunQuery">
+                                <i class="fas fa-play"></i> Execute Query (Ctrl+Enter)
+                            </button>
+                        </div>
+                    </div>
+                    <div class="panel-body">
+                        <!-- Query Preset Shortcuts -->
+                        <div style="display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; align-items: center;">
+                            <span style="font-size: 0.72rem; color: var(--fg-muted); font-weight: 700; text-transform: uppercase;">Presets:</span>
+                            <button class="btn btn-secondary btn-sm" onclick="AdminApp.insertSqlPreset('SELECT * FROM nodes ORDER BY id ASC LIMIT 50;')">All Nodes (50)</button>
+                            <button class="btn btn-secondary btn-sm" onclick="AdminApp.insertSqlPreset('SELECT count(*) as total, is_folder FROM nodes GROUP BY is_folder;')">Count by Type</button>
+                            <button class="btn btn-secondary btn-sm" onclick="AdminApp.insertSqlPreset('SELECT * FROM nodes WHERE parent_id IS NULL;')">Root Folders</button>
+                            <button class="btn btn-secondary btn-sm" onclick="AdminApp.insertSqlPreset('SELECT sql FROM sqlite_master WHERE type=\'table\';')">Table Schemas</button>
+                        </div>
+
+                        <div class="form-group">
+                            <textarea id="sqlQueryTextarea" class="form-textarea" rows="5" placeholder="SELECT * FROM nodes WHERE is_folder = 1 LIMIT 25;">SELECT * FROM nodes ORDER BY id ASC LIMIT 50;</textarea>
+                        </div>
+
+                        <!-- Results Box -->
+                        <div id="sqlExecutionStatus" style="font-size: 0.76rem; color: var(--fg-secondary); margin-bottom: 8px;"></div>
+                        <div id="sqlResultsContainer" class="table-responsive" style="max-height: 480px;">
+                            <div style="text-align:center; padding: 2rem; color: var(--fg-muted); font-size: 0.85rem;">
+                                Enter a query and click "Execute Query"
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB 4: UPDATES & BLOG BROADCASTER -->
+            <section id="tab-announcements" class="tab-section">
+                <div style="display: grid; grid-template-columns: 1.3fr 1fr; gap: 1.5rem;">
+                    <!-- Composer -->
+                    <div class="panel-card">
+                        <div class="panel-header">
+                            <h3><i class="fas fa-pen-nib" style="color: var(--accent);"></i> Broadcast Announcement / Blog Post</h3>
+                        </div>
+                        <div class="panel-body">
+                            <div class="form-group">
+                                <label class="form-label">Post Title</label>
+                                <input type="text" id="postTitleInput" class="form-input" placeholder="e.g. New ICSE 2026 Sample Papers Released!">
+                            </div>
+
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                                <div class="form-group">
+                                    <label class="form-label">Category</label>
+                                    <select id="postCategorySelect" class="form-select">
+                                        <option value="Feature Update">Feature Update</option>
+                                        <option value="New Papers">New Papers</option>
+                                        <option value="Exam Alert">Exam Alert</option>
+                                        <option value="Study Tips">Study Tips</option>
+                                        <option value="Maintenance">Maintenance</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Version Tag</label>
+                                    <input type="text" id="postVersionInput" class="form-input" value="v2.4.0">
+                                </div>
+                            </div>
+
+                            <div class="form-group">
+                                <label class="form-label">Excerpt / Teaser (Shows in student notification bell)</label>
+                                <input type="text" id="postExcerptInput" class="form-input" placeholder="Short 1-sentence summary...">
+                            </div>
+
+                            <div class="form-group">
+                                <label class="form-label">Full Post Body (Markdown Supported)</label>
+                                <textarea id="postContentInput" class="form-textarea" rows="8" placeholder="Write full announcement with headings (##), bullet points (- ), and bold (**text**)..."></textarea>
+                            </div>
+
+                            <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 1.25rem;">
+                                <label style="display: flex; align-items: center; gap: 8px; font-size: 0.8rem; color: var(--fg-secondary); cursor: pointer;">
+                                    <input type="checkbox" id="postSendNotifCheck" checked>
+                                    <span>Dispatch notification to all student devices</span>
+                                </label>
+                                <button type="button" class="btn btn-primary" id="btnPublishPost">
+                                    <i class="fas fa-paper-plane"></i> Publish Now
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- History List -->
+                    <div class="panel-card">
+                        <div class="panel-header">
+                            <h3><i class="fas fa-history" style="color: var(--accent);"></i> Published Posts (<span id="publishedCount">0</span>)</h3>
+                        </div>
+                        <div class="panel-body" id="publishedPostsList" style="display: flex; flex-direction: column; gap: 12px; max-height: 600px; overflow-y: auto;">
+                            <!-- Dynamically rendered -->
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB 5: DOCUMENT LIBRARY -->
+            <section id="tab-documents" class="tab-section">
+                <div class="panel-card">
+                    <div class="panel-header">
+                        <div>
+                            <h3><i class="fas fa-file-pdf" style="color: var(--accent);"></i> Indexed Question Papers Library</h3>
+                            <p style="font-size: 0.72rem; color: var(--fg-secondary); margin-top: 3px;">
+                                Parsed live from <code>/documents</code> & <code>/documentshd</code>
+                            </p>
+                        </div>
+                        <div style="display: flex; gap: 8px;">
+                            <button class="btn btn-primary btn-sm" id="btnEasyAddPdfDocsTab">
+                                <i class="fas fa-file-upload"></i> Upload PDFs
+                            </button>
+                            <input type="text" id="docLibSearchInput" class="form-input" placeholder="Search papers..." style="width: 220px; padding: 6px 12px;">
+                        </div>
+                    </div>
+                    <div class="panel-body">
+                        <div class="table-responsive">
+                            <table class="admin-table">
+                                <thead>
+                                    <tr>
+                                        <th>Class</th>
+                                        <th>Subject</th>
+                                        <th>Exam Type</th>
+                                        <th>Year</th>
+                                        <th>Filename</th>
+                                        <th>HD</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="docLibTbody">
+                                    <tr><td colspan="7" style="text-align:center; padding: 2rem; color: var(--fg-muted);">Loading document catalog...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB 6: SERVER HEALTH -->
+            <section id="tab-system" class="tab-section">
+                <div class="panel-card">
+                    <div class="panel-header">
+                        <h3><i class="fas fa-server" style="color: var(--accent);"></i> Server Environment & Telemetry</h3>
+                    </div>
+                    <div class="panel-body">
+                        <div id="systemStatsDisplay" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1.25rem;">
+                            <!-- Populated dynamically -->
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+        </div>
+    </main>
+
+    <!-- Modal: Add / Edit Node -->
+    <div class="admin-modal-overlay" id="nodeModal">
+        <div class="modal-card">
+            <div class="modal-card-header">
+                <h3 id="nodeModalTitle">Add Database Node</h3>
+                <button class="btn-icon" onclick="AdminApp.closeModal('nodeModal')"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-card-body">
+                <input type="hidden" id="nodeEditId">
+                <div class="form-group">
+                    <label class="form-label">Node Title / Display Name</label>
+                    <input type="text" id="nodeNameInput" class="form-input" placeholder="e.g. Physics 2026 Sample Paper">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Node Kind</label>
+                    <select id="nodeIsFolderSelect" class="form-select">
+                        <option value="1">Folder / Category</option>
+                        <option value="0">Document File</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Parent Node ID (Leave empty for Root Level)</label>
+                    <input type="number" id="nodeParentIdInput" class="form-input" placeholder="e.g. 1 (or blank for Root)">
+                </div>
+                <div class="form-group" id="nodeFilePathGroup">
+                    <label class="form-label">File Path or Static URL</label>
+                    <input type="text" id="nodeFilePathInput" class="form-input" placeholder="e.g. documents/Physics_2025.pdf (or # for folders)" value="#">
+                </div>
+            </div>
+            <div class="modal-card-footer">
+                <button type="button" class="btn btn-secondary" onclick="AdminApp.closeModal('nodeModal')">Cancel</button>
+                <button type="button" class="btn btn-primary" id="btnSaveNodeSubmit">Save Node</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Easy Add / Upload PDFs -->
+    <div class="admin-modal-overlay" id="easyPdfModal">
+        <div class="modal-card" style="max-width: 660px;">
+            <div class="modal-card-header">
+                <h3><i class="fas fa-file-pdf" style="color: var(--accent);"></i> Easy Add PDFs to Database</h3>
+                <button class="btn-icon" onclick="AdminApp.closeModal('easyPdfModal')"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-card-body">
+                <div class="drop-upload-zone" id="easyPdfDropZone">
+                    <i class="fas fa-cloud-upload-alt" style="font-size: 1.8rem; color: var(--accent); margin-bottom: 8px;"></i>
+                    <div style="font-weight: 700; font-size: 0.9rem;">Drop PDF files here or click to browse</div>
+                    <div style="font-size: 0.75rem; color: var(--fg-secondary); margin-top: 4px;">Uploads PDFs to <code>documents/</code> and adds them into your chosen folder tree</div>
+                    <input type="file" id="easyPdfFileInput" accept=".pdf,application/pdf" multiple style="display: none;">
+                </div>
+
+                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 1rem;">
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <label class="form-label">Year / Top Folder</label>
+                        <select id="easyPdfYearSelect" class="form-select"></select>
+                        <input type="text" id="easyPdfYearNew" class="form-input" placeholder="Or type new (e.g. 2026-27)" style="margin-top: 6px; font-size: 0.78rem;">
+                    </div>
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <label class="form-label">Class Folder</label>
+                        <select id="easyPdfClassSelect" class="form-select">
+                            <option value="Class 10">Class 10</option>
+                            <option value="Class 9">Class 9</option>
+                        </select>
+                        <input type="text" id="easyPdfClassNew" class="form-input" placeholder="Or type custom folder" style="margin-top: 6px; font-size: 0.78rem;">
+                    </div>
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <label class="form-label">Exam / Section</label>
+                        <select id="easyPdfExamSelect" class="form-select">
+                            <option value="Pre-Board">Pre-Board</option>
+                            <option value="Final Term">Final Term</option>
+                            <option value="Half Yearly">Half Yearly</option>
+                            <option value="Mid Term 1">Mid Term 1</option>
+                            <option value="Mid Term 2">Mid Term 2</option>
+                            <option value="Assessment">Assessment</option>
+                            <option value="Study Material">Study Material</option>
+                        </select>
+                        <input type="text" id="easyPdfExamNew" class="form-input" placeholder="Or type custom exam" style="margin-top: 6px; font-size: 0.78rem;">
+                    </div>
+                </div>
+
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 1rem;">
+                    <label class="form-label" style="margin: 0;">Selected PDFs (<span id="easyPdfCount">0</span>)</label>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <label style="font-size: 0.76rem; color: var(--fg-secondary); display: flex; align-items: center; gap: 6px;">
+                            <input type="checkbox" id="easyPdfHdCheck">
+                            <span>Also save HD copy</span>
+                        </label>
+                    </div>
+                </div>
+
+                <div id="easyPdfFileList" style="display: flex; flex-direction: column; gap: 8px; margin-top: 8px; max-height: 220px; overflow-y: auto;">
+                    <div style="text-align: center; padding: 1rem; color: var(--fg-muted); font-size: 0.8rem;">No PDFs selected yet.</div>
+                </div>
+            </div>
+            <div class="modal-card-footer">
+                <button type="button" class="btn btn-secondary" onclick="AdminApp.closeModal('easyPdfModal')">Cancel</button>
+                <button type="button" class="btn btn-primary" id="btnSubmitEasyPdfs">
+                    <i class="fas fa-check"></i> Upload &amp; Add to Database
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Post Preview -->
+    <div class="admin-modal-overlay" id="postPreviewModal">
+        <div class="modal-card" style="max-width: 640px;">
+            <div class="modal-card-header">
+                <div>
+                    <span class="type-pill folder" id="prevPostCategory" style="margin-bottom: 4px;">Update</span>
+                    <h3 id="prevPostTitle">Preview</h3>
+                </div>
+                <button class="btn-icon" onclick="AdminApp.closeModal('postPreviewModal')"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-card-body" id="prevPostBody" style="line-height: 1.6; font-size: 0.9rem;"></div>
+            <div class="modal-card-footer">
+                <button type="button" class="btn btn-primary" onclick="AdminApp.closeModal('postPreviewModal')">Close Preview</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="adminToast" class="admin-toast">
+        <i class="fas fa-info-circle" id="toastIcon"></i>
+        <span id="toastMsg">Action completed successfully.</span>
+    </div>
+
+    <!-- SQL.JS WASM Engine & Admin Controller -->
+    <script src="js/sql-wasm.js"></script>
+    <script src="js/admin.js"></script>
+</body>
+</html>

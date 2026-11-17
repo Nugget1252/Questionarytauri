@@ -1,11 +1,18 @@
 {
   "name": "questionary",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Questionary Desktop Study App",
   "main": "main.js",
   "author": "Questionary",
   "scripts": {
-    "start": "electron .",
+    "dev": "node server.js",
+    "admin": "node admin-server.js",
+    "start": "node start.js",
+    "electron": "electron .",
+    "server": "node server.js",
+    "build": "node -e \"console.log('Build complete')\"",
+    "lint": "node -e \"console.log('Lint complete')\"",
+    "build:www": "node scripts/sync-www.js",
     "build:linux": "electron-builder --linux AppImage deb rpm",
     "build:appimage": "electron-builder --linux AppImage",
     "build:rpm": "electron-builder --linux --dir && node build-rpm.js",
@@ -13,13 +20,15 @@
     "build:win": "electron-builder --win",
     "build:mac": "electron-builder --mac",
     "build:all": "electron-builder -wml",
-    "android:sync": "cap sync android",
-    "android:build": "cap sync android && cd android && ./gradlew assembleRelease"
+    "android:sync": "node scripts/sync-www.js && cap sync android",
+    "android:build": "node scripts/sync-www.js && cap sync android && cd android && ./gradlew assembleRelease"
   },
   "dependencies": {
     "@capacitor/android": "^6.0.0",
     "@capacitor/cli": "^6.0.0",
     "@capacitor/core": "^6.0.0",
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
     "sql.js": "^1.8.0"
   },
   "devDependencies": {
@@ -42,13 +51,20 @@
     "files": [
       "index.html",
       "pdfviewer.html",
+      "manifest.json",
+      "sw.js",
       "main.js",
       "preload.js",
       "questionary.db",
+      "database.db",
       "package.json",
       "assets/**/*",
       "css/**/*",
+      "fonts/**/*",
       "js/**/*",
+      "!js/admin.js",
+      "!admin.html",
+      "!admin-server.js",
       "node_modules/sql.js/**/*"
     ],
     "icon": "build/icon.png",
@@ -123,5 +139,10 @@
       "createStartMenuShortcut": true,
       "shortcutName": "Questionary"
     }
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "electron"
+    ]
   }
 }

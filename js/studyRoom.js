@@ -21,7 +21,7 @@
 
   const ROOM_CODE_LENGTH = 10;
   const BASE32_ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
-  const PEERJS_CDN = 'https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js';
+  const PEERJS_LOCAL = 'js/peerjs-patched.js';
 
   const ICE_CONFIG = {
     iceServers: [
@@ -44,6 +44,121 @@
     iceCandidatePoolSize: 4
   };
 
+  function generateRandomBytes(length) {
+    const arr = new Uint8Array(length);
+    if (window.crypto && typeof window.crypto.getRandomValues === 'function') {
+      window.crypto.getRandomValues(arr);
+    } else {
+      for (let i = 0; i < length; i++) {
+        arr[i] = Math.floor(Math.random() * 256);
+      }
+    }
+    return arr;
+  }
+
+  function generateRandomHex(byteLength = 16) {
+    return Array.from(generateRandomBytes(byteLength))
+      .map(b => b.toString(16).padStart(2, '0'))
+      .join('');
+  }
+
+  function sha256FallbackHex(ascii) {
+    function rightRotate(value, amount) {
+      return (value >>> amount) | (value << (32 - amount));
+    }
+    const mathPow = Math.pow;
+    const maxWord = mathPow(2, 32);
+    let result = '';
+    const words = [];
+    const utf8 = unescape(encodeURIComponent(String(ascii)));
+    const asciiBitLength = utf8.length * 8;
+    let hash = [];
+    const k = [];
+    let primeCounter = 0;
+    const isComposite = {};
+    for (let candidate = 2; primeCounter < 64; candidate++) {
+      if (!isComposite[candidate]) {
+        for (let i = 0; i < 313; i += candidate) isComposite[i] = candidate;
+        hash[primeCounter] = (mathPow(candidate, 0.5) * maxWord) | 0;
+        k[primeCounter++] = (mathPow(candidate, 1 / 3) * maxWord) | 0;
+      }
+    }
+    let str = utf8 + '\x80';
+    while ((str.length % 64) - 56) str += '\x00';
+    for (let i = 0; i < str.length; i++) {
+      const j = str.charCodeAt(i);
+      words[i >> 2] |= j << ((3 - (i % 4)) * 8);
+    }
+    words[words.length] = (asciiBitLength / maxWord) | 0;
+    words[words.length] = asciiBitLength;
+    for (let j = 0; j < words.length;) {
+      const w = words.slice(j, (j += 16));
+      const oldHash = hash.slice(0);
+      hash = hash.slice(0, 8);
+      for (let i = 0; i < 64; i++) {
+        const w15 = w[i - 15], w2 = w[i - 2];
+        const a = hash[0], e = hash[4];
+        const temp1 =
+          hash[7] +
+          (rightRotate(e, 6) ^ rightRotate(e, 11) ^ rightRotate(e, 25)) +
+          ((e & hash[5]) ^ (~e & hash[6])) +
+          k[i] +
+          (w[i] =
+            i < 16
+              ? w[i]
+              : (w[i - 16] +
+                  (rightRotate(w15, 7) ^ rightRotate(w15, 18) ^ (w15 >>> 3)) +
+                  w[i - 7] +
+                  (rightRotate(w2, 17) ^ rightRotate(w2, 19) ^ (w2 >>> 10))) |
+                0);
+        const temp2 =
+          (rightRotate(a, 2) ^ rightRotate(a, 13) ^ rightRotate(a, 22)) +
+          ((a & hash[1]) ^ (a & hash[2]) ^ (hash[1] & hash[2]));
+        hash = [(temp1 + temp2) | 0].concat(hash);
+        hash[4] = (hash[4] + temp1) | 0;
+      }
+      for (let i = 0; i < 8; i++) hash[i] = (hash[i] + oldHash[i]) | 0;
+    }
+    for (let i = 0; i < 8; i++) {
+      for (let j = 3; j + 1; j--) {
+        const b = (hash[i] >> (j * 8)) & 255;
+        result += (b < 16 ? '0' : '') + b.toString(16);
+      }
+    }
+    return result;
+  }
+
+  async function sha256Hex(input) {
+    if (window.crypto && window.crypto.subtle && typeof window.crypto.subtle.digest === 'function') {
+      try {
+        const enc = new TextEncoder().encode(String(input));
+        const buf = await window.crypto.subtle.digest('SHA-256', enc);
+        return Array.from(new Uint8Array(buf))
+          .map(b => b.toString(16).padStart(2, '0'))
+          .join('');
+      } catch (_) {}
+    }
+    return sha256FallbackHex(String(input));
+  }
+
+  function timingSafeEqual(a, b) {
+    if (typeof a !== 'string' || typeof b !== 'string' || a.length !== b.length) return false;
+    let diff = 0;
+    for (let i = 0; i < a.length; i++) {
+      diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+    }
+    return diff === 0;
+  }
+
+  async function deriveHostPeerId(roomCode) {
+    const hash = await sha256Hex('questionary-study-host:' + roomCode);
+    return `qroom-${hash.slice(0, 20)}-host`;
+  }
+
+  async function computeRoomVerifier(password, salt) {
+    return sha256Hex(`qroom-auth:${salt}:${password || ''}`);
+  }
+
   function normalizeRoomCode(raw) {
     if (!raw) return '';
     return raw
@@ -55,9 +170,10 @@
   }
 
   function generateRandomRoomCode() {
+    const randomBytes = generateRandomBytes(ROOM_CODE_LENGTH);
     let id = '';
     for (let i = 0; i < ROOM_CODE_LENGTH; i++) {
-      id += BASE32_ALPHABET[Math.floor(Math.random() * BASE32_ALPHABET.length)];
+      id += BASE32_ALPHABET[randomBytes[i] % BASE32_ALPHABET.length];
     }
     return id;
   }
@@ -65,18 +181,18 @@
   function loadPeerJSLibrary() {
     return new Promise((resolve, reject) => {
       if (window.Peer) return resolve(window.Peer);
-      const existingScript = document.querySelector(`script[src="${PEERJS_CDN}"]`);
+      const existingScript = document.querySelector(`script[src="${PEERJS_LOCAL}"]`);
       if (existingScript) {
         existingScript.addEventListener('load', () => resolve(window.Peer));
-        existingScript.addEventListener('error', () => reject(new Error('PeerJS load error')));
+        existingScript.addEventListener('error', () => reject(new Error('Local PeerJS bundle failed to load')));
         return;
       }
-      const script = document.createElement('script');
-      script.src = PEERJS_CDN;
-      script.async = true;
-      script.onload = () => resolve(window.Peer);
-      script.onerror = () => reject(new Error('Network failure loading PeerJS CDN'));
-      document.head.appendChild(script);
+      const localScript = document.createElement('script');
+      localScript.src = PEERJS_LOCAL;
+      localScript.async = true;
+      localScript.onload = () => resolve(window.Peer);
+      localScript.onerror = () => reject(new Error('Failed to load local PeerJS bundle'));
+      document.head.appendChild(localScript);
     });
   }
 
@@ -469,10 +585,17 @@
   let peerMediaCalls = new Map();
 
   let myId = '';
+  let hostPeerId = '';
   let roomAddress = '';
   let isHost = false;
   let nickname = '';
   let roomPassword = '';
+  let roomSalt = '';
+  let roomPasswordVerifier = '';
+  let authenticatedPeers = new Set();
+  let allowedMeshPeers = new Set();
+  let pendingAuthChallenges = new Map();
+  let sharedBlobUrls = [];
   let handRaised = false;
   let sessionActive = false;
   let isSoloMode = false;
@@ -497,13 +620,19 @@
   let isSpeaking = false;
 
   let mainInterval = null;
-  let timerMode = 'stopwatch';
+  let timerMode = 'focus';
   let timerRunning = false;
   let timerSeconds = 0;
   let timerDuration = 25 * 60;
   let timerRemaining = 25 * 60;
   let studyGoal = '';
   let totalUptimeSeconds = 0;
+
+  let serverEventSource = null;
+  let serverConnected = false;
+  const processedMsgIds = new Set();
+  let wbInitialized = false;
+  let onHostAuthSuccess = null;
 
   let chatMessages = [];
   let wbQuestions = [];
@@ -551,10 +680,13 @@
   }
 
   function escapeHTML(str) {
-    if (!str) return '';
-    const d = document.createElement('div');
-    d.textContent = str;
-    return d.innerHTML;
+    if (str === null || str === undefined) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
   }
 
   function capitalize(s) {
@@ -611,10 +743,26 @@
     return stream;
   }
 
+  function rememberMsgId(msgId) {
+    if (!msgId || typeof msgId !== 'string') return false;
+    if (processedMsgIds.has(msgId)) return true;
+    processedMsgIds.add(msgId);
+    if (processedMsgIds.size > 600) {
+      const oldest = processedMsgIds.values().next().value;
+      processedMsgIds.delete(oldest);
+    }
+    return false;
+  }
+
   function broadcastData(data) {
+    if (!data || typeof data !== 'object') return;
+    const msgId = data._msgId || (`m_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`);
+    const enriched = { ...data, _msgId: msgId };
+    rememberMsgId(msgId);
+
     let payload;
     try {
-      payload = JSON.stringify({ action: 'relay', from: myId, data });
+      payload = JSON.stringify({ action: 'relay', from: myId, data: enriched });
     } catch (err) {
       return;
     }
@@ -624,19 +772,169 @@
         try { conn.send(payload); } catch (e) {}
       }
     });
+
+    if (!isSoloMode && roomAddress && myId) {
+      fetch('/api/studyroom/message', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          code: roomAddress,
+          from: myId,
+          payload: { action: 'relay', from: myId, data: enriched }
+        })
+      }).catch(() => {});
+    }
+  }
+
+  function connectServerStream(code, peerId) {
+    if (serverEventSource) {
+      try { serverEventSource.close(); } catch (_) {}
+      serverEventSource = null;
+    }
+    serverConnected = false;
+    if (typeof window.EventSource !== 'function' || !code || !peerId) return;
+
+    try {
+      const url = `/api/studyroom/events?code=${encodeURIComponent(code)}&peerId=${encodeURIComponent(peerId)}`;
+      const es = new EventSource(url);
+      serverEventSource = es;
+
+      es.onmessage = (evt) => {
+        if (!evt.data) return;
+        try {
+          const payload = JSON.parse(evt.data);
+          if (!payload || typeof payload !== 'object') return;
+
+          if (payload.action === 'srv-connected') {
+            serverConnected = true;
+            return;
+          }
+
+          if (payload.action === 'introduce') {
+            const remoteId = String(payload.from || '');
+            if (!remoteId || remoteId === myId) return;
+            const remoteNick = sanitizeNick(payload.nickname, 'Student');
+            const isNew = !peers[remoteId];
+            peers[remoteId] = {
+              nickname: remoteNick,
+              goal: peers[remoteId]?.goal || '',
+              seconds: peers[remoteId]?.seconds || 0,
+              handRaised: Boolean(peers[remoteId]?.handRaised),
+              isSpeaking: Boolean(peers[remoteId]?.isSpeaking)
+            };
+            allowedMeshPeers.add(remoteId);
+            authenticatedPeers.add(remoteId);
+            updateParticipantsUI();
+            updateProgressUI();
+            if (isNew) {
+              SoundFX.playJoin();
+              addSystemMessage(`${remoteNick} joined the room.`);
+            }
+            if (peerInstance && peerInstance.open) {
+              connectDirectPeer(remoteId);
+              callPeerMedia(remoteId);
+            }
+            broadcastData({ type: 'info', nickname, goal: studyGoal, seconds: timerSeconds });
+            if (isHost) {
+              broadcastTimerSync();
+              if (wbStrokes.length > 0 || wbQuestions.length > 0) {
+                broadcastData({ type: 'wb-full-sync', strokes: wbStrokes, questions: wbQuestions, nextId: wbNextQId });
+              }
+            }
+            return;
+          }
+
+          if (payload.action === 'peer-left') {
+            const leftId = String(payload.peerId || payload.from || '');
+            if (leftId && peers[leftId]) {
+              const leftNick = peers[leftId].nickname || 'Student';
+              delete peers[leftId];
+              delete wbRemoteCursors[leftId];
+              clearRemoteMedia(leftId);
+              if (screenShareOwnerId === leftId) setSpotlight(null);
+              updateParticipantsUI();
+              updateProgressUI();
+              addSystemMessage(`${leftNick} left the room.`);
+            }
+            return;
+          }
+
+          if (payload.action === 'room-closed') {
+            if (!isHost) {
+              notify('The host closed the study room.', 'info');
+              forceLeaveRoom();
+            }
+            return;
+          }
+
+          if (payload.action === 'relay' && payload.data) {
+            const fromId = String(payload.from || '');
+            if (!fromId || fromId === myId) return;
+            handleRelayData(fromId, payload.data);
+          }
+        } catch (_) {}
+      };
+
+      es.onerror = () => {
+        serverConnected = false;
+      };
+    } catch (_) {}
+  }
+
+  function isSafeRelayColor(color) {
+    return typeof color === 'string' && /^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(color.trim());
+  }
+
+  function sanitizeNick(raw, fallback = 'Student') {
+    if (typeof raw !== 'string') return fallback;
+    return raw.trim().slice(0, 32) || fallback;
+  }
+
+  function isValidRelayData(data) {
+    if (!data || typeof data !== 'object' || Array.isArray(data)) return false;
+    if (typeof data.type !== 'string' || data.type.length > 40) return false;
+    if (Object.prototype.hasOwnProperty.call(data, '__proto__') ||
+        Object.prototype.hasOwnProperty.call(data, 'constructor') ||
+        Object.prototype.hasOwnProperty.call(data, 'prototype')) {
+      return false;
+    }
+    return true;
   }
 
   function handleRelayData(fromId, data) {
-    if (!data || typeof data !== 'object') return;
+    if (!isValidRelayData(data)) return;
+    if (typeof data._msgId === 'string' && rememberMsgId(data._msgId)) return;
+
+    const ALLOWED_TYPES = new Set([
+      'room-mesh-sync', 'screen-share-status', 'chat', 'reaction',
+      'hand-raise', 'speaking', 'progress', 'info', 'info-request',
+      'timer-sync', 'mod-kick', 'wb-live-draw', 'wb-stroke', 'wb-shape',
+      'wb-text', 'wb-cursor', 'wb-clear', 'wb-undo', 'wb-redo',
+      'wb-full-sync', 'wb-questions', 'study-material'
+    ]);
+    if (!ALLOWED_TYPES.has(data.type)) return;
+
+    if (fromId && fromId !== myId && !peers[fromId]) {
+      peers[fromId] = {
+        nickname: sanitizeNick(data.senderName || data.nickname, 'Student'),
+        goal: typeof data.goal === 'string' ? data.goal.slice(0, 120) : '',
+        seconds: Number.isFinite(data.seconds) ? Math.max(0, Math.floor(data.seconds)) : 0,
+        handRaised: false,
+        isSpeaking: false
+      };
+      updateParticipantsUI();
+      updateProgressUI();
+    }
 
     if (isHost && fromId !== myId) {
+      if (data.type === 'mod-kick' || data.type === 'room-mesh-sync') return;
       let payload;
       try {
         payload = JSON.stringify({ action: 'relay', from: fromId, data });
       } catch (e) { return; }
 
       peerDataConns.forEach((conn, peerId) => {
-        if (peerId !== fromId && conn && conn.open) {
+        if (peerId !== fromId && conn && conn.open && authenticatedPeers.has(peerId)) {
           try { conn.send(payload); } catch (e) {}
         }
       });
@@ -644,17 +942,26 @@
 
     switch (data.type) {
       case 'room-mesh-sync':
+        if (fromId !== hostPeerId) return;
         if (Array.isArray(data.peerList)) {
-          data.peerList.forEach(p => {
+          data.peerList.slice(0, 64).forEach(p => {
+            if (!p || typeof p.id !== 'string' || p.id.length > 64) return;
+            allowedMeshPeers.add(p.id);
             if (p.id !== myId && !peers[p.id]) {
-              peers[p.id] = { nickname: p.nickname, goal: p.goal || '', seconds: p.seconds || 0, handRaised: false, isSpeaking: false };
+              peers[p.id] = {
+                nickname: sanitizeNick(p.nickname),
+                goal: typeof p.goal === 'string' ? p.goal.slice(0, 120) : '',
+                seconds: Number.isFinite(p.seconds) ? Math.max(0, Math.floor(p.seconds)) : 0,
+                handRaised: false,
+                isSpeaking: false
+              };
               if (myId > p.id) {
                 connectDirectPeer(p.id);
               }
             }
           });
-          if (data.screenShareOwnerId) {
-            setSpotlight(data.screenShareOwnerId, data.screenShareOwnerName);
+          if (typeof data.screenShareOwnerId === 'string' || data.screenShareOwnerId === null) {
+            setSpotlight(data.screenShareOwnerId, sanitizeNick(data.screenShareOwnerName, 'Participant'));
           }
           updateParticipantsUI();
         }
@@ -662,18 +969,19 @@
 
       case 'screen-share-status':
         if (data.active) {
-          setSpotlight(fromId, data.nickname || 'Participant');
+          setSpotlight(fromId, sanitizeNick(data.nickname, 'Participant'));
         } else if (screenShareOwnerId === fromId) {
           setSpotlight(null);
         }
         break;
 
       case 'chat':
+        if (typeof data.text !== 'string' || !data.text.trim()) return;
         chatMessages.push({
-          senderId: data.senderId,
-          senderName: data.senderName,
-          text: data.text,
-          time: data.time,
+          senderId: fromId,
+          senderName: peers[fromId]?.nickname || sanitizeNick(data.senderName),
+          text: data.text.slice(0, 2000),
+          time: Number.isFinite(data.time) ? data.time : Date.now(),
           type: 'chat'
         });
         renderChatMessages();
@@ -685,7 +993,9 @@
         break;
 
       case 'reaction':
-        spawnFloatingReaction(data.emoji);
+        if (typeof data.emoji === 'string' && data.emoji.length <= 16) {
+          spawnFloatingReaction(data.emoji);
+        }
         break;
 
       case 'hand-raise':
@@ -709,17 +1019,17 @@
 
       case 'progress':
         if (peers[fromId]) {
-          peers[fromId].goal = data.goal || '';
-          peers[fromId].seconds = data.seconds || 0;
+          peers[fromId].goal = typeof data.goal === 'string' ? data.goal.slice(0, 120) : '';
+          peers[fromId].seconds = Number.isFinite(data.seconds) ? Math.max(0, Math.floor(data.seconds)) : 0;
         }
         updateProgressUI();
         break;
 
       case 'info':
         if (peers[fromId]) {
-          peers[fromId].nickname = data.nickname || peers[fromId].nickname;
-          peers[fromId].goal = data.goal || '';
-          peers[fromId].seconds = data.seconds || 0;
+          peers[fromId].nickname = sanitizeNick(data.nickname, peers[fromId].nickname);
+          peers[fromId].goal = typeof data.goal === 'string' ? data.goal.slice(0, 120) : '';
+          peers[fromId].seconds = Number.isFinite(data.seconds) ? Math.max(0, Math.floor(data.seconds)) : 0;
         }
         updateParticipantsUI();
         updateProgressUI();
@@ -737,42 +1047,68 @@
         break;
 
       case 'timer-sync':
+        if (!['stopwatch', 'focus', 'break', 'long_break', 'deep'].includes(data.mode)) return;
         timerMode = data.mode;
-        timerRunning = data.running;
-        timerSeconds = data.seconds;
-        timerDuration = data.duration;
-        timerRemaining = data.remaining;
+        timerRunning = !!data.running;
+        timerSeconds = Number.isFinite(data.seconds) ? Math.max(0, Math.floor(data.seconds)) : 0;
+        timerDuration = Number.isFinite(data.duration) ? Math.max(60, Math.floor(data.duration)) : 1500;
+        timerRemaining = Number.isFinite(data.remaining) ? Math.max(0, Math.floor(data.remaining)) : 0;
         updateTimerDisplay();
         break;
 
       case 'mod-kick':
-        if (data.targetId === myId) {
+        if (!isHost && fromId === hostPeerId && data.targetId === myId) {
           notify('You were removed from the room by the host.', 'error');
           forceLeaveRoom();
         }
         break;
 
       case 'wb-live-draw':
-        replayLivePoints(data.points, data.color, data.size, data.tool, data.alpha);
+        if (!Array.isArray(data.points) || data.points.length > 2000) return;
+        replayLivePoints(data.points, isSafeRelayColor(data.color) ? data.color : '#ffffff', Number(data.size) || 3, String(data.tool || 'pen'), Number(data.alpha) || 1);
         break;
 
       case 'wb-stroke':
-        replayStroke(data.points, data.color, data.size, data.tool, data.alpha);
-        wbStrokes.push({ type: 'stroke', points: data.points, color: data.color, size: data.size, tool: data.tool, alpha: data.alpha });
+        if (!Array.isArray(data.points) || data.points.length > 5000) return;
+        {
+          const color = isSafeRelayColor(data.color) ? data.color : '#ffffff';
+          const size = Math.max(1, Math.min(80, Number(data.size) || 3));
+          const tool = String(data.tool || 'pen').slice(0, 20);
+          const alpha = Math.max(0.05, Math.min(1, Number(data.alpha) || 1));
+          replayStroke(data.points, color, size, tool, alpha);
+          wbStrokes.push({ type: 'stroke', points: data.points, color, size, tool, alpha });
+        }
         break;
 
       case 'wb-shape':
-        drawShapeOnCanvas(data.shape, data.start, data.end, data.color, data.size);
-        wbStrokes.push({ type: 'shape', shape: data.shape, start: data.start, end: data.end, color: data.color, size: data.size });
+        {
+          const color = isSafeRelayColor(data.color) ? data.color : '#ffffff';
+          const size = Math.max(1, Math.min(80, Number(data.size) || 3));
+          drawShapeOnCanvas(String(data.shape || 'rect').slice(0, 20), data.start, data.end, color, size);
+          wbStrokes.push({ type: 'shape', shape: String(data.shape || 'rect').slice(0, 20), start: data.start, end: data.end, color, size });
+        }
         break;
 
       case 'wb-text':
-        drawTextOnCanvas(data.text, data.x, data.y, data.color, data.size);
-        wbStrokes.push({ type: 'text', text: data.text, x: data.x, y: data.y, color: data.color, size: data.size });
+        if (typeof data.text !== 'string' || !Number.isFinite(data.x) || !Number.isFinite(data.y)) return;
+        {
+          const text = data.text.slice(0, 500);
+          const color = isSafeRelayColor(data.color) ? data.color : '#ffffff';
+          const size = Math.max(8, Math.min(96, Number(data.size) || 16));
+          drawTextOnCanvas(text, data.x, data.y, color, size);
+          wbStrokes.push({ type: 'text', text, x: data.x, y: data.y, color, size });
+        }
         break;
 
       case 'wb-cursor':
-        wbRemoteCursors[fromId] = { x: data.x, y: data.y, name: peers[fromId]?.nickname || 'Student', color: data.color || '#cf6215', lastSeen: Date.now() };
+        if (!Number.isFinite(data.x) || !Number.isFinite(data.y)) return;
+        wbRemoteCursors[fromId] = {
+          x: data.x,
+          y: data.y,
+          name: peers[fromId]?.nickname || 'Student',
+          color: isSafeRelayColor(data.color) ? data.color : '#cf6215',
+          lastSeen: Date.now()
+        };
         renderRemoteCursors();
         break;
 
@@ -789,88 +1125,187 @@
         break;
 
       case 'wb-full-sync':
-        wbStrokes = data.strokes || [];
-        wbQuestions = data.questions || [];
-        wbNextQId = data.nextId || (wbQuestions.length + 1);
+        wbStrokes = Array.isArray(data.strokes) ? data.strokes.slice(0, 2000) : [];
+        wbQuestions = Array.isArray(data.questions) ? data.questions.slice(0, 200) : [];
+        wbNextQId = Number.isFinite(data.nextId) ? data.nextId : (wbQuestions.length + 1);
         replayAllStrokes();
         renderQuestionsUI();
         break;
 
       case 'wb-questions':
-        wbQuestions = data.questions || [];
-        wbNextQId = data.nextId || (wbQuestions.length + 1);
+        wbQuestions = Array.isArray(data.questions) ? data.questions.slice(0, 200) : [];
+        wbNextQId = Number.isFinite(data.nextId) ? data.nextId : (wbQuestions.length + 1);
         renderQuestionsUI();
         break;
 
       case 'study-material':
-        receiveStudyMaterial(fromId, data.fileData, data.fileName);
+        if (typeof data.fileData === 'string' && typeof data.fileName === 'string') {
+          receiveStudyMaterial(fromId, data.fileData, data.fileName);
+        }
         break;
     }
   }
 
-  function setupPeerDataConnection(conn) {
-    conn.on('open', () => {
-      if (isHost && roomPassword) {
-        const clientPass = conn.metadata?.password || '';
-        if (clientPass !== roomPassword) {
-          try {
-            conn.send(JSON.stringify({ action: 'auth-fail', reason: 'Incorrect room password.' }));
-          } catch (e) {}
-          setTimeout(() => conn.close(), 500);
-          return;
-        }
-      }
+  function admitPeerConnection(conn) {
+    authenticatedPeers.add(conn.peer);
+    peerDataConns.set(conn.peer, conn);
+    const remoteNick = sanitizeNick(conn.metadata?.nickname, peers[conn.peer]?.nickname || 'Student');
+    const isNewPeer = !peers[conn.peer];
+    peers[conn.peer] = {
+      nickname: remoteNick,
+      goal: peers[conn.peer]?.goal || '',
+      seconds: peers[conn.peer]?.seconds || 0,
+      handRaised: Boolean(peers[conn.peer]?.handRaised),
+      isSpeaking: Boolean(peers[conn.peer]?.isSpeaking)
+    };
 
-      peerDataConns.set(conn.peer, conn);
-      const remoteNick = conn.metadata?.nickname || 'Student';
-      peers[conn.peer] = { nickname: remoteNick, goal: '', seconds: 0, handRaised: false, isSpeaking: false };
-
-      updateParticipantsUI();
-      updateProgressUI();
+    updateParticipantsUI();
+    updateProgressUI();
+    if (isNewPeer) {
       SoundFX.playJoin();
       addSystemMessage(`${remoteNick} joined the room.`);
+    }
 
-      if (isHost) {
-        const peerList = Object.entries(peers).map(([id, p]) => ({ id, nickname: p.nickname, goal: p.goal, seconds: p.seconds }));
-        peerList.push({ id: myId, nickname, goal: studyGoal, seconds: timerSeconds });
-        
-        broadcastData({
-          type: 'room-mesh-sync',
-          peerList,
-          screenShareOwnerId,
-          screenShareOwnerName: screenShareOwnerId === 'self' ? nickname : (peers[screenShareOwnerId]?.nickname || '')
-        });
+    if (isHost) {
+      try {
+        conn.send(JSON.stringify({
+          action: 'auth-ok',
+          nickname
+        }));
+      } catch (e) {}
 
+      const peerList = Object.entries(peers).map(([id, p]) => ({ id, nickname: p.nickname, goal: p.goal, seconds: p.seconds }));
+      peerList.push({ id: myId, nickname, goal: studyGoal, seconds: timerSeconds });
+
+      broadcastData({
+        type: 'room-mesh-sync',
+        peerList,
+        screenShareOwnerId,
+        screenShareOwnerName: screenShareOwnerId === 'self' ? nickname : (peers[screenShareOwnerId]?.nickname || '')
+      });
+
+      try {
+        conn.send(JSON.stringify({
+          action: 'relay',
+          from: myId,
+          data: {
+            type: 'wb-full-sync',
+            strokes: wbStrokes,
+            questions: wbQuestions,
+            nextId: wbNextQId,
+            _msgId: `wbsync_${Date.now()}`
+          }
+        }));
+      } catch (e) {}
+    }
+
+    callPeerMedia(conn.peer);
+  }
+
+  function setupPeerDataConnection(conn) {
+    conn.on('open', () => {
+      if (isHost && roomPasswordVerifier) {
+        const nonce = generateRandomHex(16);
+        const timer = setTimeout(() => {
+          pendingAuthChallenges.delete(conn.peer);
+          try {
+            conn.send(JSON.stringify({ action: 'auth-fail', reason: 'Authentication timed out.' }));
+          } catch (e) {}
+          try { conn.close(); } catch (e) {}
+        }, 10000);
+        pendingAuthChallenges.set(conn.peer, { nonce, timer });
         try {
-          conn.send(JSON.stringify({
-            action: 'relay',
-            from: myId,
-            data: {
-              type: 'wb-full-sync',
-              strokes: wbStrokes,
-              questions: wbQuestions,
-              nextId: wbNextQId
-            }
-          }));
-        } catch (e) {}
+          conn.send(JSON.stringify({ action: 'auth-challenge', nonce, salt: roomSalt }));
+        } catch (e) {
+          clearTimeout(timer);
+          pendingAuthChallenges.delete(conn.peer);
+          try { conn.close(); } catch (err) {}
+        }
+        return;
       }
 
-      callPeerMedia(conn.peer);
+      if (!isHost && conn.peer !== hostPeerId && !allowedMeshPeers.has(conn.peer)) {
+        try { conn.close(); } catch (e) {}
+        return;
+      }
+
+      // Joiner connecting to host waits for auth-ok from host before calling media
+      if (!isHost && conn.peer === hostPeerId) {
+        peerDataConns.set(conn.peer, conn);
+        return;
+      }
+
+      admitPeerConnection(conn);
     });
 
-    conn.on('data', (rawPayload) => {
+    conn.on('data', async (rawPayload) => {
       try {
         let payload = rawPayload;
         if (typeof rawPayload === 'string') {
+          if (rawPayload.length > 12 * 1024 * 1024) return;
           payload = JSON.parse(rawPayload);
         }
-        if (payload && payload.action === 'auth-fail') {
-          notify(payload.reason || 'Authentication failed.', 'error');
+        if (!payload || typeof payload !== 'object') return;
+
+        if (payload.action === 'auth-challenge' && !isHost && conn.peer === hostPeerId) {
+          const verifier = await computeRoomVerifier(roomPassword, String(payload.salt || ''));
+          const digest = await sha256Hex(`${String(payload.nonce || '')}:${verifier}`);
+          try {
+            conn.send(JSON.stringify({ action: 'auth-response', digest }));
+          } catch (e) {}
+          return;
+        }
+
+        if (payload.action === 'auth-response' && isHost) {
+          const challenge = pendingAuthChallenges.get(conn.peer);
+          if (!challenge) return;
+          clearTimeout(challenge.timer);
+          pendingAuthChallenges.delete(conn.peer);
+
+          const expected = await sha256Hex(`${challenge.nonce}:${roomPasswordVerifier}`);
+          if (typeof payload.digest === 'string' && timingSafeEqual(payload.digest, expected)) {
+            admitPeerConnection(conn);
+          } else {
+            try {
+              conn.send(JSON.stringify({ action: 'auth-fail', reason: 'Incorrect room password.' }));
+            } catch (e) {}
+            setTimeout(() => { try { conn.close(); } catch (e) {} }, 250);
+          }
+          return;
+        }
+
+        if (payload.action === 'auth-ok' && !isHost && conn.peer === hostPeerId) {
+          conn.metadata = { ...(conn.metadata || {}), nickname: payload.nickname || 'Host' };
+          admitPeerConnection(conn);
+          if (typeof onHostAuthSuccess === 'function') {
+            const cb = onHostAuthSuccess;
+            onHostAuthSuccess = null;
+            cb();
+          }
+          return;
+        }
+
+        if (payload.action === 'auth-fail' && !isHost && conn.peer === hostPeerId) {
+          hideLoading();
+          notify(typeof payload.reason === 'string' ? payload.reason : 'Authentication failed.', 'error');
           forceLeaveRoom();
           return;
         }
-        if (payload && payload.action === 'relay') {
-          handleRelayData(payload.from || conn.peer, payload.data);
+
+        if (payload.action === 'relay') {
+          if (!isHost && conn.peer === hostPeerId && !authenticatedPeers.has(conn.peer)) {
+            admitPeerConnection(conn);
+            if (typeof onHostAuthSuccess === 'function') {
+              const cb = onHostAuthSuccess;
+              onHostAuthSuccess = null;
+              cb();
+            }
+          }
+          if (!authenticatedPeers.has(conn.peer)) return;
+          const effectiveFrom = (!isHost && conn.peer === hostPeerId && typeof payload.from === 'string')
+            ? payload.from
+            : conn.peer;
+          handleRelayData(effectiveFrom, payload.data);
         }
       } catch (e) {
         console.warn('[StudyRoom] Parse note:', e);
@@ -878,20 +1313,39 @@
     });
 
     conn.on('close', () => {
-      peerDataConns.delete(conn.peer);
-      const leftNick = peers[conn.peer]?.nickname || 'Student';
-      delete peers[conn.peer];
-      delete wbRemoteCursors[conn.peer];
-      clearRemoteMedia(conn.peer);
-      if (screenShareOwnerId === conn.peer) {
-        setSpotlight(null);
+      const pending = pendingAuthChallenges.get(conn.peer);
+      if (pending) {
+        clearTimeout(pending.timer);
+        pendingAuthChallenges.delete(conn.peer);
       }
-      updateParticipantsUI();
-      updateProgressUI();
-      addSystemMessage(`${leftNick} left the room.`);
+      authenticatedPeers.delete(conn.peer);
+      peerDataConns.delete(conn.peer);
+      if (!serverConnected) {
+        const wasAdmitted = Object.prototype.hasOwnProperty.call(peers, conn.peer);
+        const leftNick = peers[conn.peer]?.nickname || 'Student';
+        delete peers[conn.peer];
+        delete wbRemoteCursors[conn.peer];
+        clearRemoteMedia(conn.peer);
+        if (screenShareOwnerId === conn.peer) {
+          setSpotlight(null);
+        }
+        updateParticipantsUI();
+        updateProgressUI();
+        if (wasAdmitted) {
+          addSystemMessage(`${leftNick} left the room.`);
+        }
+      } else {
+        clearRemoteMedia(conn.peer);
+      }
     });
 
     conn.on('error', () => {
+      const pending = pendingAuthChallenges.get(conn.peer);
+      if (pending) {
+        clearTimeout(pending.timer);
+        pendingAuthChallenges.delete(conn.peer);
+      }
+      authenticatedPeers.delete(conn.peer);
       peerDataConns.delete(conn.peer);
     });
   }
@@ -1305,6 +1759,54 @@
   }
 
   /* Lobby View */
+  async function loadActiveServerRooms() {
+    const listEl = document.getElementById('srActiveRoomsList');
+    if (!listEl) return;
+    try {
+      const res = await fetch('/api/studyroom/rooms', { cache: 'no-store' });
+      if (!res.ok) throw new Error('Status ' + res.status);
+      const data = await res.json();
+      const rooms = Array.isArray(data?.rooms) ? data.rooms : [];
+      if (rooms.length === 0) {
+        listEl.innerHTML = `<div style="font-size:0.8rem; color:var(--fg3); text-align:center; padding:10px 6px;">No active rooms hosted on this server right now. Create one above or enter a 10-digit peer code!</div>`;
+        return;
+      }
+      listEl.innerHTML = rooms.map(r => `
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 12px; background:var(--bg); border:1px solid var(--line); border-radius:10px; flex-wrap:wrap;">
+          <div style="display:flex; flex-direction:column; gap:2px; min-width:0;">
+            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+              <strong style="font-size:0.86rem; color:var(--fg);">${escapeHTML(r.title || `${r.host}'s Room`)}</strong>
+              <span style="font-family:'JetBrains Mono',monospace; font-size:0.75rem; color:var(--accent); background:var(--hover); padding:2px 7px; border-radius:6px;">${escapeHTML(r.code)}</span>
+              ${r.hasPassword ? `<span style="font-size:0.7rem; color:#f59e0b;"><i class="fas fa-lock"></i> Password</span>` : `<span style="font-size:0.7rem; color:#10b981;"><i class="fas fa-lock-open"></i> Open</span>`}
+            </div>
+            <span style="font-size:0.74rem; color:var(--fg3);">Host: ${escapeHTML(r.host)} • ${Number(r.participantCount) || 1} participant${(Number(r.participantCount) || 1) === 1 ? '' : 's'}</span>
+          </div>
+          <button type="button" class="sr-btn sr-btn-accent sr-btn-sm sr-quick-join-btn" data-code="${escapeHTML(r.code)}" data-pw="${r.hasPassword ? '1' : '0'}">
+            <i class="fas fa-sign-in-alt"></i> Join
+          </button>
+        </div>
+      `).join('');
+
+      listEl.querySelectorAll('.sr-quick-join-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const code = btn.dataset.code || '';
+          const needsPw = btn.dataset.pw === '1';
+          const codeInput = document.getElementById('srJoinAddress');
+          const pwInput = document.getElementById('srJoinPassword');
+          if (codeInput) codeInput.value = code;
+          if (needsPw && pwInput && !pwInput.value.trim()) {
+            pwInput.focus();
+            notify('This room is password-protected. Enter the room password and click Join.', 'info');
+            return;
+          }
+          handleJoin();
+        });
+      });
+    } catch (_) {
+      listEl.innerHTML = `<div style="font-size:0.78rem; color:var(--fg3); text-align:center; padding:8px;">Use a 10-digit room code above to join a peer session.</div>`;
+    }
+  }
+
   function renderStudyRoom() {
     const section = document.getElementById('studyRoomSection');
     if (!section) return;
@@ -1314,15 +1816,24 @@
       return;
     }
 
+    const online = typeof navigator === 'undefined' ? true : navigator.onLine !== false;
     const savedNick = localStorage.getItem('questionary-study-nickname') || '';
     section.innerHTML = `
       <div class="sr-lobby">
         <div class="sr-lobby-header">
-          <h2 class="section-title"><i class="fas fa-users-class"></i>Study Room</h2>
-          <span class="sr-exp-badge">experimental</span>
-          <div class="sr-lobby-icon"><i class="fas fa-graduation-cap"></i></div>
-          <p class="sr-lobby-subtitle">Collaborate live with multi-user video, screen sharing, infinite vector whiteboard, synchronized timers & audio ambience.</p>
+          <h2 class="section-title"><i class="fas fa-users"></i>Study Room</h2>
+          <p class="sr-lobby-subtitle">Collaborate live with multi-user video, screen sharing, infinite vector whiteboard, synchronized focus timers & Lo-Fi audio soundscapes.</p>
         </div>
+
+        ${!online ? `
+          <div class="sr-offline-notice" role="status">
+            <i class="fas fa-wifi-slash"></i>
+            <div>
+              <strong>Offline Mode Detected</strong>
+              <p>Live P2P rooms require an active network connection. Solo Offline Study Room (Whiteboard, Focus Timer, and Lo-Fi Ambient Mixer) remains 100% available offline.</p>
+            </div>
+          </div>
+        ` : ''}
 
         <div class="sr-lobby-cards">
           <div class="sr-lobby-card">
@@ -1330,33 +1841,45 @@
             <input type="text" id="srNickname" class="sr-input" placeholder="Enter your display name…" maxlength="24" value="${escapeHTML(savedNick || window.currentUser?.username || '')}">
           </div>
 
-          <div class="sr-lobby-card sr-card-create">
+          <div class="sr-lobby-card sr-card-create ${!online ? 'sr-card-disabled' : ''}">
             <h3><i class="fas fa-plus-circle"></i> Create Room</h3>
             <p>Host a collaborative session and share your 10-digit code with peers.</p>
             <div class="sr-pw-row">
-              <input type="password" id="srCreatePassword" class="sr-input" placeholder="Room password (optional)" maxlength="32" autocomplete="off">
-              <button type="button" class="sr-pw-toggle" id="srCreatePwToggle" title="Toggle password"><i class="fas fa-eye"></i></button>
+              <input type="password" id="srCreatePassword" class="sr-input" placeholder="Room password (optional)" maxlength="32" autocomplete="off" ${!online ? 'disabled' : ''}>
+              <button type="button" class="sr-pw-toggle" id="srCreatePwToggle" title="Toggle password" ${!online ? 'disabled' : ''}><i class="fas fa-eye"></i></button>
             </div>
-            <button class="sr-btn sr-btn-primary" id="srCreateBtn"><i class="fas fa-door-open"></i> Create Live Room</button>
+            <button class="sr-btn sr-btn-primary" id="srCreateBtn" ${!online ? 'disabled title="Requires network connection"' : ''}><i class="fas fa-door-open"></i> ${online ? 'Create Live Room' : 'Offline — Live Room Unavailable'}</button>
           </div>
 
-          <div class="sr-lobby-card sr-card-join">
+          <div class="sr-lobby-card sr-card-join ${!online ? 'sr-card-disabled' : ''}">
             <h3><i class="fas fa-sign-in-alt"></i> Join Room</h3>
             <p>Enter the 10-digit room code provided by the session host.</p>
             <div class="sr-join-row">
-              <input type="text" id="srJoinAddress" class="sr-input sr-code-input" placeholder="4SNELCGW9X" spellcheck="false" autocomplete="off" maxlength="10">
-              <button class="sr-btn sr-btn-accent" id="srJoinBtn"><i class="fas fa-arrow-right"></i> Join</button>
+              <input type="text" id="srJoinAddress" class="sr-input sr-code-input" placeholder="4SNELCGW9X" spellcheck="false" autocomplete="off" maxlength="10" ${!online ? 'disabled' : ''}>
+              <button class="sr-btn sr-btn-accent" id="srJoinBtn" ${!online ? 'disabled title="Requires network connection"' : ''}><i class="fas fa-arrow-right"></i> Join</button>
             </div>
             <div class="sr-pw-row" style="margin-top:0.5rem;">
-              <input type="password" id="srJoinPassword" class="sr-input" placeholder="Password (if required)" maxlength="32" autocomplete="off">
-              <button type="button" class="sr-pw-toggle" id="srJoinPwToggle" title="Toggle password"><i class="fas fa-eye"></i></button>
+              <input type="password" id="srJoinPassword" class="sr-input" placeholder="Password (if required)" maxlength="32" autocomplete="off" ${!online ? 'disabled' : ''}>
+              <button type="button" class="sr-pw-toggle" id="srJoinPwToggle" title="Toggle password" ${!online ? 'disabled' : ''}><i class="fas fa-eye"></i></button>
             </div>
           </div>
+
+          ${online ? `
+          <div class="sr-lobby-card" style="grid-column: 1 / -1;">
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;">
+              <h3 style="margin:0;"><i class="fas fa-satellite-dish"></i> Active Rooms on Server</h3>
+              <button type="button" class="sr-btn sr-btn-secondary sr-btn-sm" id="srRefreshRoomsBtn"><i class="fas fa-sync-alt"></i> Refresh</button>
+            </div>
+            <div id="srActiveRoomsList" style="display:flex; flex-direction:column; gap:8px;">
+              <div style="font-size:0.8rem; color:var(--fg3); text-align:center; padding:8px;">Checking active rooms…</div>
+            </div>
+          </div>
+          ` : ''}
         </div>
 
-        <div style="margin-top: 2rem; text-align: center;">
-          <button class="sr-btn sr-btn-secondary" id="srSoloModeBtn" style="background: transparent; border: 1px dashed var(--border); color: var(--text-secondary);">
-            <i class="fas fa-pencil-ruler"></i> Open Solo Offline Whiteboard (No Network)
+        <div class="sr-solo-row">
+          <button class="sr-btn sr-btn-secondary sr-solo-btn" id="srSoloModeBtn">
+            <i class="fas fa-headphones-alt"></i> Open Solo Study Room (Whiteboard, Focus Timer & Lo-Fi Beats)
           </button>
         </div>
       </div>
@@ -1365,10 +1888,15 @@
     document.getElementById('srCreateBtn')?.addEventListener('click', handleCreate);
     document.getElementById('srJoinBtn')?.addEventListener('click', handleJoin);
     document.getElementById('srSoloModeBtn')?.addEventListener('click', startSoloMode);
+    document.getElementById('srRefreshRoomsBtn')?.addEventListener('click', loadActiveServerRooms);
     document.getElementById('srJoinAddress')?.addEventListener('keydown', e => { if (e.key === 'Enter') handleJoin(); });
 
     setupPwToggle('srCreatePwToggle', 'srCreatePassword');
     setupPwToggle('srJoinPwToggle', 'srJoinPassword');
+
+    if (online) {
+      loadActiveServerRooms();
+    }
   }
 
   function setupPwToggle(btnId, inputId) {
@@ -1387,11 +1915,14 @@
     const section = document.getElementById('studyRoomSection');
     if (!section) return;
 
+    const validTabs = ['chat', 'participants', 'progress', 'focus', 'ambience'];
+    if (!validTabs.includes(activeSidebarTab)) activeSidebarTab = 'chat';
+
     section.innerHTML = `
       <div class="sr-session">
         <div class="sr-session-bar">
           <div class="sr-session-bar-left">
-            <span class="sr-mode-badge ${isSoloMode ? '' : 'sr-mode-inet'}"><i class="fas fa-${isSoloMode ? 'user' : 'bolt'}"></i> ${isSoloMode ? 'Solo Mode' : 'Live Room'}</span>
+            <span class="sr-mode-badge ${isSoloMode ? 'sr-mode-lan' : 'sr-mode-inet'}"><i class="fas fa-${isSoloMode ? 'user' : 'bolt'}"></i> ${isSoloMode ? 'Solo Room' : 'Live Room'}</span>
             ${!isSoloMode ? `
               <span class="sr-room-code-badge" title="Click to copy room code" id="srCopyCode">
                 <i class="fas fa-key"></i> ${escapeHTML(roomAddress)}
@@ -1401,14 +1932,14 @@
           </div>
 
           <div class="sr-pomo-bar" id="srPomoBar">
-            <button class="sr-pomo-mode-btn" id="srPomoToggleMode" title="Cycle Timer Mode">
-              <i class="fas fa-stopwatch"></i>
+            <button class="sr-pomo-mode-btn" id="srPomoToggleMode" title="Cycle Timer Mode (Focus / Break / Stopwatch)">
+              <i class="fas fa-brain"></i>
             </button>
-            <span class="sr-pomo-timer" id="srPomoTimer">00:00</span>
-            <button class="sr-pomo-ctrl-btn" id="srPomoPlayPause" title="Start / Pause">
+            <span class="sr-pomo-timer" id="srPomoTimer">25:00</span>
+            <button class="sr-pomo-ctrl-btn" id="srPomoPlayPause" title="Start / Pause Timer">
               <i class="fas fa-play"></i>
             </button>
-            <button class="sr-pomo-ctrl-btn" id="srPomoReset" title="Reset">
+            <button class="sr-pomo-ctrl-btn" id="srPomoReset" title="Reset Timer">
               <i class="fas fa-redo"></i>
             </button>
           </div>
@@ -1418,11 +1949,11 @@
               <button class="sr-ctrl-btn ${handRaised ? 'sr-ctrl-active' : ''}" id="srRaiseHandBtn" title="Raise Hand">
                 <i class="fas fa-hand-paper"></i>
               </button>
-              <button class="sr-ctrl-btn" id="srToggleMic" title="Toggle Mic (Ctrl+M)">
-                <i class="fas fa-microphone-slash" style="color: #ef4444;"></i>
+              <button class="sr-ctrl-btn ${micActive ? 'sr-ctrl-active' : ''}" id="srToggleMic" title="Toggle Mic (Ctrl+M)">
+                <i class="fas fa-${micActive ? 'microphone' : 'microphone-slash'}" style="${micActive ? '' : 'color: #ef4444;'}"></i>
               </button>
-              <button class="sr-ctrl-btn" id="srToggleCamera" title="Toggle Video (Ctrl+V)">
-                <i class="fas fa-video-slash" style="color: #ef4444;"></i>
+              <button class="sr-ctrl-btn ${camActive ? 'sr-ctrl-active' : ''}" id="srToggleCamera" title="Toggle Video (Ctrl+V)">
+                <i class="fas fa-${camActive ? 'video' : 'video-slash'}" style="${camActive ? '' : 'color: #ef4444;'}"></i>
               </button>
               <button class="sr-ctrl-btn" id="srToggleScreenShare" title="Share Screen">
                 <i class="fas fa-desktop"></i>
@@ -1438,7 +1969,7 @@
         </div>
 
         <div class="sr-session-body">
-          <div class="sr-video-area" id="srParticipantArea">
+          <div class="sr-video-area" id="srParticipantArea" style="display:${wbActive ? 'none' : 'flex'};">
             <div class="sr-spotlight-stage" id="srSpotlightStage" style="display: none;">
               <video class="sr-spotlight-video" id="srSpotlightVideo" autoplay playsinline></video>
               <div class="sr-spotlight-overlay" id="srSpotlightOverlay">
@@ -1459,7 +1990,7 @@
             </div>
           </div>
 
-          <div class="sr-wb-panel" id="srWhiteboardPanel" style="display:none;">
+          <div class="sr-wb-panel" id="srWhiteboardPanel" style="display:${wbActive ? 'flex' : 'none'};">
             <div class="sr-wb-toolbar">
               <div class="sr-wb-tools">
                 <button class="sr-wb-tool-btn" data-tool="pan" title="Pan Canvas"><i class="fas fa-hand-paper"></i></button>
@@ -1517,19 +2048,20 @@
 
           <div class="sr-sidebar" id="srSidebar">
             <div class="sr-sidebar-tabs">
-              <button class="sr-tab-btn active" data-tab="chat">
+              <button class="sr-tab-btn ${activeSidebarTab === 'chat' ? 'active' : ''}" data-tab="chat">
                 <i class="fas fa-comments"></i> Chat
                 <span class="sr-count" id="srUnreadBadge" style="display:none;">0</span>
               </button>
-              <button class="sr-tab-btn" data-tab="participants">
+              <button class="sr-tab-btn ${activeSidebarTab === 'participants' ? 'active' : ''}" data-tab="participants">
                 <i class="fas fa-users"></i> People
                 <span class="sr-count" id="srPeopleCount">${1 + Object.keys(peers).length}</span>
               </button>
-              <button class="sr-tab-btn" data-tab="progress"><i class="fas fa-tasks"></i> Goals</button>
-              <button class="sr-tab-btn" data-tab="ambience"><i class="fas fa-music"></i> Audio</button>
+              <button class="sr-tab-btn ${activeSidebarTab === 'progress' ? 'active' : ''}" data-tab="progress"><i class="fas fa-tasks"></i> Goals</button>
+              <button class="sr-tab-btn ${activeSidebarTab === 'focus' ? 'active' : ''}" data-tab="focus"><i class="fas fa-stopwatch"></i> Focus</button>
+              <button class="sr-tab-btn ${activeSidebarTab === 'ambience' ? 'active' : ''}" data-tab="ambience"><i class="fas fa-music"></i> Audio</button>
             </div>
 
-            <div class="sr-tab-panel active" id="srTabChat">
+            <div class="sr-tab-panel ${activeSidebarTab === 'chat' ? 'active' : ''}" id="srTabChat">
               <div class="sr-chat-messages" id="srChatMessages"></div>
               <div class="sr-chat-input-row">
                 <input type="file" id="srMaterialFile" style="display:none;" accept=".pdf,.png,.jpg,.jpeg,.doc,.docx,.txt" />
@@ -1541,11 +2073,11 @@
               </div>
             </div>
 
-            <div class="sr-tab-panel" id="srTabParticipants">
+            <div class="sr-tab-panel ${activeSidebarTab === 'participants' ? 'active' : ''}" id="srTabParticipants">
               <div id="srParticipantsList">${buildParticipantsHTML()}</div>
             </div>
 
-            <div class="sr-tab-panel" id="srTabProgress">
+            <div class="sr-tab-panel ${activeSidebarTab === 'progress' ? 'active' : ''}" id="srTabProgress">
               <div class="sr-progress-self">
                 <h4>Your Study Goal</h4>
                 <input type="text" id="srGoalInput" class="sr-input" placeholder="What are you studying right now?" value="${escapeHTML(studyGoal)}" maxlength="80">
@@ -1556,28 +2088,9 @@
               </div>
             </div>
 
-            <div class="sr-tab-panel" id="srTabAmbience">
-              <div style="padding: 10px;">
-                <h4 style="margin: 0 0 10px 0; font-size: 0.95rem; color: var(--text-primary);"><i class="fas fa-headphones" style="color: var(--accent);"></i> Focus Soundscapes</h4>
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 14px;">
-                  ${[
-                    { id: 'rain', name: 'Rainfall', icon: 'cloud-showers-heavy' },
-                    { id: 'waves', name: 'Ocean Waves', icon: 'water' },
-                    { id: 'campfire', name: 'Campfire', icon: 'fire' },
-                    { id: 'binaural', name: 'Alpha Beats', icon: 'brain' },
-                    { id: 'whitenoise', name: 'White Noise', icon: 'wind' },
-                    { id: 'none', name: 'Mute Audio', icon: 'volume-mute' }
-                  ].map(t => `
-                    <button class="sr-btn sr-btn-sm sr-amb-btn ${currentAmbienceTrack === t.id ? 'sr-btn-primary' : 'sr-btn-secondary'}" data-track="${t.id}" style="padding: 10px 6px; display: flex; flex-direction: column; align-items: center; gap: 4px;">
-                      <i class="fas fa-${t.icon}" style="font-size: 1.2rem;"></i>
-                      <span style="font-size: 0.75rem;">${t.name}</span>
-                    </button>
-                  `).join('')}
-                </div>
-                <label style="font-size: 0.8rem; color: var(--text-secondary);">Ambience Volume</label>
-                <input type="range" id="srAmbienceVol" min="0" max="1" step="0.05" value="${ambienceVolume}" style="width: 100%; margin-top: 4px; cursor: pointer;">
-              </div>
-            </div>
+            <div class="sr-tab-panel ${activeSidebarTab === 'focus' ? 'active' : ''}" id="srTabFocus"></div>
+
+            <div class="sr-tab-panel ${activeSidebarTab === 'ambience' ? 'active' : ''}" id="srTabAmbience"></div>
           </div>
         </div>
       </div>
@@ -1587,6 +2100,13 @@
     renderChatMessages();
     updateParticipantsUI();
     updateTimerDisplay();
+    if (wbActive) {
+      requestAnimationFrame(() => {
+        setupCanvas();
+        renderQuestionsUI();
+      });
+    }
+    document.dispatchEvent(new CustomEvent('studyroom:session-rendered'));
   }
 
   function buildParticipantsHTML() {
@@ -1652,14 +2172,14 @@
     if (ownerId === 'self') {
       video.srcObject = localScreenStream;
       video.muted = true;
-      if (label) label.textContent = `${escapeHTML(nickname)} (Your Screen)`;
+      if (label) label.textContent = `${nickname} (Your Screen)`;
     } else {
       const stream = remoteStreams.get(ownerId);
       if (stream) {
         video.srcObject = stream;
         video.muted = true;
       }
-      if (label) label.textContent = `${escapeHTML(ownerName || peers[ownerId]?.nickname || 'Participant')}'s Screen`;
+      if (label) label.textContent = `${ownerName || peers[ownerId]?.nickname || 'Participant'}'s Screen`;
     }
 
     safePlayMedia(video);
@@ -1729,6 +2249,14 @@
     else grid.classList.add('sr-grid-4plus');
   }
 
+  const TIMER_MODE_DURATIONS = {
+    focus: 25 * 60,
+    break: 5 * 60,
+    long_break: 15 * 60,
+    deep: 50 * 60,
+    stopwatch: 0
+  };
+
   function startStudyTimerEngine() {
     if (mainInterval) clearInterval(mainInterval);
 
@@ -1745,8 +2273,15 @@
             if (timerRemaining === 0) {
               timerRunning = false;
               SoundFX.playChime();
-              notify(timerMode === 'focus' ? 'Focus session complete! Take a break.' : 'Break finished! Back to focus.', 'success');
-              if (timerMode === 'focus') {
+              const wasFocus = (timerMode === 'focus' || timerMode === 'deep');
+              notify(wasFocus ? 'Focus session complete! Time for a restorative break.' : 'Break finished! Ready for the next focus block.', 'success');
+              if (wasFocus) {
+                try {
+                  const sessions = parseInt(localStorage.getItem('q_study_sessions_completed') || '0', 10) + 1;
+                  localStorage.setItem('q_study_sessions_completed', String(sessions));
+                  const mins = parseInt(localStorage.getItem('q_study_minutes_focused') || '0', 10) + Math.round(timerDuration / 60);
+                  localStorage.setItem('q_study_minutes_focused', String(mins));
+                } catch (_) {}
                 timerMode = 'break';
                 timerDuration = 5 * 60;
                 timerRemaining = 5 * 60;
@@ -1791,27 +2326,25 @@
     updateTimerDisplay();
   }
 
-  function cycleTimerMode() {
-    if (timerMode === 'stopwatch') {
-      timerMode = 'focus';
-      timerDuration = 25 * 60;
-      timerRemaining = 25 * 60;
-    } else if (timerMode === 'focus') {
-      timerMode = 'break';
-      timerDuration = 5 * 60;
-      timerRemaining = 5 * 60;
-    } else if (timerMode === 'break') {
-      timerMode = 'long_break';
-      timerDuration = 15 * 60;
-      timerRemaining = 15 * 60;
-    } else {
-      timerMode = 'stopwatch';
-      timerSeconds = 0;
-    }
-
+  function setTimerModeDirect(mode) {
+    const normalized = mode === 'short' ? 'break' : (mode === 'long' ? 'long_break' : mode);
+    if (!Object.prototype.hasOwnProperty.call(TIMER_MODE_DURATIONS, normalized)) return;
+    timerMode = normalized;
     timerRunning = false;
-    if (!isSoloMode) broadcastTimerSync();
+    if (normalized === 'stopwatch') {
+      timerSeconds = 0;
+    } else {
+      timerDuration = TIMER_MODE_DURATIONS[normalized];
+      timerRemaining = timerDuration;
+    }
+    if (!isSoloMode && (sessionActive || isSoloMode)) broadcastTimerSync();
     updateTimerDisplay();
+  }
+
+  function cycleTimerMode() {
+    const order = ['focus', 'break', 'long_break', 'deep', 'stopwatch'];
+    const nextIdx = (order.indexOf(timerMode) + 1) % order.length;
+    setTimerModeDirect(order[nextIdx]);
   }
 
   function broadcastTimerSync() {
@@ -1833,7 +2366,9 @@
     if (timerEl) {
       const displayVal = timerMode === 'stopwatch' ? timerSeconds : timerRemaining;
       timerEl.textContent = fmtTime(displayVal);
-      timerEl.style.color = timerMode === 'focus' ? 'var(--accent, #cf6215)' : (timerMode.includes('break') ? '#10b981' : 'var(--fg)');
+      timerEl.style.color = (timerMode === 'focus' || timerMode === 'deep')
+        ? 'var(--accent, #cf6215)'
+        : (timerMode.includes('break') ? '#10b981' : 'var(--fg)');
     }
 
     if (playBtn) {
@@ -1842,12 +2377,35 @@
 
     if (modeBtn) {
       let icon = 'stopwatch';
-      if (timerMode === 'focus') icon = 'brain';
+      if (timerMode === 'focus' || timerMode === 'deep') icon = 'brain';
       else if (timerMode === 'break') icon = 'coffee';
       else if (timerMode === 'long_break') icon = 'umbrella-beach';
       modeBtn.innerHTML = `<i class="fas fa-${icon}"></i>`;
     }
+
+    document.dispatchEvent(new CustomEvent('studyroom:timer-tick', {
+      detail: {
+        mode: timerMode,
+        running: timerRunning,
+        seconds: timerSeconds,
+        duration: timerDuration,
+        remaining: timerRemaining
+      }
+    }));
   }
+
+  window.StudyRoomTimer = {
+    getState: () => ({
+      mode: timerMode,
+      running: timerRunning,
+      seconds: timerSeconds,
+      duration: timerDuration,
+      remaining: timerRemaining
+    }),
+    setMode: setTimerModeDirect,
+    toggle: toggleTimerPlayPause,
+    reset: resetTimer
+  };
 
   function attachSessionListeners() {
     abortController.abort();
@@ -1855,9 +2413,13 @@
     const { signal } = abortController;
 
     document.getElementById('srCopyCode')?.addEventListener('click', () => {
-      navigator.clipboard.writeText(roomAddress).then(() => notify('Room code copied to clipboard!', 'success')).catch(() => {
-        prompt('Room Code:', roomAddress);
-      });
+      if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+        navigator.clipboard.writeText(roomAddress).then(() => notify('Room code copied to clipboard!', 'success')).catch(() => {
+          notify(`Room Code: ${roomAddress}`, 'info');
+        });
+      } else {
+        notify(`Room Code: ${roomAddress}`, 'info');
+      }
     }, { signal });
 
     const pwReveal = document.getElementById('srPwReveal');
@@ -1913,20 +2475,6 @@
         if (!isSoloMode) broadcastData({ type: 'reaction', emoji });
       }, { signal });
     });
-
-    document.querySelectorAll('.sr-amb-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        document.querySelectorAll('.sr-amb-btn').forEach(b => b.classList.remove('sr-btn-primary'));
-        btn.classList.add('sr-btn-primary');
-        currentAmbienceTrack = btn.dataset.track;
-        SoundFX.setAmbience(currentAmbienceTrack, ambienceVolume);
-      }, { signal });
-    });
-
-    document.getElementById('srAmbienceVol')?.addEventListener('input', (e) => {
-      ambienceVolume = parseFloat(e.target.value);
-      SoundFX.setAmbienceVolume(ambienceVolume);
-    }, { signal });
 
     const applyGoal = () => {
       const input = document.getElementById('srGoalInput');
@@ -2020,12 +2568,58 @@
     };
   }
 
+  const SAFE_SHARE_MIMES = new Set([
+    'application/pdf',
+    'text/plain',
+    'text/csv',
+    'text/markdown',
+    'application/json',
+    'image/png',
+    'image/jpeg',
+    'image/webp',
+    'image/gif',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/msword',
+    'application/octet-stream'
+  ]);
+
+  function dataUrlToSafeBlobUrl(dataUrl) {
+    if (typeof dataUrl !== 'string') return null;
+    const match = dataUrl.match(/^data:([a-z0-9.+-]+\/[a-z0-9.+-]+)(?:;[a-z0-9=_-]+)?;base64,([A-Za-z0-9+/=]+)$/i);
+    if (!match) return null;
+    const mime = match[1].toLowerCase();
+    if (!SAFE_SHARE_MIMES.has(mime)) return null;
+    try {
+      const binary = atob(match[2]);
+      if (binary.length > 9 * 1024 * 1024) return null;
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      const blob = new Blob([bytes], { type: mime });
+      const blobUrl = URL.createObjectURL(blob);
+      sharedBlobUrls.push(blobUrl);
+      return blobUrl;
+    } catch (e) {
+      return null;
+    }
+  }
+
   function receiveStudyMaterial(fromId, fileData, fileName) {
     const senderName = (fromId === myId) ? nickname : (peers[fromId]?.nickname || 'Someone');
-    const safeName = escapeHTML(fileName);
-    const safeUri = encodeURI(fileData);
-    const msgHtml = `Shared a file: <br><a href="${safeUri}" download="${safeName}" class="sr-file-download-link"><i class="fas fa-file-download"></i> ${safeName}</a>`;
-    chatMessages.push({ senderId: fromId, senderName: senderName, text: msgHtml, time: Date.now(), type: 'html' });
+    const cleanFileName = String(fileName || 'shared-file').replace(/[\r\n\0\/\\]/g, '_').slice(0, 180);
+    const safeBlobUrl = dataUrlToSafeBlobUrl(fileData);
+    if (!safeBlobUrl) {
+      notify('Blocked an unsupported or malformed shared file.', 'warning');
+      return;
+    }
+    chatMessages.push({
+      senderId: fromId,
+      senderName: senderName,
+      fileName: cleanFileName,
+      blobUrl: safeBlobUrl,
+      text: `Shared a file: ${cleanFileName}`,
+      time: Date.now(),
+      type: 'file'
+    });
     renderChatMessages();
     SoundFX.playPop();
   }
@@ -2043,11 +2637,21 @@
       if (m.type === 'system') {
         return `<div class="sr-chat-msg sr-chat-system"><em>${escapeHTML(m.text)}</em></div>`;
       }
+      let bodyHtml;
+      if (m.type === 'file' && m.blobUrl) {
+        const safeName = escapeHTML(m.fileName || 'file');
+        const safeHref = escapeHTML(m.blobUrl);
+        bodyHtml = `Shared a file: <br><a href="${safeHref}" download="${safeName}" rel="noopener noreferrer" class="sr-file-download-link"><i class="fas fa-file-download"></i> ${safeName}</a>`;
+      } else if (m.type === 'html' && window.DOMPurify) {
+        bodyHtml = window.DOMPurify.sanitize(String(m.text || ''), { ALLOW_UNKNOWN_PROTOCOLS: false });
+      } else {
+        bodyHtml = escapeHTML(m.text);
+      }
       return `
         <div class="sr-chat-msg ${isMe ? 'sr-chat-me' : 'sr-chat-other'}">
           <span class="sr-chat-sender">${escapeHTML(m.senderName)}</span>
-          <span class="sr-chat-text">${m.type === 'html' ? m.text : escapeHTML(m.text)}</span>
-          <span class="sr-chat-time">${timeStr}</span>
+          <span class="sr-chat-text">${bodyHtml}</span>
+          <span class="sr-chat-time">${escapeHTML(timeStr)}</span>
         </div>`;
     }).join('');
     container.scrollTop = container.scrollHeight;
@@ -2065,11 +2669,13 @@
     const participantArea = document.getElementById('srParticipantArea');
     const btn = document.getElementById('srToggleWB');
     if (panel) panel.style.display = wbActive ? 'flex' : 'none';
-    if (participantArea) participantArea.style.display = wbActive ? 'none' : 'block';
+    if (participantArea) participantArea.style.display = wbActive ? 'none' : 'flex';
     if (btn) btn.classList.toggle('sr-ctrl-active', wbActive);
     if (wbActive) {
-      setupCanvas();
-      renderQuestionsUI();
+      requestAnimationFrame(() => {
+        setupCanvas();
+        renderQuestionsUI();
+      });
     }
   }
 
@@ -2087,9 +2693,13 @@
 
     renderCanvasGrid();
 
-    wbZoom = 1;
-    wbPanX = (wbCanvasW - getWrapSize().w) / 2;
-    wbPanY = (wbCanvasH - getWrapSize().h) / 2;
+    if (!wbInitialized) {
+      wbZoom = 1;
+      const sz = getWrapSize();
+      wbPanX = (wbCanvasW - (sz.w || 960)) / 2;
+      wbPanY = (wbCanvasH - (sz.h || 540)) / 2;
+      wbInitialized = true;
+    }
     applyTransform();
     updateZoomLabel();
     replayAllStrokes();
@@ -2568,6 +3178,11 @@
 
   /* Creation / Join Flow */
   async function handleCreate() {
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      notify('Live Study Rooms require a network connection. Opening Solo Study Room instead.', 'info');
+      startSoloMode();
+      return;
+    }
     SoundFX.init();
     nickname = document.getElementById('srNickname')?.value.trim() || 'Host';
     localStorage.setItem('questionary-study-nickname', nickname);
@@ -2578,18 +3193,47 @@
       showLoading('Creating room…');
 
       roomAddress = generateRandomRoomCode();
-      await loadPeerJSLibrary();
+      const hostId = await deriveHostPeerId(roomAddress);
+      hostPeerId = hostId;
+      myId = hostId;
+
+      if (roomPassword) {
+        roomSalt = generateRandomHex(16);
+        roomPasswordVerifier = await computeRoomVerifier(roomPassword, roomSalt);
+      } else {
+        roomSalt = '';
+        roomPasswordVerifier = '';
+      }
 
       if (peerInstance) {
         try { peerInstance.destroy(); } catch (e) {}
         peerInstance = null;
       }
 
-      const hostId = `qroom-${roomAddress}-host`;
-      peerInstance = new window.Peer(hostId, { config: ICE_CONFIG });
+      // Register room on Questionary Server Relay first
+      let serverRegistered = false;
+      try {
+        const srvRes = await fetch('/api/studyroom/create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            code: roomAddress,
+            nickname,
+            peerId: hostId,
+            password: roomPassword,
+            title: `${nickname}'s Study Room`
+          })
+        });
+        if (srvRes.ok) {
+          serverRegistered = true;
+          connectServerStream(roomAddress, hostId);
+        }
+      } catch (_) {}
 
-      peerInstance.on('open', (id) => {
-        myId = id;
+      let finalized = false;
+      const finalizeCreate = () => {
+        if (finalized) return;
+        finalized = true;
         sessionActive = true;
         isSoloMode = false;
         startStudyTimerEngine();
@@ -2597,25 +3241,57 @@
         renderActiveSession();
         SoundFX.playJoin();
         notify(`Study Room live! Code: ${roomAddress}`, 'success');
-      });
+      };
 
-      peerInstance.on('connection', (conn) => {
-        setupPeerDataConnection(conn);
-      });
-
-      peerInstance.on('call', (call) => {
-        const stream = getActiveCombinedStream();
-        call.answer(stream);
-        setupPeerCall(call);
-      });
-
-      peerInstance.on('error', (err) => {
-        hideLoading();
-        if (err.type === 'unavailable-id') {
-          handleCreate();
-        } else {
-          notify('Connection notice: ' + (err.type || err), 'warning');
+      // If server registered the room, don't block UI waiting for external PeerJS cloud broker
+      const createTimeout = setTimeout(() => {
+        if (!finalized) {
+          if (serverRegistered) {
+            finalizeCreate();
+          } else {
+            // Even if PeerJS cloud broker is unreachable, open the room locally so user is never stuck
+            finalizeCreate();
+          }
         }
+      }, serverRegistered ? 1500 : 5000);
+
+      loadPeerJSLibrary().then(() => {
+        if (!sessionActive && finalized) return;
+        peerInstance = new window.Peer(hostId, { config: ICE_CONFIG });
+
+        peerInstance.on('open', (id) => {
+          clearTimeout(createTimeout);
+          myId = id;
+          finalizeCreate();
+        });
+
+        peerInstance.on('connection', (conn) => {
+          setupPeerDataConnection(conn);
+        });
+
+        peerInstance.on('call', (call) => {
+          if (isHost && roomPasswordVerifier && !authenticatedPeers.has(call.peer)) {
+            try { call.close(); } catch (e) {}
+            return;
+          }
+          const stream = getActiveCombinedStream();
+          call.answer(stream);
+          setupPeerCall(call);
+        });
+
+        peerInstance.on('error', (err) => {
+          clearTimeout(createTimeout);
+          if (!finalized) {
+            if (err && err.type === 'unavailable-id' && !serverRegistered) {
+              handleCreate();
+              return;
+            }
+            finalizeCreate();
+          }
+        });
+      }).catch(() => {
+        clearTimeout(createTimeout);
+        finalizeCreate();
       });
 
     } catch (err) {
@@ -2627,6 +3303,11 @@
   }
 
   async function handleJoin() {
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      notify('Joining a Live Study Room requires a network connection.', 'warning');
+      renderStudyRoom();
+      return;
+    }
     SoundFX.init();
     nickname = document.getElementById('srNickname')?.value.trim() || 'Student';
     localStorage.setItem('questionary-study-nickname', nickname);
@@ -2647,59 +3328,161 @@
     try {
       showLoading('Connecting to room…');
       roomAddress = cleanCode;
-      await loadPeerJSLibrary();
 
       if (peerInstance) {
         try { peerInstance.destroy(); } catch (e) {}
         peerInstance = null;
       }
 
-      const clientId = 'qclient-' + Math.random().toString(36).substring(2, 9);
-      peerInstance = new window.Peer(clientId, { config: ICE_CONFIG });
+      const clientId = 'qclient-' + generateRandomHex(8);
+      const targetHostId = await deriveHostPeerId(cleanCode);
+      hostPeerId = targetHostId;
+      myId = clientId;
 
-      peerInstance.on('open', (id) => {
-        myId = id;
-        const hostId = `qroom-${cleanCode}-host`;
-        const hostConn = peerInstance.connect(hostId, {
-          reliable: true,
-          metadata: { nickname, password: roomPassword }
+      let joinedViaServer = false;
+      try {
+        const srvRes = await fetch('/api/studyroom/join', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            code: cleanCode,
+            nickname,
+            peerId: clientId,
+            password: roomPassword
+          })
         });
-
-        setupPeerDataConnection(hostConn);
-
-        hostConn.on('open', () => {
-          sessionActive = true;
-          isSoloMode = false;
-          startStudyTimerEngine();
+        const srvData = await srvRes.json().catch(() => null);
+        if (srvRes.status === 403) {
           hideLoading();
-          renderActiveSession();
-          SoundFX.playJoin();
-          notify('Connected to Study Room.', 'success');
-        });
-
-        hostConn.on('error', () => {
-          hideLoading();
-          notify('Could not reach room host. Verify the code.', 'error');
+          notify(srvData?.error || 'Incorrect room password.', 'error');
           cleanup();
           renderStudyRoom();
-        });
-      });
+          return;
+        }
+        if (srvRes.ok && srvData?.success && srvData?.session) {
+          joinedViaServer = true;
+          const sess = srvData.session;
+          if (sess.hostPeerId) hostPeerId = sess.hostPeerId;
+          if (Array.isArray(sess.participants)) {
+            sess.participants.forEach(p => {
+              if (p && p.peerId && p.peerId !== myId) {
+                peers[p.peerId] = {
+                  nickname: sanitizeNick(p.nickname, 'Student'),
+                  goal: p.goal || '',
+                  seconds: Number(p.elapsed) || 0,
+                  handRaised: Boolean(p.handRaised),
+                  isSpeaking: false
+                };
+                allowedMeshPeers.add(p.peerId);
+                authenticatedPeers.add(p.peerId);
+              }
+            });
+          }
+          if (Array.isArray(sess.questions) && sess.questions.length > 0) {
+            wbQuestions = sess.questions;
+            wbNextQId = sess.questions.reduce((m, q) => Math.max(m, (Number(q.id) || 0) + 1), 1);
+          }
+          if (Array.isArray(sess.wbHistory) && sess.wbHistory.length > 0) {
+            wbStrokes = sess.wbHistory;
+          }
+          if (sess.timer && typeof sess.timer === 'object') {
+            if (['focus', 'break', 'long_break', 'deep', 'stopwatch'].includes(sess.timer.mode)) {
+              timerMode = sess.timer.mode;
+            }
+            if (Number.isFinite(sess.timer.secondsLeft)) {
+              timerRemaining = Math.max(0, Math.floor(sess.timer.secondsLeft));
+            }
+            timerRunning = Boolean(sess.timer.running);
+          }
+          connectServerStream(cleanCode, clientId);
+        }
+      } catch (_) {}
 
-      peerInstance.on('connection', (conn) => {
-        setupPeerDataConnection(conn);
-      });
-
-      peerInstance.on('call', (call) => {
-        const stream = getActiveCombinedStream();
-        call.answer(stream);
-        setupPeerCall(call);
-      });
-
-      peerInstance.on('error', (err) => {
+      let finalized = false;
+      const finalizeJoin = () => {
+        if (finalized) return;
+        finalized = true;
+        sessionActive = true;
+        isSoloMode = false;
+        startStudyTimerEngine();
         hideLoading();
-        notify('Connection error: ' + (err.type || err), 'error');
-        cleanup();
-        renderStudyRoom();
+        renderActiveSession();
+        SoundFX.playJoin();
+        notify('Connected to Study Room.', 'success');
+        broadcastData({ type: 'info-request' });
+      };
+
+      if (joinedViaServer) {
+        finalizeJoin();
+      }
+
+      const joinTimeout = setTimeout(() => {
+        if (!finalized) {
+          hideLoading();
+          notify('Room not found or host is unreachable. Verify the 10-digit room code.', 'error');
+          cleanup();
+          renderStudyRoom();
+        }
+      }, 9000);
+
+      loadPeerJSLibrary().then(() => {
+        peerInstance = new window.Peer(clientId, { config: ICE_CONFIG });
+
+        peerInstance.on('open', (id) => {
+          myId = id;
+          const hostConn = peerInstance.connect(targetHostId, {
+            reliable: true,
+            metadata: { nickname }
+          });
+
+          onHostAuthSuccess = () => {
+            clearTimeout(joinTimeout);
+            finalizeJoin();
+          };
+
+          setupPeerDataConnection(hostConn);
+
+          hostConn.on('error', () => {
+            if (!finalized) {
+              clearTimeout(joinTimeout);
+              hideLoading();
+              notify('Could not reach room host. Verify the code.', 'error');
+              cleanup();
+              renderStudyRoom();
+            }
+          });
+        });
+
+        peerInstance.on('connection', (conn) => {
+          setupPeerDataConnection(conn);
+        });
+
+        peerInstance.on('call', (call) => {
+          const stream = getActiveCombinedStream();
+          call.answer(stream);
+          setupPeerCall(call);
+        });
+
+        peerInstance.on('error', (err) => {
+          if (!finalized) {
+            clearTimeout(joinTimeout);
+            hideLoading();
+            const msg = (err && err.type === 'peer-unavailable')
+              ? 'Room not found or host is offline. Check the 10-digit room code.'
+              : ('Connection error: ' + (err?.type || err));
+            notify(msg, 'error');
+            cleanup();
+            renderStudyRoom();
+          }
+        });
+      }).catch((err) => {
+        clearTimeout(joinTimeout);
+        if (!finalized) {
+          hideLoading();
+          notify('Failed to initialize peer engine: ' + (err.message || err), 'error');
+          cleanup();
+          renderStudyRoom();
+        }
       });
     } catch (err) {
       hideLoading();
@@ -2712,10 +3495,11 @@
     sessionActive = false;
     isHost = true;
     roomAddress = 'SOLO';
-    nickname = document.getElementById('srNickname')?.value.trim() || 'Student';
+    nickname = document.getElementById('srNickname')?.value.trim() || localStorage.getItem('questionary-study-nickname') || 'Student';
+    localStorage.setItem('questionary-study-nickname', nickname);
     startStudyTimerEngine();
     renderActiveSession();
-    notify('Opened Solo Offline Whiteboard.', 'info');
+    notify('Opened Solo Study Room (Whiteboard, Focus Timer & Lo-Fi Beats).', 'info');
   }
 
   async function leaveRoom() {
@@ -2733,13 +3517,30 @@
     renderStudyRoom();
   }
 
+  function closeServerConnection() {
+    if (serverEventSource) {
+      try { serverEventSource.close(); } catch (_) {}
+      serverEventSource = null;
+    }
+    serverConnected = false;
+    if (!isSoloMode && roomAddress && myId) {
+      fetch('/api/studyroom/leave', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: roomAddress, peerId: myId })
+      }).catch(() => {});
+    }
+  }
+
   function doLeave() {
     abortController.abort();
+    closeServerConnection();
 
     if (mainInterval) { clearInterval(mainInterval); mainInterval = null; }
     if (speechInterval) { clearInterval(speechInterval); speechInterval = null; }
     stopScreenShare();
     SoundFX.stopAmbience();
+    document.dispatchEvent(new CustomEvent('studyroom:session-left'));
 
     if (localAudioStream) {
       localAudioStream.getTracks().forEach(t => t.stop());
@@ -2762,21 +3563,35 @@
       peerInstance = null;
     }
 
+    pendingAuthChallenges.forEach(({ timer }) => clearTimeout(timer));
+    pendingAuthChallenges.clear();
+    authenticatedPeers.clear();
+    allowedMeshPeers.clear();
+    processedMsgIds.clear();
+    onHostAuthSuccess = null;
+    sharedBlobUrls.forEach(u => { try { URL.revokeObjectURL(u); } catch (_) {} });
+    sharedBlobUrls = [];
+
     sessionActive = false;
     isSoloMode = false;
     isHost = false;
     myId = '';
+    hostPeerId = '';
     peers = {};
     screenShareOwnerId = null;
     roomAddress = '';
     roomPassword = '';
+    roomSalt = '';
+    roomPasswordVerifier = '';
     chatMessages = [];
     studyGoal = '';
     timerSeconds = 0;
+    timerDuration = 25 * 60;
     timerRemaining = 25 * 60;
     timerRunning = false;
-    timerMode = 'stopwatch';
+    timerMode = 'focus';
     wbActive = false;
+    wbInitialized = false;
     unreadChatCount = 0;
     handRaised = false;
     micActive = false;
@@ -2786,6 +3601,13 @@
 
   function cleanup() {
     abortController.abort();
+    closeServerConnection();
+    pendingAuthChallenges.forEach(({ timer }) => clearTimeout(timer));
+    pendingAuthChallenges.clear();
+    authenticatedPeers.clear();
+    allowedMeshPeers.clear();
+    processedMsgIds.clear();
+    onHostAuthSuccess = null;
     if (peerInstance) { try { peerInstance.destroy(); } catch (_) {} peerInstance = null; }
     remoteStreams.forEach((stream) => {
       stream.getTracks().forEach(t => t.stop());
@@ -2797,8 +3619,13 @@
     isSoloMode = false;
     isHost = false;
     myId = '';
+    hostPeerId = '';
+    roomPassword = '';
+    roomSalt = '';
+    roomPasswordVerifier = '';
     peers = {};
     screenShareOwnerId = null;
+    wbInitialized = false;
   }
 
   function showLoading(msg) {
@@ -2809,7 +3636,7 @@
       overlay.className = 'sr-loading-overlay';
       document.body.appendChild(overlay);
     }
-    overlay.innerHTML = `<div class="sr-loading-box"><div class="sr-spinner"></div><p>${msg || 'Connecting…'}</p></div>`;
+    overlay.innerHTML = `<div class="sr-loading-box"><div class="sr-spinner"></div><p>${escapeHTML(msg || 'Connecting…')}</p></div>`;
     overlay.style.display = 'flex';
   }
 
@@ -2902,21 +3729,21 @@
       if (audioSelect) {
         audioSelect.innerHTML = '<option value="">Default Microphone</option>';
         devices.filter(d => d.kind === 'audioinput').forEach((d, i) => {
-          audioSelect.innerHTML += `<option value="${d.deviceId}">${d.label || `Microphone ${i + 1}`}</option>`;
+          audioSelect.innerHTML += `<option value="${escapeHTML(d.deviceId)}">${escapeHTML(d.label || `Microphone ${i + 1}`)}</option>`;
         });
       }
 
       if (videoSelect) {
         videoSelect.innerHTML = '<option value="">Default Camera</option>';
         devices.filter(d => d.kind === 'videoinput').forEach((d, i) => {
-          videoSelect.innerHTML += `<option value="${d.deviceId}">${d.label || `Camera ${i + 1}`}</option>`;
+          videoSelect.innerHTML += `<option value="${escapeHTML(d.deviceId)}">${escapeHTML(d.label || `Camera ${i + 1}`)}</option>`;
         });
       }
 
       if (speakerSelect) {
         speakerSelect.innerHTML = '<option value="">Default Speaker</option>';
         devices.filter(d => d.kind === 'audiooutput').forEach((d, i) => {
-          speakerSelect.innerHTML += `<option value="${d.deviceId}">${d.label || `Speaker ${i + 1}`}</option>`;
+          speakerSelect.innerHTML += `<option value="${escapeHTML(d.deviceId)}">${escapeHTML(d.label || `Speaker ${i + 1}`)}</option>`;
         });
       }
     } catch (e) {
@@ -2951,6 +3778,12 @@
   window.testSpeaker = testSpeaker;
   window.testCamera = testCamera;
   window.initStudyRoomMediaSettings = initStudyRoomMediaSettings;
+
+  window.addEventListener('questionary:connectivity', () => {
+    if (!sessionActive && !isSoloMode) {
+      renderStudyRoom();
+    }
+  });
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', renderStudyRoom);

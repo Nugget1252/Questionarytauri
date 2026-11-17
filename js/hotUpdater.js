@@ -1,9 +1,9 @@
 /* =========================================================================
- *   QUESTIONARY HOT UPDATER ENGINE v8.0 (Master Engine + PDF Hot-Patching)
- *   Repository: Nugget1252/Questionarytauri (beta -> main)
- *   - Auto-resolves and injects hot-patched pdfviewer.html via Blob URLs
- *   - Global iframe interceptor for PDF rendering
- *   - Live DOM, CSS, JS and DB Hot-Patching
+ *   QUESTIONARY ELECTRON OPT-IN INCREMENTAL UPDATER
+ *   - Exclusively active inside the Electron desktop app
+ *   - Never blocks startup: checks quietly in background
+ *   - Explains what changed in simple terms and asks permission first
+ *   - Shows an "Update in Progress" placeholder screen while fetching deltas
  *   ========================================================================= */
 
 (function (global) {
@@ -12,589 +12,408 @@
     if (global._HOT_UPDATER_ENGINE_ACTIVE) return;
     global._HOT_UPDATER_ENGINE_ACTIVE = true;
 
-    /* ---------- Configuration ---------- */
-    const REPO_OWNER = 'Nugget1252';
-    const REPO_NAME = 'Questionarytauri';
-    const PRIMARY_BRANCH = 'Electron';
-    const FALLBACK_BRANCH = 'beta';
+    const isElectronApp = Boolean(
+        typeof window !== 'undefined' &&
+        window.electronAPI &&
+        typeof window.electronAPI.checkAppUpdate === 'function'
+    );
 
-    const STORAGE_KEY_FILES = 'questionary_hot_files';
-    const STORAGE_KEY_COMMIT = 'questionary_hot_commit_sha';
-    const STORAGE_KEY_BRANCH = 'questionary_hot_branch';
-    const STORAGE_KEY_BUILD_VER = 'questionary_bundle_build_version';
-    const BUNDLE_BUILD_VERSION = '2026.09.01_v220';
+    let pendingUpdatePlan = null;
+    let promptShownThisSession = false;
 
-    try {
-        if (localStorage.getItem(STORAGE_KEY_BUILD_VER) !== BUNDLE_BUILD_VERSION) {
-            localStorage.removeItem(STORAGE_KEY_FILES);
-            localStorage.removeItem(STORAGE_KEY_COMMIT);
-            localStorage.removeItem(STORAGE_KEY_BRANCH);
-            localStorage.removeItem('questionary-code-files');
-            localStorage.setItem(STORAGE_KEY_BUILD_VER, BUNDLE_BUILD_VERSION);
-            console.log('[HotUpdater] Fresh app build detected. Cleared stale code cache.');
-        }
-    } catch (e) {}
-
-    /* Code & DB files to manage (Documents are loaded on-demand) */
-    const MANAGED_FILES = [
-        'index.html',
-        'pdfviewer.html',
-        'css/styles.css',
-        'css/features.css',
-        'js/features.js',
-        'js/studyRoom.js',
-        'js/contentUpdater.js',
-        'js/app.js',
-        'questionary.db'
-    ];
-
-    let cachedPdfBlobUrl = null;
-
-    /* Global State */
     global.codeUpdateState = {
         checking: false,
         downloading: false,
         available: false,
         latestCommitSha: null,
-        installedCommitSha: localStorage.getItem(STORAGE_KEY_COMMIT) || null,
-        activeBranch: PRIMARY_BRANCH,
-        progress: 0
+        installedCommitSha: null,
+        activeBranch: 'Electron',
+        progress: 0,
+        electronOnly: true,
+        supported: isElectronApp
     };
-
-    /* ---------- Logging & Notifications ---------- */
-    function log(msg, type = 'info') {
-        const prefix = '[HotUpdater]';
-        if (type === 'error') console.error(`${prefix} ${msg}`);
-        else if (type === 'warn') console.warn(`${prefix} ${msg}`);
-        else console.log(`${prefix} ${msg}`);
-    }
 
     function notify(message, type = 'info') {
         if (typeof global.showNotification === 'function') {
             global.showNotification(message, type);
         } else {
-            log(`[${type.toUpperCase()}] ${message}`);
+            console.log(`[ElectronUpdater:${type}] ${message}`);
         }
     }
 
-    function normalizePath(filePath) {
-        return filePath.replace(/^src\//, '').replace(/^\/+/, '');
+    function formatBytes(bytes) {
+        if (!bytes || bytes <= 0) return 'Minimal size';
+        const units = ['B', 'KB', 'MB', 'GB'];
+        let i = 0;
+        let val = bytes;
+        while (val >= 1024 && i < units.length - 1) {
+            val /= 1024;
+            i++;
+        }
+        return `${val >= 10 || i === 0 ? Math.round(val) : val.toFixed(1)} ${units[i]}`;
     }
 
-    /* ---------- Code Storage (localStorage) ---------- */
-    function getStoredCodeFiles() {
-        try {
-            const raw = localStorage.getItem(STORAGE_KEY_FILES);
-            if (!raw) return {};
-            const parsed = JSON.parse(raw);
-            let sanitized = false;
-            Object.keys(parsed).forEach(k => {
-                if (k.endsWith('.db') || k.endsWith('.pdf') || typeof parsed[k] !== 'string') {
-                    delete parsed[k];
-                    sanitized = true;
-                }
-            });
-            if (sanitized) localStorage.setItem(STORAGE_KEY_FILES, JSON.stringify(parsed));
-            return parsed;
-        } catch (e) {
-            localStorage.removeItem(STORAGE_KEY_FILES);
-            return {};
-        }
+    function escapeHtml(str) {
+        return String(str || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
     }
 
-    function saveStoredCodeFiles(filesMap) {
-        try {
-            const cleanMap = {};
-            for (const [k, v] of Object.entries(filesMap)) {
-                if (!k.endsWith('.db') && !k.endsWith('.pdf') && typeof v === 'string') {
-                    cleanMap[k] = v;
-                }
-            }
-            localStorage.setItem(STORAGE_KEY_FILES, JSON.stringify(cleanMap));
-            
-            // Invalidate cached PDF blob on new save
-            if (cachedPdfBlobUrl) {
-                try { URL.revokeObjectURL(cachedPdfBlobUrl); } catch (e) {}
-                cachedPdfBlobUrl = null;
-            }
-            return true;
-        } catch (e) {
-            return false;
-        }
-    }
-
-    /* ---------- Cache Reset & Self-Healing ---------- */
-    async function resetCache(shouldReload = true) {
-        log('Purging code cache and restoring base setup...');
-        localStorage.removeItem(STORAGE_KEY_FILES);
-        localStorage.removeItem(STORAGE_KEY_COMMIT);
-        localStorage.removeItem(STORAGE_KEY_BRANCH);
-        localStorage.removeItem('questionary-code-files');
-
-        if (cachedPdfBlobUrl) {
-            try { URL.revokeObjectURL(cachedPdfBlobUrl); } catch (e) {}
-            cachedPdfBlobUrl = null;
-        }
-
-        try { indexedDB.deleteDatabase('QuestionaryDocumentCache'); } catch (e) {}
-        try { indexedDB.deleteDatabase('QuestionaryDB'); } catch (e) {}
-
-        delete global._HOT_APP_JS_LOADED;
-        delete global._HOT_STUDY_ROOM_LOADED;
-        delete global._HOT_FEATURES_LOADED;
-        delete global._HOT_CONTENT_UPDATER_LOADED;
-
-        notify('Cache cleared. Reloading...', 'info');
-        if (shouldReload) {
-            setTimeout(() => location.reload(), 400);
-        }
-    }
-
-    /* ================================================================
-     * 1. LIVE DOM, SCRIPT & PDF VIEWER INJECTION
-     * ================================================================ */
     function getViewerUrl(fileUrl, pageNum = 1) {
         const absoluteUrl = fileUrl ? (
-            (fileUrl.startsWith('blob:') || fileUrl.startsWith('data:') || fileUrl.startsWith('http'))
+            (fileUrl.startsWith('blob:') || fileUrl.startsWith('local-pdf:') || fileUrl.startsWith('http'))
                 ? fileUrl
                 : new URL(fileUrl, window.location.href).href
         ) : '';
-
-        const stored = getStoredCodeFiles();
-        const hotPdfHtml = stored['pdfviewer.html'] || stored['src/pdfviewer.html'];
-
-        if (hotPdfHtml && typeof hotPdfHtml === 'string' && hotPdfHtml.trim().length > 100) {
-            try {
-                if (!cachedPdfBlobUrl) {
-                    const blob = new Blob([hotPdfHtml], { type: 'text/html;charset=utf-8' });
-                    cachedPdfBlobUrl = URL.createObjectURL(blob);
-                }
-                const pageParam = pageNum > 1 ? `&page=${pageNum}` : '';
-                return `${cachedPdfBlobUrl}#file=${encodeURIComponent(absoluteUrl)}${pageParam}`;
-            } catch (err) {
-                log('Error creating Blob URL for pdfviewer: ' + err.message, 'warn');
-            }
-        }
 
         const pageParam = pageNum > 1 ? `&page=${pageNum}` : '';
         return `pdfviewer.html?file=${encodeURIComponent(absoluteUrl)}${pageParam}`;
     }
 
-    function hookPdfViewerIframes() {
-        // Intercept any iframe with id="pdfViewer" or src containing pdfviewer.html
-        const iframes = document.querySelectorAll('iframe#pdfViewer, iframe.pdf-viewer-frame');
-        iframes.forEach(iframe => {
-            const currentSrc = iframe.getAttribute('src') || '';
-            if (currentSrc.includes('pdfviewer.html') && !currentSrc.startsWith('blob:')) {
-                const params = new URLSearchParams(currentSrc.split('?')[1] || currentSrc.split('#')[1] || '');
-                const file = params.get('file');
-                const page = params.get('page') || 1;
-                if (file) {
-                    const newUrl = getViewerUrl(decodeURIComponent(file), parseInt(page, 10));
-                    iframe.setAttribute('src', newUrl);
-                    log('Upgraded active PDF Viewer iframe to hot-patched build');
-                }
-            }
-        });
-    }
-
-    function applyStoredCSS() {
-        const stored = getStoredCodeFiles();
-        for (const [filename, content] of Object.entries(stored)) {
-            if (filename.endsWith('.css') && typeof content === 'string') {
-                const norm = normalizePath(filename);
-                const styleId = `hot-css-${norm.replace(/[^a-zA-Z0-9]/g, '-')}`;
-                let styleEl = document.getElementById(styleId);
-                if (!styleEl) {
-                    styleEl = document.createElement('style');
-                    styleEl.id = styleId;
-                    document.head.appendChild(styleEl);
-                }
-                styleEl.textContent = content;
-                log(`Applied stylesheet: ${norm}`);
-            }
-        }
-    }
-
-    function applyStoredJS() {
-        const stored = getStoredCodeFiles();
-        if (!stored || Object.keys(stored).length === 0) return;
-
-        const executionOrder = [
-            'js/features.js',
-            'js/studyRoom.js',
-            'js/contentUpdater.js',
-            'js/app.js'
-        ];
-
-        for (const filename of executionOrder) {
-            const content = stored[filename];
-            if (content && typeof content === 'string' && content.trim().length > 30) {
-                try {
-                    const norm = normalizePath(filename);
-                    const scriptId = `hot-js-${norm.replace(/[^a-zA-Z0-9]/g, '-')}`;
-                    const oldScript = document.getElementById(scriptId);
-                    if (oldScript) oldScript.remove();
-
-                    if (norm.includes('app.js')) global._HOT_APP_JS_LOADED = true;
-                    if (norm.includes('studyRoom.js')) global._HOT_STUDY_ROOM_LOADED = true;
-                    if (norm.includes('features.js')) global._HOT_FEATURES_LOADED = true;
-                    if (norm.includes('contentUpdater.js')) global._HOT_CONTENT_UPDATER_LOADED = true;
-
-                    const scriptEl = document.createElement('script');
-                    scriptEl.id = scriptId;
-                    scriptEl.type = 'text/javascript';
-                    scriptEl.textContent = `${content}\n//# sourceURL=hotUpdate://${norm}`;
-                    document.head.appendChild(scriptEl);
-                    log(`Hot script loaded: ${norm}`);
-                } catch (err) {
-                    log(`Script eval error (${filename}): ${err.message}`, 'error');
-                }
-            }
-        }
-    }
-
-    function applyStoredHTML() {
-        const stored = getStoredCodeFiles();
-        const storedHtml = stored['index.html'];
-        if (!storedHtml || storedHtml.trim().length < 100) return;
-
-        try {
-            const parser = new DOMParser();
-            const newDoc = parser.parseFromString(storedHtml, 'text/html');
-
-            const newHeader = newDoc.querySelector('header.header') || newDoc.querySelector('.header');
-            const curHeader = document.querySelector('header.header') || document.querySelector('.header');
-            if (newHeader && curHeader && newHeader.innerHTML !== curHeader.innerHTML) {
-                curHeader.innerHTML = newHeader.innerHTML;
-                log('Hot-patched navigation header');
-            }
-
-            const syncContainers = [
-                'accessibilityPanel',
-                'quickLinksPanel',
-                'timerPanel',
-                'downloadProgressBar',
-                'contentProgressBar',
-                'mobileBottomNav'
-            ];
-
-            syncContainers.forEach(id => {
-                const newEl = newDoc.getElementById(id);
-                const curEl = document.getElementById(id);
-                if (newEl && curEl && newEl.innerHTML !== curEl.innerHTML) {
-                    curEl.innerHTML = newEl.innerHTML;
-                    log(`Hot-patched #${id}`);
-                }
-            });
-
-            const newModals = newDoc.querySelectorAll('.modal-overlay');
-            newModals.forEach(newModal => {
-                if (newModal.id) {
-                    const curModal = document.getElementById(newModal.id);
-                    if (curModal) {
-                        if (curModal.innerHTML !== newModal.innerHTML) {
-                            curModal.innerHTML = newModal.innerHTML;
-                        }
-                    } else {
-                        document.body.appendChild(document.importNode(newModal, true));
-                    }
-                }
-            });
-
-            hookPdfViewerIframes();
-        } catch (err) {
-            log(`HTML patch error: ${err.message}`, 'error');
-        }
-    }
-
-    /* ================================================================
-     * 2. CORS-SAFE NETWORKING
-     * ================================================================ */
-    async function fetchRawAsset(filePath, commitSha) {
-        const branch = global.codeUpdateState.activeBranch || PRIMARY_BRANCH;
-        const ref = commitSha || branch;
-        const nonce = `${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-        
-        const candidatePaths = [filePath, `src/${filePath}`];
-        const isBinary = filePath.endsWith('.db');
-
-        for (const p of candidatePaths) {
-            const rawUrl = `https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${ref}/${p}?_nc=${nonce}`;
+    async function resolveStorageDir() {
+        const saved = localStorage.getItem('questionary-storage-dir');
+        if (saved) return saved;
+        if (window.electronAPI && typeof window.electronAPI.getDefaultStoragePath === 'function') {
             try {
-                const res = await fetch(rawUrl);
-                if (res.ok) {
-                    if (isBinary) {
-                        const buffer = await res.arrayBuffer();
-                        if (buffer && buffer.byteLength > 100) {
-                            return { isBinary: true, buffer };
-                        }
-                    } else {
-                        const text = await res.text();
-                        const trimmed = text.trim();
-                        if (trimmed.length > 10 && !trimmed.startsWith('404: Not Found') && !trimmed.startsWith('<!DOCTYPE html>')) {
-                            return { isBinary: false, text };
-                        }
-                    }
-                }
+                return await window.electronAPI.getDefaultStoragePath();
             } catch (e) {}
         }
         return null;
     }
 
-    async function getLatestCommitSha(branch) {
-        try {
-            const apiUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/commits/${branch}?_t=${Date.now()}`;
-            const res = await fetch(apiUrl);
-            if (res.ok) {
-                const data = await res.json();
-                if (data && data.sha) return data.sha;
-            }
-        } catch (e) {}
-
-        try {
-            const feedUrl = `https://github.com/${REPO_OWNER}/${REPO_NAME}/commits/${branch}.atom?_nc=${Date.now()}`;
-            const res = await fetch(feedUrl);
-            if (res.ok) {
-                const xml = await res.text();
-                const match = xml.match(/Commit\/([a-f0-9]{40})/i);
-                if (match && match[1]) return match[1];
-            }
-        } catch (e) {}
-
-        return null;
-    }
-
-    /* ================================================================
-     * 3. UPDATE CHECKER & DOWNLOADER
-     * ================================================================ */
-    async function checkForCodeUpdates(silent = false) {
-        if (global.codeUpdateState.checking || global.codeUpdateState.downloading) {
-            return null;
-        }
-
-        global.codeUpdateState.checking = true;
-        updateUIState('checking');
-
-        let targetBranch = PRIMARY_BRANCH;
-        let latestSha = await getLatestCommitSha(PRIMARY_BRANCH);
-
-        if (!latestSha) {
-            latestSha = await getLatestCommitSha(FALLBACK_BRANCH);
-            if (latestSha) targetBranch = FALLBACK_BRANCH;
-        }
-
-        global.codeUpdateState.activeBranch = targetBranch;
-
-        if (!latestSha) {
-            global.codeUpdateState.checking = false;
-            updateUIState('idle');
-            if (!silent) notify('Could not reach GitHub updates server.', 'error');
-            return null;
-        }
-
-        const installedSha = localStorage.getItem(STORAGE_KEY_COMMIT);
-        log(`Latest: ${latestSha.substring(0, 7)} | Installed: ${installedSha ? installedSha.substring(0, 7) : 'None'}`);
-
-        if (latestSha !== installedSha) {
-            global.codeUpdateState.available = true;
-            global.codeUpdateState.latestCommitSha = latestSha;
-            updateUIState('available');
-            if (!silent) notify(`Update found (${latestSha.substring(0, 7)})! Downloading...`, 'success');
-
-            global.codeUpdateState.checking = false;
-            return MANAGED_FILES;
-        } else {
-            if (!silent) notify('Questionary is up to date!', 'success');
-            updateUIState('idle');
-        }
-
-        global.codeUpdateState.checking = false;
-        return null;
-    }
-
-    async function downloadCodeUpdates(force = false) {
-        if (global.codeUpdateState.downloading) return false;
-
-        let targetSha = global.codeUpdateState.latestCommitSha;
-
-        if (!targetSha || force) {
-            global.codeUpdateState.checking = false;
-            await checkForCodeUpdates(false);
-            targetSha = global.codeUpdateState.latestCommitSha;
-        }
-
-        if (!targetSha && !force) return false;
-
-        global.codeUpdateState.downloading = true;
-        updateUIState('downloading');
-        notify('Downloading updates from GitHub...', 'info');
-
-        const codeStaging = {};
-        let successCount = 0;
-
-        for (let i = 0; i < MANAGED_FILES.length; i++) {
-            const file = MANAGED_FILES[i];
-            global.codeUpdateState.progress = Math.round(((i + 1) / MANAGED_FILES.length) * 100);
-            updateProgressBar(global.codeUpdateState.progress, `Updating ${file}...`);
-
-            try {
-                const asset = await fetchRawAsset(file, targetSha);
-                if (!asset) continue;
-
-                if (asset.isBinary && file.endsWith('.db')) {
-                    const uInt8 = new Uint8Array(asset.buffer);
-                    if (uInt8.length > 5000 && uInt8[0] === 0x53 && uInt8[1] === 0x51 && uInt8[2] === 0x4C) { // "SQLite"
-                        if (global.DbService && global.DbService.SQL) {
-                            global.DbService.db = new global.DbService.SQL.Database(uInt8);
-                            await global.DbService.saveToIndexedDB();
-                            log('Updated database successfully');
-                            successCount++;
-                        }
-                    }
-                    asset.buffer = null;
-                } else if (!asset.isBinary) {
-                    codeStaging[file] = asset.text;
-                    successCount++;
-                }
-            } catch (err) {
-                log(`Error on ${file}: ${err.message}`, 'error');
-            }
-        }
-
-        hideProgressBar();
-
-        if (successCount >= 2) {
-            const currentCode = getStoredCodeFiles();
-            const mergedCode = { ...currentCode, ...codeStaging };
-            saveStoredCodeFiles(mergedCode);
-
-            if (targetSha) {
-                localStorage.setItem(STORAGE_KEY_COMMIT, targetSha);
-                localStorage.setItem(STORAGE_KEY_BRANCH, global.codeUpdateState.activeBranch);
-            }
-
-            log(`Update complete (${successCount} files). Applying live patches...`);
-            applyStoredHTML();
-            applyStoredCSS();
-            applyStoredJS();
-            hookPdfViewerIframes();
-
-            notify(`Update installed successfully!`, 'success');
-            setTimeout(() => location.reload(), 600);
-            return true;
-        }
-
-        notify('Update download failed. Preserving current version.', 'error');
-        global.codeUpdateState.downloading = false;
-        updateUIState('idle');
-        return false;
-    }
-
-    /* ================================================================
-     * 4. UI STATE & PROGRESS
-     * ================================================================ */
     function updateUIState(state) {
         const btn = document.getElementById('checkUpdatesBtn');
         if (!btn) return;
+        if (!isElectronApp) {
+            btn.style.display = 'none';
+            return;
+        }
+
         btn.classList.remove('checking', 'available', 'downloading', 'update-available');
         if (state === 'checking') {
             btn.classList.add('checking');
             btn.innerHTML = '<i class="fas fa-sync-alt fa-spin"></i>';
+            btn.title = 'Checking for updates...';
         } else if (state === 'available') {
             btn.classList.add('update-available');
             btn.innerHTML = '<i class="fas fa-download"></i>';
+            btn.title = 'Update available — click to review and install';
         } else if (state === 'downloading') {
             btn.classList.add('downloading');
             btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+            btn.title = 'Updating Questionary...';
         } else {
             btn.innerHTML = '<i class="fas fa-sync-alt"></i>';
+            btn.title = 'Check for desktop app updates';
         }
     }
 
-    function updateProgressBar(percent, statusText) {
-        const bar = document.getElementById('downloadProgressBar');
-        const fill = document.getElementById('downloadProgressFill');
-        const text = document.getElementById('downloadProgressText');
-        const num = document.getElementById('downloadProgressPercent');
+    function openElectronUpdatePrompt(plan) {
+        const modal = document.getElementById('electronUpdateModal');
+        const listEl = document.getElementById('electronUpdateSummaryList');
+        const metaEl = document.getElementById('electronUpdateMeta');
+        if (!modal || !listEl) return;
 
-        if (bar) bar.style.display = 'block';
-        if (fill) fill.style.width = `${percent}%`;
-        if (text && statusText) text.textContent = statusText;
-        if (num) num.textContent = `${percent}%`;
+        const items = [];
+        const hasPapersOrDb = (plan.changedDbFiles?.length || 0) > 0 || (plan.changedDocs?.length || 0) > 0;
+        const hasCode = (plan.changedCodeFiles || []).some(f => f.path.startsWith('js/') || f.path.startsWith('css/') || f.path.endsWith('.html'));
+        const hasAssets = (plan.changedCodeFiles || []).some(f => !f.path.startsWith('js/') && !f.path.startsWith('css/') && !f.path.endsWith('.html'));
+
+        if (hasPapersOrDb) {
+            const pdfCount = plan.changedDocs?.length || 0;
+            const desc = pdfCount > 0
+                ? `${pdfCount} new or updated question paper${pdfCount === 1 ? '' : 's'} and updated catalog folders.`
+                : 'New question papers and organized study catalog entries are being added.';
+            items.push({
+                icon: 'fa-book-open',
+                title: 'New Question Papers & Catalog',
+                desc
+            });
+        }
+        if (hasCode) {
+            items.push({
+                icon: 'fa-sparkles',
+                title: 'New Features & Improvements',
+                desc: 'Updated interface layouts, study tools, and bug fixes.'
+            });
+        }
+        if (hasAssets && !hasCode) {
+            items.push({
+                icon: 'fa-palette',
+                title: 'Offline Fonts & Assets',
+                desc: 'Refreshed offline fonts and application icons.'
+            });
+        }
+
+        if (items.length === 0 && Array.isArray(plan.summaries)) {
+            plan.summaries.forEach(s => {
+                items.push({ icon: 'fa-check-circle', title: 'App Update', desc: s });
+            });
+        }
+
+        listEl.innerHTML = items.map(item => `
+            <div class="electron-update-summary-item">
+                <i class="fas ${escapeHtml(item.icon)}"></i>
+                <div>
+                    <strong>${escapeHtml(item.title)}</strong>
+                    <span>${escapeHtml(item.desc)}</span>
+                </div>
+            </div>
+        `).join('');
+
+        const fileCount = (plan.changedCodeFiles?.length || 0) + (plan.changedDbFiles?.length || 0) + (plan.changedDocs?.length || 0);
+        if (metaEl) {
+            metaEl.textContent = `Incremental download: ${fileCount} changed file${fileCount === 1 ? '' : 's'} (~${formatBytes(plan.totalBytes)}). Your saved notes and offline PDFs stay intact.`;
+        }
+
+        modal.classList.add('active');
     }
 
-    function hideProgressBar() {
-        const bar = document.getElementById('downloadProgressBar');
-        if (bar) setTimeout(() => { bar.style.display = 'none'; }, 800);
+    function closeElectronUpdatePrompt() {
+        document.getElementById('electronUpdateModal')?.classList.remove('active');
+    }
+
+    function showUpdateProgressPlaceholder(phase, percent, currentFile) {
+        const overlay = document.getElementById('electronUpdateOverlay');
+        const phaseEl = document.getElementById('electronUpdatePhase');
+        const fillEl = document.getElementById('electronUpdateFill');
+        const statsEl = document.getElementById('electronUpdateStats');
+
+        if (overlay) overlay.style.display = 'flex';
+        if (phaseEl) phaseEl.textContent = phase || 'Updating Questionary...';
+        if (fillEl) fillEl.style.width = `${Math.max(0, Math.min(100, percent || 0))}%`;
+        if (statsEl) {
+            statsEl.textContent = currentFile
+                ? `${percent}% — ${currentFile}`
+                : `${percent}%`;
+        }
+    }
+
+    function hideUpdateProgressPlaceholder() {
+        const overlay = document.getElementById('electronUpdateOverlay');
+        if (overlay) overlay.style.display = 'none';
+    }
+
+    async function checkForCodeUpdates(silent = false) {
+        if (!isElectronApp) {
+            updateUIState('idle');
+            return null;
+        }
+
+        if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+            if (!silent) {
+                notify('Offline mode — connect to the internet to check for Questionary desktop updates.', 'info');
+            }
+            updateUIState('idle');
+            return null;
+        }
+
+        if (global.codeUpdateState.checking || global.codeUpdateState.downloading) {
+            return pendingUpdatePlan;
+        }
+
+        global.codeUpdateState.checking = true;
+        updateUIState('checking');
+        if (!silent) {
+            notify('Checking for updates...', 'info');
+        }
+
+        try {
+            const storageDir = await resolveStorageDir();
+            const plan = await window.electronAPI.checkAppUpdate({ storageDir });
+            global.codeUpdateState.checking = false;
+
+            if (plan && plan.available) {
+                pendingUpdatePlan = plan;
+                global.codeUpdateState.available = true;
+                global.codeUpdateState.latestCommitSha = plan.commitSha || plan.version || null;
+                updateUIState('available');
+
+                if (!silent || !promptShownThisSession) {
+                    promptShownThisSession = true;
+                    const shortWhat = (plan.changedDbFiles?.length || plan.changedDocs?.length)
+                        ? 'New question papers or app features are ready.'
+                        : 'New app features and improvements are ready.';
+                    notify(`Update available: ${shortWhat}`, 'success');
+                    openElectronUpdatePrompt(plan);
+                }
+                return plan;
+            } else {
+                pendingUpdatePlan = null;
+                global.codeUpdateState.available = false;
+                updateUIState('idle');
+                if (!silent) {
+                    if (plan && plan.offline) {
+                        notify('Could not reach update server right now.', 'warning');
+                    } else {
+                        notify('Questionary is already up to date.', 'success');
+                    }
+                }
+                return null;
+            }
+        } catch (err) {
+            console.warn('[ElectronUpdater] Check failed:', err);
+            global.codeUpdateState.checking = false;
+            updateUIState('idle');
+            if (!silent) {
+                notify('Update check could not complete.', 'warning');
+            }
+            return null;
+        }
+    }
+
+    async function downloadCodeUpdates() {
+        if (!isElectronApp) return false;
+
+        if (!pendingUpdatePlan || !pendingUpdatePlan.available) {
+            const plan = await checkForCodeUpdates(false);
+            if (!plan || !plan.available) return false;
+        }
+
+        if (global.codeUpdateState.downloading) return false;
+        global.codeUpdateState.downloading = true;
+        updateUIState('downloading');
+        closeElectronUpdatePrompt();
+        showUpdateProgressPlaceholder('Starting incremental update...', 2, '');
+
+        let unsubscribe = null;
+        try {
+            if (typeof window.electronAPI.onUpdateProgress === 'function') {
+                unsubscribe = window.electronAPI.onUpdateProgress((prog) => {
+                    showUpdateProgressPlaceholder(prog.phase, prog.percent, prog.currentFile);
+                });
+            }
+
+            const storageDir = await resolveStorageDir();
+            const result = await window.electronAPI.applyAppUpdate({
+                plan: pendingUpdatePlan,
+                storageDir
+            });
+
+            if (result && result.success) {
+                if (result.dbUpdated) {
+                    // Only clear cached SQLite hierarchy copy so DbService loads the updated catalog DB.
+                    // Offline PDFs (QuestionaryOfflineDocs), notes, flashcards, and themes stay untouched.
+                    try {
+                        await new Promise((resolve) => {
+                            const req = indexedDB.deleteDatabase('QuestionarySQLiteDB');
+                            req.onsuccess = resolve;
+                            req.onerror = resolve;
+                            req.onblocked = resolve;
+                        });
+                    } catch (e) {}
+                }
+
+                showUpdateProgressPlaceholder('Update complete! Reloading Questionary...', 100, '');
+                setTimeout(async () => {
+                    if (typeof window.electronAPI.reloadApp === 'function') {
+                        await window.electronAPI.reloadApp();
+                    } else {
+                        location.reload();
+                    }
+                }, 450);
+                return true;
+            } else {
+                throw new Error(result?.error || 'Failed to apply update');
+            }
+        } catch (err) {
+            console.error('[ElectronUpdater] Apply error:', err);
+            hideUpdateProgressPlaceholder();
+            notify(`Update failed cleanly without modifying existing files: ${err.message}`, 'error');
+            updateUIState(pendingUpdatePlan ? 'available' : 'idle');
+            return false;
+        } finally {
+            global.codeUpdateState.downloading = false;
+            if (typeof unsubscribe === 'function') unsubscribe();
+        }
+    }
+
+    async function resetCache(shouldReload = true) {
+        if (!isElectronApp) return;
+        try {
+            await new Promise((resolve) => {
+                const req = indexedDB.deleteDatabase('QuestionarySQLiteDB');
+                req.onsuccess = resolve;
+                req.onerror = resolve;
+                req.onblocked = resolve;
+            });
+        } catch (e) {}
+        notify('Local catalog cache refreshed.', 'info');
+        if (shouldReload) {
+            setTimeout(() => location.reload(), 300);
+        }
     }
 
     function attachListeners() {
         const btn = document.getElementById('checkUpdatesBtn');
         if (btn && !btn.dataset.hotUpdaterBound) {
             btn.dataset.hotUpdaterBound = 'true';
-            btn.addEventListener('click', async (e) => {
-                e.preventDefault();
-                await downloadCodeUpdates();
-            });
-            btn.addEventListener('contextmenu', (e) => {
-                e.preventDefault();
-                if (confirm('Clear code cache and force re-sync from GitHub?')) {
-                    resetCache();
-                }
+            if (!isElectronApp) {
+                btn.style.display = 'none';
+            } else {
+                btn.addEventListener('click', async (e) => {
+                    e.preventDefault();
+                    if (pendingUpdatePlan && pendingUpdatePlan.available) {
+                        openElectronUpdatePrompt(pendingUpdatePlan);
+                    } else {
+                        await checkForCodeUpdates(false);
+                    }
+                });
+            }
+        }
+
+        const nowBtn = document.getElementById('electronUpdateNowBtn');
+        if (nowBtn && !nowBtn.dataset.hotUpdaterBound) {
+            nowBtn.dataset.hotUpdaterBound = 'true';
+            nowBtn.addEventListener('click', () => {
+                downloadCodeUpdates();
             });
         }
 
-        const homeSync = document.getElementById('homeSyncBtn');
-        if (homeSync && !homeSync.dataset.hotUpdaterBound) {
-            homeSync.dataset.hotUpdaterBound = 'true';
-            homeSync.addEventListener('click', (e) => {
-                e.preventDefault();
-                resetCache();
-            });
-        }
+        ['electronUpdateLaterBtn', 'electronUpdateCloseBtn'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el && !el.dataset.hotUpdaterBound) {
+                el.dataset.hotUpdaterBound = 'true';
+                el.addEventListener('click', closeElectronUpdatePrompt);
+            }
+        });
 
         ['resetCodeCacheBtn', 'resetCodeCacheBtnSettings'].forEach(id => {
             const b = document.getElementById(id);
             if (b && !b.dataset.hotUpdaterBound) {
                 b.dataset.hotUpdaterBound = 'true';
-                b.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    resetCache();
-                });
+                if (!isElectronApp) {
+                    b.style.display = 'none';
+                } else {
+                    b.addEventListener('click', async (e) => {
+                        e.preventDefault();
+                        await checkForCodeUpdates(false);
+                    });
+                }
             }
         });
     }
 
-    async function initHotUpdater() {
-        log('Booting Hot Updater Engine v8.0...');
-        applyStoredHTML();
-        applyStoredCSS();
-        applyStoredJS();
+    function initHotUpdater() {
+        try {
+            localStorage.removeItem('questionary_hot_files');
+            localStorage.removeItem('questionary-code-files');
+        } catch (e) {}
         attachListeners();
-
-        // Export getViewerUrl globally so PDF opens always use the latest code
+        updateUIState('idle');
         global.getViewerUrl = getViewerUrl;
-
-        setTimeout(async () => {
-            const pending = await checkForCodeUpdates(true);
-            if (pending && pending.length > 0) {
-                await downloadCodeUpdates();
-            }
-        }, 4000);
     }
 
     global.hotCodeUpdater = {
         check: checkForCodeUpdates,
         download: downloadCodeUpdates,
-        resetCache: resetCache,
-        forceSync: () => downloadCodeUpdates(true),
-        applyStoredHTML,
-        applyStoredCSS,
-        applyStoredJS,
+        resetCache,
+        forceSync: () => checkForCodeUpdates(false),
         getViewerUrl,
-        hookPdfViewerIframes,
         init: initHotUpdater,
+        isSupported: () => isElectronApp,
         getState: () => global.codeUpdateState
     };
 
@@ -603,5 +422,4 @@
     } else {
         initHotUpdater();
     }
-
 })(typeof window !== 'undefined' ? window : this);

@@ -44,6 +44,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getDesktopSources: (options) => ipcRenderer.invoke('get-desktop-sources', options),
 
   // Storage & Files
+  readDatabaseFile: () => ipcRenderer.invoke('read-database-file'),
+  readWasmFile: () => ipcRenderer.invoke('read-wasm-file'),
   getDefaultStoragePath: () => ipcRenderer.invoke('get-default-storage-path'),
   selectStorageFolder: () => ipcRenderer.invoke('select-storage-folder'),
   getStorageStats: (storageDir) => ipcRenderer.invoke('get-storage-stats', storageDir),
@@ -60,5 +62,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
     const sub = (event, data) => callback(data);
     ipcRenderer.on('download-progress', sub);
     return () => ipcRenderer.removeListener('download-progress', sub);
+  },
+
+  // Electron Opt-In Incremental Updater
+  checkAppUpdate: (payload) => ipcRenderer.invoke('check-app-update', payload),
+  applyAppUpdate: (payload) => ipcRenderer.invoke('apply-app-update', payload),
+  reloadApp: () => ipcRenderer.invoke('reload-app'),
+  onUpdateProgress: (callback) => {
+    const sub = (event, data) => callback(data);
+    ipcRenderer.on('update-progress', sub);
+    return () => ipcRenderer.removeListener('update-progress', sub);
   }
 });

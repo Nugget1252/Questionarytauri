@@ -2,19 +2,24 @@
 <html lang="en">
 <head>
     <link rel="icon" type="image/png" href="assets/logo.png">
+    <link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
+    <link rel="manifest" href="manifest.json">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="theme-color" content="#111113">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Questionary">
     <title>Questionary</title>
     
-    <!-- Fonts -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet" crossorigin="anonymous" referrerpolicy="no-referrer">
+    <!-- Self-Hosted Fonts & Icons -->
+    <link rel="stylesheet" href="fonts/fonts.css">
+    <link rel="stylesheet" href="css/vendor/fontawesome/css/all.min.css">
     
     <!-- Stylesheets -->
-    <link rel="stylesheet" href="css/styles.css?v=220">
-    <link rel="stylesheet" href="css/features.css?v=220">
+    <link rel="stylesheet" href="css/styles.css?v=240">
+    <link rel="stylesheet" href="css/features.css?v=240">
+    <link rel="stylesheet" href="css/enhanced-features.css?v=240">
     
     <style>
         /* Mobile Safe Area & Android Touch Optimization */
@@ -352,9 +357,10 @@
       window.MediaStream = window.MediaStream || window.webkitMediaStream;
       window.AudioContext = window.AudioContext || window.webkitAudioContext;
     </script>
-    <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/11.1.1/marked.min.js"></script>
+    <script src="js/peerjs-patched.js"></script>
+    <script src="js/vendor/mammoth.browser.min.js"></script>
+    <script src="js/vendor/marked.min.js"></script>
+    <script src="js/vendor/purify.min.js"></script>
 </head>
 <body>
 <div class="loading-overlay active" id="loadingOverlay">
@@ -445,6 +451,10 @@
             </div>
             
             <div class="header-actions-row">
+                <button class="pwa-install-btn" id="pwaInstallHeaderBtn" type="button" onclick="window.OfflineEngine?.triggerInstall()" title="Install Questionary App for Offline Access" style="display: none;">
+                    <i class="fas fa-download"></i>
+                    <span class="pwa-install-label">Install App</span>
+                </button>
                 <button class="update-check-btn" id="checkUpdatesBtn" title="Check for App Updates">
                     <i class="fas fa-sync-alt"></i>
                 </button>
@@ -459,7 +469,6 @@
             <div class="user-badge" id="userBadge">
                 <i class="fas fa-user"></i>
                 <span id="username-display">User</span>
-                <span id="adminBadge" class="admin-badge" style="display:none;">ADMIN</span>
                 <i class="fas fa-chevron-down user-dropdown-arrow"></i>
 
                 <div class="user-dropdown-menu" id="userDropdownMenu">
@@ -859,7 +868,7 @@
                         <i class="fas fa-file-import"></i> Import Document
                     </button>
                 </div>
-                <div id="libraryDropZone" class="library-drop-zone" ondragover="handleLibraryDragOver(event)" ondragleave="handleLibraryDragLeave(event)" ondrop="handleLibraryDrop(event)">
+                <div id="libraryDropZone" class="library-drop-zone">
                     <i class="fas fa-cloud-upload-alt"></i>
                     <p>Drag and drop PDF, Images, Word (.docx), or Text/MD files here</p>
                 </div>
@@ -958,6 +967,12 @@
             <div class="settings-card">
                 <h3 class="settings-card-title"><i class="fas fa-hdd"></i> PDF Storage & Download Manager</h3>
                 <div id="settingsStoragePanel"></div>
+            </div>
+
+            <div class="settings-card">
+                <h3 class="settings-card-title"><i class="fas fa-shield-alt"></i> Offline Readiness & Diagnostics</h3>
+                <p class="settings-hint">Live preflight status for local libraries, app-shell cache, SQLite catalog, and offline PDF storage.</p>
+                <div id="offlineDiagnosticsPanel"></div>
             </div>
 
             <div class="settings-card">
@@ -1741,6 +1756,74 @@
     </button>
 </div>
 
+<!-- Offline Status Banner (Hidden while online) -->
+<div class="offline-status-banner" id="offlineStatusBanner" role="status" aria-live="polite" style="display: none;">
+    <i class="fas fa-wifi-slash"></i>
+    <span>Offline Mode — cached library &amp; local tools active</span>
+</div>
+
+<!-- iOS Safari Install Instructions Modal -->
+<div class="modal-overlay" id="iosInstallModal">
+    <div class="modal">
+        <div class="modal-sheet-handle"></div>
+        <div class="modal-header">
+            <h3><i class="fas fa-mobile-alt"></i> Install Questionary on iOS</h3>
+            <button class="modal-close" type="button" onclick="document.getElementById('iosInstallModal')?.classList.remove('active')"><i class="fas fa-times"></i></button>
+        </div>
+        <div class="modal-body">
+            <p class="settings-hint" style="margin-bottom: 1rem;">Install Questionary on your Home Screen for full-screen offline access in Safari:</p>
+            <ol class="ios-install-steps">
+                <li>Tap the <strong>Share</strong> button <i class="fas fa-share-square"></i> in Safari's toolbar.</li>
+                <li>Scroll down and tap <strong>Add to Home Screen</strong> <i class="fas fa-plus-square"></i>.</li>
+                <li>Tap <strong>Add</strong> in the top-right corner to install.</li>
+            </ol>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-primary" type="button" onclick="document.getElementById('iosInstallModal')?.classList.remove('active')">Got It</button>
+        </div>
+    </div>
+</div>
+
+<!-- Electron Opt-In Update Confirmation Modal -->
+<div class="modal-overlay" id="electronUpdateModal">
+    <div class="modal">
+        <div class="modal-sheet-handle"></div>
+        <div class="modal-header">
+            <h3><i class="fas fa-arrow-circle-up"></i> Update Available</h3>
+            <button class="modal-close" type="button" id="electronUpdateCloseBtn"><i class="fas fa-times"></i></button>
+        </div>
+        <div class="modal-body">
+            <p class="settings-hint" id="electronUpdateIntro" style="margin-bottom: 8px;">
+                A new Questionary update is ready. Only changed files will be downloaded locally without reinstalling the app.
+            </p>
+            <div class="electron-update-summary-list" id="electronUpdateSummaryList"></div>
+            <p class="settings-hint" id="electronUpdateMeta" style="font-size: 0.78rem; margin-top: 8px;"></p>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" type="button" id="electronUpdateLaterBtn">Not Now</button>
+            <button class="btn btn-primary" type="button" id="electronUpdateNowBtn">
+                <i class="fas fa-download"></i> Update Now
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Electron Update-In-Progress Placeholder Screen -->
+<div class="electron-update-overlay" id="electronUpdateOverlay" style="display: none;">
+    <div class="electron-update-card">
+        <img src="assets/icons/192x192.png" alt="Questionary" class="electron-update-logo">
+        <h2>Updating Questionary</h2>
+        <p class="electron-update-phase" id="electronUpdatePhase">Downloading only the changed files...</p>
+        <div class="electron-update-track">
+            <div class="electron-update-fill" id="electronUpdateFill"></div>
+        </div>
+        <div class="electron-update-stats" id="electronUpdateStats">0%</div>
+        <p class="electron-update-note">
+            Please keep this window open. Your offline PDFs, notes, flashcards, and bookmarks remain untouched.
+        </p>
+    </div>
+</div>
+
 <!-- Android Back Button / Native Bridge Setup -->
 <script>
     document.addEventListener('DOMContentLoaded', () => {
@@ -1775,12 +1858,19 @@
     });
 </script>
 
-<script src="js/hotUpdater.js?v=220"></script>
-<script src="js/contentUpdater.js?v=220"></script>
-<script src="js/downloadManager.js?v=220"></script>
-<script src="js/features.js?v=220"></script>
-<script src="js/studyRoom.js?v=220"></script>
-<script src="js/app.js?v=220"></script>
+<script src="js/sql-wasm.js?v=240"></script>
+<script src="js/offlineEngine.js?v=240"></script>
+<script src="js/hotUpdater.js?v=240"></script>
+<script src="js/contentUpdater.js?v=240"></script>
+<script src="js/downloadManager.js?v=240"></script>
+<script src="js/features.js?v=240"></script>
+<script src="js/accessibility.js?v=240"></script>
+<script src="js/enhancedFlashcards.js?v=240"></script>
+<script src="js/enhancedNotes.js?v=240"></script>
+<script src="js/studyRoom.js?v=240"></script>
+<script src="js/studyRoomEnhanced.js?v=240"></script>
+<script src="js/notifications.js?v=240"></script>
+<script src="js/app.js?v=240"></script>
 
 </body>
 </html>
