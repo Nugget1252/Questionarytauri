@@ -758,15 +758,63 @@ html, body {
 #errorMessage { display: none; color: var(--danger); text-align: center; padding: 60px 20px; font-size: 14px; }
 #loadingMessage { color: var(--fg3); text-align: center; padding: 60px 20px; font-size: 14px; }
 
-/* Responsive Drawer on Mobile */
+#sidebarBackdrop {
+    display: none;
+}
+
+/* Responsive Drawer & Compact Toolbar on Mobile */
 @media (max-width: 768px) {
+    #toolbar {
+        height: 48px;
+        padding: 0 8px;
+        gap: 3px;
+    }
+    .tb-btn {
+        min-width: 38px;
+        height: 38px;
+        padding: 0 8px;
+    }
+    #pageNum {
+        height: 32px;
+        width: 40px;
+    }
+    #zoomSelect {
+        height: 32px;
+    }
+    #loadingBar {
+        top: 48px;
+    }
+    #studioLayout {
+        top: 48px;
+    }
     #sidebar {
         position: absolute;
         top: 0; bottom: 0; left: 0;
-        width: 280px;
+        width: min(290px, 85vw);
         box-shadow: var(--shadow-lg);
+        z-index: 60;
     }
-    #sidebar.collapsed { width: 0; border-right: none; }
+    #sidebar.collapsed {
+        width: 0;
+        border-right: none;
+        pointer-events: none;
+    }
+    #sidebarBackdrop.active {
+        display: block;
+        position: absolute;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.45);
+        z-index: 55;
+    }
+    .tool-popover {
+        top: 54px;
+        max-width: calc(100vw - 16px);
+    }
+    #selectionPopup {
+        max-width: calc(100vw - 16px);
+        flex-wrap: wrap;
+        justify-content: center;
+    }
 }
 
 @media print {
@@ -1027,6 +1075,8 @@ html, body {
         </div>
     </aside>
 
+    <div id="sidebarBackdrop"></div>
+
     <!-- PDF Viewport -->
     <div id="viewerContainer" class="pdfViewer">
         <div id="loadingMessage">Loading document…</div>
@@ -1165,9 +1215,25 @@ import * as pdfjsLib from './js/vendor/pdf.min.mjs';
         if (!docNameParam && hashParams.get('name')) docNameParam = hashParams.get('name');
     }
 
+    const sidebarBackdrop = document.getElementById('sidebarBackdrop');
+    const syncSidebarBackdrop = () => {
+        if (!sidebarBackdrop) return;
+        const show = window.innerWidth <= 768 && !sidebar.classList.contains('collapsed');
+        sidebarBackdrop.classList.toggle('active', show);
+    };
+    if (sidebarBackdrop) {
+        sidebarBackdrop.addEventListener('click', () => {
+            sidebar.classList.add('collapsed');
+            document.getElementById('toggleSidebar')?.classList.remove('subtle-active');
+            syncSidebarBackdrop();
+        });
+    }
+    window.addEventListener('resize', syncSidebarBackdrop);
+
     if (window.innerWidth <= 768) {
         sidebar.classList.add('collapsed');
         document.getElementById('toggleSidebar')?.classList.remove('subtle-active');
+        syncSidebarBackdrop();
     }
 
     function showToast(msg) {
@@ -2012,11 +2078,13 @@ import * as pdfjsLib from './js/vendor/pdf.min.mjs';
         if (!bounds) return;
         selectionPopup.classList.add('open');
         const popW = selectionPopup.offsetWidth || 260;
-        const popH = selectionPopup.offsetHeight || 38;
+        const popH = selectionPopup.offsetHeight || 42;
         let left = bounds.left + (bounds.width / 2) - (popW / 2);
-        left = Math.max(10, Math.min(window.innerWidth - popW - 10, left));
+        left = Math.max(8, Math.min(window.innerWidth - popW - 8, left));
         let top = bounds.top - popH - 10;
-        if (top < 50) top = bounds.bottom + 10;
+        const minTop = window.innerWidth <= 768 ? 54 : 50;
+        if (top < minTop) top = bounds.bottom + 10;
+        top = Math.max(minTop, Math.min(window.innerHeight - popH - 12, top));
         selectionPopup.style.left = left + 'px';
         selectionPopup.style.top = top + 'px';
     }
@@ -2227,6 +2295,7 @@ import * as pdfjsLib from './js/vendor/pdf.min.mjs';
         if (sidebar.classList.contains('collapsed')) {
             sidebar.classList.remove('collapsed');
             document.getElementById('toggleSidebar').classList.add('subtle-active');
+            syncSidebarBackdrop();
         }
         document.querySelectorAll('.sidebar-tab-btn').forEach(b => {
             b.classList.toggle('active', b.dataset.stab === tabName);
@@ -2243,6 +2312,7 @@ import * as pdfjsLib from './js/vendor/pdf.min.mjs';
     document.getElementById('toggleSidebar').addEventListener('click', () => {
         const isCollapsed = sidebar.classList.toggle('collapsed');
         document.getElementById('toggleSidebar').classList.toggle('subtle-active', !isCollapsed);
+        syncSidebarBackdrop();
     });
 
     const sidebarSearchInput = document.getElementById('sidebarSearchInput');
@@ -3533,8 +3603,9 @@ import * as pdfjsLib from './js/vendor/pdf.min.mjs';
 
         closeAllPopovers();
         const rect = btnEl.getBoundingClientRect();
-        pop.style.left = Math.max(10, Math.min(window.innerWidth - 200, rect.left - 10)) + 'px';
         pop.classList.add('open');
+        const popW = pop.offsetWidth || 200;
+        pop.style.left = Math.max(8, Math.min(window.innerWidth - popW - 8, rect.left - 8)) + 'px';
         currentOpenPopover = pop;
     }
 

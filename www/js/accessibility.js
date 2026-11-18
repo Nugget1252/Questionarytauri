@@ -226,7 +226,12 @@
           panel.classList.remove('active');
         } else {
           // Close other popups
-          document.querySelectorAll('.user-dropdown-menu.active').forEach(m => m.classList.remove('active'));
+          if (typeof window.closeUserDropdown === 'function') {
+            window.closeUserDropdown();
+          } else {
+            document.querySelectorAll('.user-dropdown-menu.active, #userBadge.active, #userDropdownBackdrop.active').forEach(m => m.classList.remove('active'));
+            document.body.classList.remove('mobile-sheet-open');
+          }
           panel.classList.add('active');
         }
       };

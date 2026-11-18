@@ -1036,3 +1036,71 @@ body.dyslexic-font, body.dyslexic-font * {
     from { transform: translateY(20px); opacity: 0; }
     to { transform: translateY(0); opacity: 1; }
 }
+
+@media (max-width: 768px) {
+    .enhanced-toast {
+        bottom: calc(68px + var(--safe-bottom, 0px));
+        left: 10px;
+        right: 10px;
+        justify-content: center;
+    }
+
+    .notes-header-bar,
+    .flashcards-header-bar {
+        padding: 10px 12px;
+        gap: 10px;
+    }
+
+    .notes-search-box {
+        min-width: 0;
+        width: 100%;
+    }
+
+    .notes-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .flashcard-3d-wrapper {
+        height: 250px;
+        margin: 14px auto;
+    }
+
+    .flashcard-face {
+        padding: 20px 16px;
+    }
+
+    .rating-btn {
+        min-height: 44px;
+    }
+
+    .a11y-zoom-btn {
+        min-height: 38px;
+        min-width: 44px;
+        padding: 6px 10px;
+    }
+
+    .admin-tabs-nav {
+        flex-wrap: wrap;
+        gap: 6px;
+    }
+
+    .admin-tab-btn {
+        flex: 1 1 auto;
+        justify-content: center;
+        min-height: 40px;
+    }
+}
+
+@media (max-width: 480px) {
+    .study-rating-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .sr-soundscape-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .sr-focus-card {
+        padding: 14px 12px;
+    }
+}

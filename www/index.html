@@ -17,9 +17,9 @@
     <link rel="stylesheet" href="css/vendor/fontawesome/css/all.min.css">
     
     <!-- Stylesheets -->
-    <link rel="stylesheet" href="css/styles.css?v=242">
-    <link rel="stylesheet" href="css/features.css?v=242">
-    <link rel="stylesheet" href="css/enhanced-features.css?v=242">
+    <link rel="stylesheet" href="css/styles.css?v=243">
+    <link rel="stylesheet" href="css/features.css?v=243">
+    <link rel="stylesheet" href="css/enhanced-features.css?v=243">
     
     <style>
         /* Mobile Safe Area & Android Touch Optimization */
@@ -132,222 +132,6 @@
             border-radius: 3px;
             margin: -4px auto 14px auto;
         }
-
-        @media (max-width: 768px) {
-            .header {
-                height: 54px !important;
-                padding: 0 12px !important;
-                display: flex !important;
-                align-items: center !important;
-                justify-content: space-between !important;
-                gap: 8px !important;
-                background: var(--surface, #1e1f22) !important;
-                border-bottom: 1px solid var(--border, #2e3035) !important;
-            }
-
-            .header-left {
-                display: flex !important;
-                align-items: center !important;
-                gap: 8px !important;
-            }
-
-            .mobile-menu-toggle {
-                display: none !important;
-            }
-
-            .logo span {
-                display: none !important;
-            }
-
-            .logo-icon {
-                width: 26px !important;
-                height: 26px !important;
-            }
-
-            .header-right {
-                display: flex !important;
-                align-items: center !important;
-                gap: 6px !important;
-                flex: 1 !important;
-                justify-content: flex-end !important;
-            }
-
-            .search-container {
-                flex: 1 !important;
-                max-width: 170px !important;
-                height: 36px !important;
-            }
-
-            .search-input {
-                height: 36px !important;
-                font-size: 0.85rem !important;
-                padding-left: 32px !important;
-            }
-
-            .search-icon {
-                font-size: 0.8rem !important;
-                left: 10px !important;
-            }
-            .update-check-btn,
-            .content-update-btn {
-                display: none !important;
-            }
-            .accessibility-toggle {
-                display: inline-flex !important;
-            }
-
-            .mobile-bottom-nav {
-                display: flex !important;
-                position: fixed !important;
-                bottom: 0 !important;
-                left: 0 !important;
-                right: 0 !important;
-                height: calc(58px + var(--safe-bottom)) !important;
-                padding-bottom: var(--safe-bottom) !important;
-                background: var(--surface, #1e1f22) !important;
-                border-top: 1px solid var(--border, #2e3035) !important;
-                z-index: 9999 !important;
-                justify-content: space-around !important;
-                align-items: center !important;
-                box-shadow: 0 -4px 20px rgba(0,0,0,0.3) !important;
-                backdrop-filter: blur(12px) !important;
-                -webkit-backdrop-filter: blur(12px) !important;
-            }
-
-            .mobile-bottom-nav-item {
-                flex: 1 !important;
-                height: 56px !important;
-                display: flex !important;
-                flex-direction: column !important;
-                align-items: center !important;
-                justify-content: center !important;
-                background: none !important;
-                border: none !important;
-                color: var(--fg3, #8b8f94) !important;
-                font-size: 0.72rem !important;
-                gap: 3px !important;
-                padding: 4px 0 !important;
-                cursor: pointer !important;
-                user-select: none !important;
-                touch-action: manipulation !important;
-                transition: color 0.15s ease, transform 0.1s ease !important;
-            }
-
-            .mobile-bottom-nav-item i {
-                font-size: 1.25rem !important;
-            }
-
-            .mobile-bottom-nav-item.active {
-                color: var(--accent, #cf6215) !important;
-                font-weight: 700 !important;
-            }
-
-            .mobile-bottom-nav-item:active {
-                transform: scale(0.92) !important;
-            }
-
-            #main-content, .container {
-                padding: 10px 12px calc(76px + var(--safe-bottom)) 12px !important;
-            }
-
-            .dashboard-header {
-                display: grid !important;
-                grid-template-columns: repeat(2, 1fr) !important;
-                gap: 8px !important;
-                margin-bottom: 14px !important;
-            }
-
-            .stat-card {
-                margin: 0 !important;
-                padding: 10px 12px !important;
-                border-radius: 12px !important;
-                display: flex !important;
-                align-items: center !important;
-                gap: 10px !important;
-                background: var(--surface, #1e1f22) !important;
-                border: 1px solid var(--border, #2e3035) !important;
-            }
-
-            .stat-info {
-                display: flex !important;
-                flex-direction: column !important;
-                min-width: 0 !important;
-            }
-
-            .stat-value {
-                font-size: 1.15rem !important;
-                font-weight: 700 !important;
-                line-height: 1.1 !important;
-            }
-
-            .stat-label {
-                font-size: 0.65rem !important;
-                text-transform: uppercase !important;
-                letter-spacing: 0.5px !important;
-                opacity: 0.75 !important;
-            }
-
-            .modal-overlay {
-                align-items: flex-end !important;
-                padding: 0 !important;
-            }
-
-            .modal-overlay .modal,
-            .modal-overlay .modal-content {
-                width: 100% !important;
-                max-width: 100% !important;
-                border-radius: 20px 20px 0 0 !important;
-                margin-top: auto !important;
-                margin-bottom: 0 !important;
-                max-height: 86vh !important;
-                padding: 14px 16px calc(18px + var(--safe-bottom)) 16px !important;
-                animation: slideUpSheet 0.25s cubic-bezier(0.4, 0, 0.2, 1) forwards !important;
-            }
-
-            .modal-sheet-handle {
-                display: block !important;
-            }
-
-            @keyframes slideUpSheet {
-                from { transform: translateY(100%); }
-                to { transform: translateY(0); }
-            }
-
-            .tiles-grid, .library-grid {
-                grid-template-columns: repeat(auto-fill, minmax(115px, 1fr)) !important;
-                gap: 8px !important;
-            }
-
-            .tile, .library-item {
-                padding: 12px 8px !important;
-                min-height: 85px !important;
-                touch-action: manipulation !important;
-            }
-
-            .tile:active, .library-item:active {
-                transform: scale(0.96) !important;
-            }
-
-            .tile-icon i, .library-item-icon i {
-                font-size: 1.6rem !important;
-            }
-
-            .tile-text, .library-item-name {
-                font-size: 0.8rem !important;
-            }
-
-            .quick-links-toggle, .timer-reopen-btn {
-                bottom: calc(68px + var(--safe-bottom)) !important;
-            }
-
-            .timer-panel {
-                bottom: calc(68px + var(--safe-bottom)) !important;
-                right: 10px !important;
-                left: 10px !important;
-                width: auto !important;
-                max-width: 100% !important;
-            }
-        }
     </style>
     
     <script>
@@ -409,6 +193,7 @@
 <div id="app" style="display:none;">
     
     <div class="sidebar-overlay" id="sidebarOverlay"></div>
+    <div class="user-dropdown-backdrop" id="userDropdownBackdrop"></div>
     
     <header class="header">
         <div class="header-left" id="headerLeft">
@@ -450,9 +235,15 @@
             <div class="search-container">
                 <i class="fas fa-search search-icon"></i>
                 <input type="text" class="search-input" id="globalSearch" placeholder="Search..." autocomplete="off">
+                <button type="button" class="mobile-search-close" id="mobileSearchClose" aria-label="Close Search" title="Close Search">
+                    <i class="fas fa-times"></i>
+                </button>
             </div>
             
             <div class="header-actions-row">
+                <button type="button" class="mobile-search-toggle" id="mobileSearchToggle" title="Search" aria-label="Search">
+                    <i class="fas fa-search"></i>
+                </button>
                 <button class="pwa-install-btn is-hidden-env" id="pwaInstallHeaderBtn" type="button" onclick="window.OfflineEngine?.triggerInstall()" title="Install Questionary App for Offline Access" hidden style="display: none;">
                     <i class="fas fa-download"></i>
                     <span class="pwa-install-label">Install App</span>
@@ -474,6 +265,7 @@
                 <i class="fas fa-chevron-down user-dropdown-arrow"></i>
 
                 <div class="user-dropdown-menu" id="userDropdownMenu">
+                    <div class="modal-sheet-handle dropdown-sheet-handle"></div>
                     <div class="user-dropdown-header">
                         <div class="dropdown-avatar"><i class="fas fa-user"></i></div>
                         <div class="dropdown-user-info">
@@ -863,7 +655,7 @@
             </div>
             
             <div id="libraryEditControls" style="display:none; margin-bottom: 1rem; padding: 1rem; background: var(--surface); border: 1px solid var(--border); border-radius: 0.5rem;">
-                <div style="display: flex; gap: 0.5rem; margin-bottom: 0.75rem;">
+                <div class="library-edit-actions">
                     <button type="button" class="btn-sm" onclick="openCreateLibraryFolderModal()">
                         <i class="fas fa-folder-plus"></i> New Folder
                     </button>
@@ -1082,9 +874,9 @@
                                 <input type="color" id="customFolder7" value="#0d9488" onchange="updateCustomTheme()">
                             </div>
                         </div>
-                        <div class="setting-row" style="margin-top: 0.75rem;">
+                        <div class="setting-row setting-row-stackable" style="margin-top: 0.75rem;">
                             <span class="setting-label">Font</span>
-                            <select id="customFont" class="form-input" style="width: auto; min-width: 160px;" onchange="updateCustomTheme()">
+                            <select id="customFont" class="form-input setting-select-control" onchange="updateCustomTheme()">
                                 <option value="'DM Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">DM Sans (Default)</option>
                                 <option value="'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">Inter</option>
                                 <option value="'Poppins',-apple-system,sans-serif">Poppins</option>
@@ -1104,10 +896,10 @@
             <div class="settings-card">
                 <h3 class="settings-card-title"><i class="fas fa-video"></i> Study Room Media</h3>
                 <p class="settings-hint">Configure your camera, microphone, and push-to-talk preferences.</p>
-                <div class="setting-row" style="margin-top: 0.75rem;">
+                <div class="setting-row setting-row-media" style="margin-top: 0.75rem;">
                     <span class="setting-label">Microphone</span>
-                    <div style="display: flex; gap: 0.5rem; align-items: center;">
-                        <select id="audioInputSelect" class="form-input" style="width: auto; min-width: 160px;">
+                    <div class="setting-media-controls">
+                        <select id="audioInputSelect" class="form-input setting-select-control">
                             <option value="">Default</option>
                         </select>
                         <button class="btn btn-sm btn-secondary" id="testMicBtn" onclick="testMicrophone()"><i class="fas fa-microphone"></i> Test</button>
@@ -1119,19 +911,19 @@
                         <div id="micTestVolumeBar" style="width: 0%; height: 100%; background: #10b981; transition: width 0.1s;"></div>
                     </div>
                 </div>
-                <div class="setting-row">
+                <div class="setting-row setting-row-media">
                     <span class="setting-label">Audio Output</span>
-                    <div style="display: flex; gap: 0.5rem; align-items: center;">
-                        <select id="audioOutputSelect" class="form-input" style="width: auto; min-width: 160px;">
+                    <div class="setting-media-controls">
+                        <select id="audioOutputSelect" class="form-input setting-select-control">
                             <option value="">Default</option>
                         </select>
                         <button class="btn btn-sm btn-secondary" id="testSpeakerBtn" onclick="testSpeaker()"><i class="fas fa-volume-up"></i> Test</button>
                     </div>
                 </div>
-                <div class="setting-row">
+                <div class="setting-row setting-row-media">
                     <span class="setting-label">Camera</span>
-                    <div style="display: flex; gap: 0.5rem; align-items: center;">
-                        <select id="videoInputSelect" class="form-input" style="width: auto; min-width: 160px;">
+                    <div class="setting-media-controls">
+                        <select id="videoInputSelect" class="form-input setting-select-control">
                             <option value="">Default</option>
                         </select>
                         <button class="btn btn-sm btn-secondary" id="testCamBtn" onclick="testCamera()"><i class="fas fa-video"></i> Test</button>
@@ -1367,11 +1159,11 @@
                 </div>
             </div>
 
-            <div class="modal-footer wizard-footer" style="display:flex; gap:10px; flex-wrap:wrap;">
-                <button type="button" class="btn btn-secondary" style="flex:0 0 auto; height:44px; border-radius:10px;" onclick="window.DownloadManager.dismissSetupWizard()">
+            <div class="modal-footer wizard-footer">
+                <button type="button" class="btn btn-secondary wizard-later-btn" onclick="window.DownloadManager.dismissSetupWizard()">
                     Download Later
                 </button>
-                <button type="button" class="btn btn-primary wizard-submit-btn" style="flex:1; min-width:190px;" onclick="window.DownloadManager.saveAndStartInitialDownload()">
+                <button type="button" class="btn btn-primary wizard-submit-btn" onclick="window.DownloadManager.saveAndStartInitialDownload()">
                     <i class="fas fa-cloud-download-alt"></i> Complete Setup &amp; Download
                 </button>
             </div>
@@ -1843,6 +1635,16 @@
         // Handle Capacitor / Cordova native back button
         document.addEventListener('backbutton', async (e) => {
             e.preventDefault();
+            const openDropdown = document.getElementById('userDropdownMenu')?.classList.contains('active') || document.getElementById('userBadge')?.classList.contains('active');
+            if (openDropdown && typeof window.closeUserDropdown === 'function') {
+                window.closeUserDropdown();
+                return;
+            }
+            const headerEl = document.querySelector('.header');
+            if (headerEl && headerEl.classList.contains('mobile-search-open')) {
+                headerEl.classList.remove('mobile-search-open');
+                return;
+            }
             const modal = document.querySelector('.modal-overlay.active');
             if (modal) {
                 modal.classList.remove('active');
@@ -1871,19 +1673,19 @@
     });
 </script>
 
-<script src="js/sql-wasm.js?v=242"></script>
-<script src="js/offlineEngine.js?v=242"></script>
-<script src="js/hotUpdater.js?v=242"></script>
-<script src="js/contentUpdater.js?v=242"></script>
-<script src="js/downloadManager.js?v=242"></script>
-<script src="js/features.js?v=242"></script>
-<script src="js/accessibility.js?v=242"></script>
-<script src="js/enhancedFlashcards.js?v=242"></script>
-<script src="js/enhancedNotes.js?v=242"></script>
-<script src="js/studyRoom.js?v=242"></script>
-<script src="js/studyRoomEnhanced.js?v=242"></script>
-<script src="js/notifications.js?v=242"></script>
-<script src="js/app.js?v=242"></script>
+<script src="js/sql-wasm.js?v=243"></script>
+<script src="js/offlineEngine.js?v=243"></script>
+<script src="js/hotUpdater.js?v=243"></script>
+<script src="js/contentUpdater.js?v=243"></script>
+<script src="js/downloadManager.js?v=243"></script>
+<script src="js/features.js?v=243"></script>
+<script src="js/accessibility.js?v=243"></script>
+<script src="js/enhancedFlashcards.js?v=243"></script>
+<script src="js/enhancedNotes.js?v=243"></script>
+<script src="js/studyRoom.js?v=243"></script>
+<script src="js/studyRoomEnhanced.js?v=243"></script>
+<script src="js/notifications.js?v=243"></script>
+<script src="js/app.js?v=243"></script>
 
 </body>
 </html>

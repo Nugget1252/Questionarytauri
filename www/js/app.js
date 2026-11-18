@@ -1839,7 +1839,7 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
     if (img) img.src = imgSrc;
     if (nameEl) nameEl.textContent = name || 'Image';
     if (tilesSection) tilesSection.style.display = 'block';
-    if (container) container.style.display = 'block';
+    if (container) container.style.display = 'flex';
     if (tilesContainer) tilesContainer.style.display = 'none';
     if (sectionHeader) sectionHeader.style.display = 'none';
     if (dashboardHeader) dashboardHeader.style.display = 'none';
@@ -3269,15 +3269,58 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
   function initializeGlobalSearch() {
     const searchInput = document.getElementById('globalSearch');
     const searchResults = document.getElementById('searchResults');
+    const headerEl = document.querySelector('.header');
+    const mobileSearchToggle = document.getElementById('mobileSearchToggle');
+    const mobileSearchClose = document.getElementById('mobileSearchClose');
+
+    const closeMobileSearch = () => {
+      if (headerEl) headerEl.classList.remove('mobile-search-open');
+      if (searchResults) searchResults.style.display = 'none';
+      const historyDropdown = document.getElementById('searchHistoryDropdown');
+      if (historyDropdown) historyDropdown.style.display = 'none';
+    };
+
+    if (mobileSearchToggle && !mobileSearchToggle.dataset.bound) {
+      mobileSearchToggle.dataset.bound = 'true';
+      mobileSearchToggle.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (typeof window.closeUserDropdown === 'function') window.closeUserDropdown();
+        if (headerEl) headerEl.classList.add('mobile-search-open');
+        if (searchInput) {
+          requestAnimationFrame(() => searchInput.focus());
+          if (searchInput.value.trim()) performSearch();
+        }
+      });
+    }
+
+    if (mobileSearchClose && !mobileSearchClose.dataset.bound) {
+      mobileSearchClose.dataset.bound = 'true';
+      mobileSearchClose.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (searchInput) {
+          searchInput.value = '';
+          searchInput.blur();
+        }
+        closeMobileSearch();
+      });
+    }
 
     searchInput && searchInput.addEventListener('input', performSearch);
     searchInput && searchInput.addEventListener('focus', () => {
+      if (window.innerWidth <= 768 && headerEl) headerEl.classList.add('mobile-search-open');
       if (searchInput.value.trim()) performSearch();
     });
 
     document.addEventListener('click', (e) => {
-      if (searchResults && !e.target.closest('.search-container')) {
-        searchResults.style.display = 'none';
+      if (!e.target.closest('.search-container') && !e.target.closest('#mobileSearchToggle')) {
+        if (searchResults) searchResults.style.display = 'none';
+        if (window.innerWidth <= 768 && headerEl?.classList.contains('mobile-search-open')) {
+          if (!searchInput || !searchInput.value.trim()) {
+            closeMobileSearch();
+          }
+        }
       }
     });
   }
@@ -3331,6 +3374,23 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
       const isInputFocused = e.target.closest('input, textarea, [contenteditable]');
 
       if (e.key === 'Escape') {
+        const userDropdown = document.getElementById('userDropdownMenu');
+        const userBadge = document.getElementById('userBadge') || document.querySelector('.user-badge');
+        if (userDropdown?.classList.contains('active') || userBadge?.classList.contains('active')) {
+          if (typeof window.closeUserDropdown === 'function') window.closeUserDropdown();
+          return;
+        }
+
+        const headerEl = document.querySelector('.header');
+        if (headerEl?.classList.contains('mobile-search-open')) {
+          headerEl.classList.remove('mobile-search-open');
+          const searchInput = document.getElementById('globalSearch');
+          if (searchInput) searchInput.blur();
+          const sr = document.getElementById('searchResults');
+          if (sr) sr.style.display = 'none';
+          return;
+        }
+
         const searchResults = document.getElementById('searchResults');
         if (searchResults && searchResults.style.display !== 'none') {
           searchResults.style.display = 'none';
@@ -3365,6 +3425,9 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
 
       if (!isInputFocused && keybindMatches(e, 'focusSearch')) {
         e.preventDefault();
+        if (window.innerWidth <= 768) {
+          document.querySelector('.header')?.classList.add('mobile-search-open');
+        }
         document.getElementById('globalSearch')?.focus();
       }
 
@@ -4935,47 +4998,104 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
   // ================================================================
   // SETTINGS DROPDOWN & CONFIGURATION
   // ================================================================
+  function setUserDropdownOpen(isOpen) {
+    const userBadge = document.getElementById('userBadge') || document.querySelector('.user-badge');
+    const userDropdown = document.getElementById('userDropdownMenu');
+    const backdrop = document.getElementById('userDropdownBackdrop');
+
+    if (userBadge) userBadge.classList.toggle('active', Boolean(isOpen));
+    if (userDropdown) userDropdown.classList.toggle('active', Boolean(isOpen));
+    if (backdrop) backdrop.classList.toggle('active', Boolean(isOpen));
+    document.body.classList.toggle('mobile-sheet-open', Boolean(isOpen) && window.innerWidth <= 768);
+
+    if (isOpen) {
+      const usernameDisplay = document.getElementById('username-display');
+      const dropdownUsername = document.getElementById('dropdownUsername');
+      if (usernameDisplay && dropdownUsername) {
+        dropdownUsername.textContent = usernameDisplay.textContent;
+      }
+      const accessibilityPanel = document.getElementById('accessibilityPanel');
+      if (accessibilityPanel) accessibilityPanel.classList.remove('active');
+    }
+  }
+  window.closeUserDropdown = () => setUserDropdownOpen(false);
+
   function initSettingsDropdown() {
     let userBadge = document.getElementById('userBadge') || document.querySelector('.user-badge');
     if (!userBadge) return;
 
     let userDropdown = document.getElementById('userDropdownMenu') || userBadge.querySelector('.user-dropdown-menu');
+    const backdrop = document.getElementById('userDropdownBackdrop');
+    const appRoot = document.getElementById('app');
 
     if (!userDropdown) {
       userDropdown = document.createElement('div');
       userDropdown.className = 'user-dropdown-menu';
       userDropdown.id = 'userDropdownMenu';
       userDropdown.innerHTML = `
-      <div class="user-dropdown-header" style="padding: 12px 16px; border-bottom: 1px solid var(--border, rgba(255,255,255,0.1));">
-      <strong id="dropdownUsername" style="display: block; color: var(--text-primary); font-size: 0.95rem;">User</strong>
-      <small style="color: var(--text-secondary); font-size: 0.75rem;">Account Settings</small>
+      <div class="modal-sheet-handle dropdown-sheet-handle"></div>
+      <div class="user-dropdown-header">
+        <div class="dropdown-avatar"><i class="fas fa-user"></i></div>
+        <div class="dropdown-user-info">
+          <span class="dropdown-name" id="dropdownUsername">User</span>
+          <span class="dropdown-role">Student</span>
+        </div>
       </div>
-      <div class="user-dropdown-items" style="padding: 6px 0;">
-      <a class="dropdown-item" id="openSettingsBtn" href="#" style="display: flex; align-items: center; gap: 10px; padding: 10px 16px; color: var(--text-primary); text-decoration: none; font-size: 0.85rem;">
-      <i class="fas fa-cog" style="width: 16px; text-align: center;"></i> Settings
-      </a>
-      <a class="dropdown-item" id="resetCodeCacheBtn" href="#" style="display: flex; align-items: center; gap: 10px; padding: 10px 16px; color: var(--accent, #cf6215); text-decoration: none; font-size: 0.85rem;">
-      <i class="fas fa-sync-alt" style="width: 16px; text-align: center;"></i> Force Sync / Clear Cache
-      </a>
-      <a class="dropdown-item" id="logoutBtn" href="#" style="display: flex; align-items: center; gap: 10px; padding: 10px 16px; color: #ef4444; text-decoration: none; font-size: 0.85rem;">
-      <i class="fas fa-sign-out-alt" style="width: 16px; text-align: center;"></i> Logout
-      </a>
+      <div class="user-dropdown-item" id="openSettingsBtn">
+        <i class="fas fa-cog"></i>
+        <span>All Settings</span>
+        <i class="fas fa-chevron-right" style="margin-left:auto; font-size:0.55rem; color:var(--fg3);"></i>
       </div>
+      <div class="user-dropdown-divider"></div>
+      <button class="dropdown-btn" id="resetCodeCacheBtn" style="margin-top: 6px;"><i class="fas fa-sync-alt"></i> Reset Code Cache</button>
+      <button class="dropdown-btn dropdown-btn-logout" id="logoutBtn"><i class="fas fa-sign-out-alt"></i> Logout</button>
       `;
       userBadge.appendChild(userDropdown);
+    }
+
+    // Move #userDropdownMenu out of sticky <header> on mobile so it renders as a true viewport bottom sheet above #userDropdownBackdrop
+    const mq = window.matchMedia('(max-width: 768px)');
+    const syncDropdownPlacement = () => {
+      if (mq.matches) {
+        if (appRoot && userDropdown.parentElement !== appRoot) {
+          if (backdrop && backdrop.parentElement === appRoot) {
+            appRoot.insertBefore(userDropdown, backdrop.nextSibling);
+          } else {
+            appRoot.appendChild(userDropdown);
+          }
+        }
+      } else {
+        setUserDropdownOpen(false);
+        if (userBadge && userDropdown.parentElement !== userBadge) {
+          userBadge.appendChild(userDropdown);
+        }
+      }
+    };
+    syncDropdownPlacement();
+    if (!userDropdown.dataset.placementBound) {
+      userDropdown.dataset.placementBound = 'true';
+      if (typeof mq.addEventListener === 'function') {
+        mq.addEventListener('change', syncDropdownPlacement);
+      } else if (typeof mq.addListener === 'function') {
+        mq.addListener(syncDropdownPlacement);
+      }
+    }
+
+    if (backdrop && !backdrop.dataset.bound) {
+      backdrop.dataset.bound = 'true';
+      backdrop.addEventListener('click', (e) => {
+        e.stopPropagation();
+        setUserDropdownOpen(false);
+      });
     }
 
     const toggleDropdown = (e) => {
       if (e.target.closest('#userDropdownMenu')) return;
       e.preventDefault();
       e.stopPropagation();
-      userBadge.classList.toggle('active');
-
-      const usernameDisplay = document.getElementById('username-display');
-      const dropdownUsername = document.getElementById('dropdownUsername');
-      if (usernameDisplay && dropdownUsername) {
-        dropdownUsername.textContent = usernameDisplay.textContent;
-      }
+      syncDropdownPlacement();
+      const willOpen = !(userBadge.classList.contains('active') || userDropdown.classList.contains('active'));
+      setUserDropdownOpen(willOpen);
     };
 
     userBadge.onclick = toggleDropdown;
@@ -4983,8 +5103,8 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
     if (!window._userDropdownGlobalClickListener) {
       window._userDropdownGlobalClickListener = true;
       document.addEventListener('click', (e) => {
-        if (!e.target.closest('#userBadge') && !e.target.closest('.user-badge')) {
-          document.querySelectorAll('.user-badge, #userBadge').forEach(el => el.classList.remove('active'));
+        if (!e.target.closest('#userBadge') && !e.target.closest('.user-badge') && !e.target.closest('#userDropdownMenu')) {
+          setUserDropdownOpen(false);
         }
       });
     }
@@ -5116,6 +5236,7 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
       clearDataBtn.addEventListener('click', (e) => {
         e.preventDefault();
         e.stopPropagation();
+        setUserDropdownOpen(false);
         showConfirmModal(
           'Clear Local Data',
           'Are you sure you want to clear all local data? This will reset favorites, notes, flashcards, quick links, and settings.',
@@ -5127,7 +5248,7 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
             });
             await DbService.clearIndexedDB();
             showNotification('Local data cleared', 'success');
-            document.getElementById('userBadge')?.classList.remove('active');
+            setUserDropdownOpen(false);
             setTimeout(() => location.reload(), 1000);
           }
         );
@@ -5153,7 +5274,23 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
         URL.revokeObjectURL(url);
 
         showNotification('Data exported successfully', 'success');
-        document.getElementById('userBadge')?.classList.remove('active');
+        setUserDropdownOpen(false);
+      });
+    }
+
+    const importDataBtn = document.getElementById('importDataBtn');
+    if (importDataBtn) {
+      importDataBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setUserDropdownOpen(false);
+        const importInput = document.getElementById('importDataInput');
+        if (importInput) {
+          importInput.click();
+        } else {
+          showView('settings');
+          setActiveNav('settingsNav');
+        }
       });
     }
 
@@ -5162,6 +5299,7 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
       logoutBtn.addEventListener('click', (e) => {
         e.preventDefault();
         e.stopPropagation();
+        setUserDropdownOpen(false);
         showConfirmModal(
           'Logout',
           'Are you sure you want to logout?',
@@ -5181,7 +5319,7 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
       openSettingsBtn.addEventListener('click', (e) => {
         e.preventDefault();
         e.stopPropagation();
-        document.getElementById('userBadge')?.classList.remove('active');
+        setUserDropdownOpen(false);
         showView('settings');
         setActiveNav('settingsNav');
       });
@@ -5546,6 +5684,7 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
     if (resetBtn) {
       e.preventDefault();
       e.stopPropagation();
+      setUserDropdownOpen(false);
 
       const doReset = () => {
         if (window.hotCodeUpdater && typeof window.hotCodeUpdater.resetCache === 'function') {

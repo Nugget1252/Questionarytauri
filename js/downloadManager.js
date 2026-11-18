@@ -760,7 +760,7 @@
 
       container.innerHTML = `
         <div class="storage-stats-card" style="background: var(--hover); border: 1px solid var(--line); border-radius: 10px; padding: 1rem; margin-top: 0.5rem;">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; gap: 12px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; gap: 12px; flex-wrap: wrap;">
             <div>
               <div style="font-size: 1.25rem; font-weight: 700; color: var(--fg); font-variant-numeric: tabular-nums;">${escapeHtml(usedMB)} MB</div>
               <div style="font-size: 0.78rem; color: var(--fg3); font-variant-numeric: tabular-nums;">${escapeHtml(docsStatus)}</div>
@@ -770,8 +770,8 @@
             </span>
           </div>
 
-          <div style="display: flex; gap: 8px; margin-bottom: 1rem;">
-            <input type="text" id="settingsStorageInput" class="form-input" value="${escapeHtml(this.storagePath)}" readonly style="flex: 1;">
+          <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 1rem;">
+            <input type="text" id="settingsStorageInput" class="form-input" value="${escapeHtml(this.storagePath)}" readonly style="flex: 1 1 180px; min-width: 0;">
             <button class="btn btn-secondary btn-sm" type="button" onclick="window.DownloadManager.relocateStorageFolder()">
               <i class="fas fa-folder-open"></i> ${isElectron ? 'Browse' : 'Storage Info'}
             </button>
@@ -805,7 +805,7 @@
           </div>
 
           <div style="display: flex; flex-wrap: wrap; gap: 8px;">
-            <button class="btn btn-primary btn-sm" type="button" onclick="window.DownloadManager.startFullPackDownload()" style="flex: 1; min-width: 190px;">
+            <button class="btn btn-primary btn-sm" type="button" onclick="window.DownloadManager.startFullPackDownload()" style="flex: 1 1 190px; min-width: 0;">
               <i class="fas fa-cloud-download-alt"></i> ${fileCount > 0 ? 'Sync / Cache All Offline PDFs' : 'Download & Cache All PDFs'}
             </button>
             ${!isElectron && fileCount > 0 ? `

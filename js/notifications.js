@@ -162,7 +162,11 @@ We are excited to deliver this comprehensive overhaul designed for high performa
     `;
     notifItem.onclick = (e) => {
       e.stopPropagation();
-      menu.classList.remove('active');
+      if (typeof window.closeUserDropdown === 'function') {
+        window.closeUserDropdown();
+      } else {
+        menu.classList.remove('active');
+      }
       openNotificationsModal();
     };
 
