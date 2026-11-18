@@ -17,9 +17,9 @@
     <link rel="stylesheet" href="css/vendor/fontawesome/css/all.min.css">
     
     <!-- Stylesheets -->
-    <link rel="stylesheet" href="css/styles.css?v=240">
-    <link rel="stylesheet" href="css/features.css?v=240">
-    <link rel="stylesheet" href="css/enhanced-features.css?v=240">
+    <link rel="stylesheet" href="css/styles.css?v=242">
+    <link rel="stylesheet" href="css/features.css?v=242">
+    <link rel="stylesheet" href="css/enhanced-features.css?v=242">
     
     <style>
         /* Mobile Safe Area & Android Touch Optimization */
@@ -423,13 +423,15 @@
                 <i class="fas fa-bars"></i>
             </button>
             <nav class="nav-links" id="navLinks">
-                <div class="sidebar-header">
-                    <i class="fas fa-graduation-cap"></i>
-                    <span>Menu</span>
+                <div class="sidebar-drawer-header">
+                    <div class="sidebar-header">
+                        <i class="fas fa-graduation-cap"></i>
+                        <span>Menu</span>
+                    </div>
+                    <button class="sidebar-close" id="sidebarClose" type="button" aria-label="Close Menu">
+                        <i class="fas fa-times"></i>
+                    </button>
                 </div>
-                <button class="sidebar-close" id="sidebarClose" aria-label="Close Menu">
-                    <i class="fas fa-times"></i>
-                </button>
                 <a class="nav-link active" id="homeNav"><i class="fas fa-home"></i><span>Home</span></a>
                 <a class="nav-link" id="favoritesNav"><i class="fas fa-star"></i><span>Favorites</span></a>
                 <a class="nav-link" id="recentNav"><i class="fas fa-history"></i><span>Recent</span></a>
@@ -451,7 +453,7 @@
             </div>
             
             <div class="header-actions-row">
-                <button class="pwa-install-btn" id="pwaInstallHeaderBtn" type="button" onclick="window.OfflineEngine?.triggerInstall()" title="Install Questionary App for Offline Access" style="display: none;">
+                <button class="pwa-install-btn is-hidden-env" id="pwaInstallHeaderBtn" type="button" onclick="window.OfflineEngine?.triggerInstall()" title="Install Questionary App for Offline Access" hidden style="display: none;">
                     <i class="fas fa-download"></i>
                     <span class="pwa-install-label">Install App</span>
                 </button>
@@ -585,6 +587,7 @@
             <div id="dlProgressBarFill" class="download-banner-fill"></div>
         </div>
         <span id="dlPercent" class="download-banner-percent">0%</span>
+        <button type="button" id="dlCancelBtn" class="btn btn-secondary btn-sm" style="padding:3px 10px; font-size:0.75rem; flex-shrink:0;" onclick="window.DownloadManager?.cancelDownload()">Cancel</button>
     </div>
 
     <div class="container" id="main-content">
@@ -1153,6 +1156,12 @@
             </div>
 
             <div class="settings-card">
+                <h3 class="settings-card-title"><i class="fas fa-mobile-alt"></i> Mobile Bottom Navigation Bar</h3>
+                <p class="settings-hint">Choose which 5 tabs appear on the bottom navigation bar in the mobile view.</p>
+                <div id="mobileBottomNavSettingsPanel"></div>
+            </div>
+
+            <div class="settings-card">
                 <h3 class="settings-card-title"><i class="fas fa-tags"></i> Tags</h3>
                 <p class="settings-hint">Create custom tags to organize your flashcards, notes, and bookmarks.</p>
                 <div class="tags-header">
@@ -1308,10 +1317,11 @@
                 <div class="wizard-icon-badge">
                     <i class="fas fa-sliders-h"></i>
                 </div>
-                <div>
+                <div style="flex:1;">
                     <h3>Welcome to Questionary</h3>
                     <p class="wizard-subtitle">Choose your document quality and storage location to get started.</p>
                 </div>
+                <button type="button" class="modal-close" aria-label="Close" onclick="window.DownloadManager.dismissSetupWizard()"><i class="fas fa-times"></i></button>
             </div>
 
             <div class="modal-body wizard-body">
@@ -1357,9 +1367,12 @@
                 </div>
             </div>
 
-            <div class="modal-footer wizard-footer">
-                <button type="button" class="btn btn-primary wizard-submit-btn" onclick="window.DownloadManager.saveAndStartInitialDownload()">
-                    <i class="fas fa-cloud-download-alt"></i> Complete Setup & Download
+            <div class="modal-footer wizard-footer" style="display:flex; gap:10px; flex-wrap:wrap;">
+                <button type="button" class="btn btn-secondary" style="flex:0 0 auto; height:44px; border-radius:10px;" onclick="window.DownloadManager.dismissSetupWizard()">
+                    Download Later
+                </button>
+                <button type="button" class="btn btn-primary wizard-submit-btn" style="flex:1; min-width:190px;" onclick="window.DownloadManager.saveAndStartInitialDownload()">
+                    <i class="fas fa-cloud-download-alt"></i> Complete Setup &amp; Download
                 </button>
             </div>
         </div>
@@ -1858,19 +1871,19 @@
     });
 </script>
 
-<script src="js/sql-wasm.js?v=240"></script>
-<script src="js/offlineEngine.js?v=240"></script>
-<script src="js/hotUpdater.js?v=240"></script>
-<script src="js/contentUpdater.js?v=240"></script>
-<script src="js/downloadManager.js?v=240"></script>
-<script src="js/features.js?v=240"></script>
-<script src="js/accessibility.js?v=240"></script>
-<script src="js/enhancedFlashcards.js?v=240"></script>
-<script src="js/enhancedNotes.js?v=240"></script>
-<script src="js/studyRoom.js?v=240"></script>
-<script src="js/studyRoomEnhanced.js?v=240"></script>
-<script src="js/notifications.js?v=240"></script>
-<script src="js/app.js?v=240"></script>
+<script src="js/sql-wasm.js?v=242"></script>
+<script src="js/offlineEngine.js?v=242"></script>
+<script src="js/hotUpdater.js?v=242"></script>
+<script src="js/contentUpdater.js?v=242"></script>
+<script src="js/downloadManager.js?v=242"></script>
+<script src="js/features.js?v=242"></script>
+<script src="js/accessibility.js?v=242"></script>
+<script src="js/enhancedFlashcards.js?v=242"></script>
+<script src="js/enhancedNotes.js?v=242"></script>
+<script src="js/studyRoom.js?v=242"></script>
+<script src="js/studyRoomEnhanced.js?v=242"></script>
+<script src="js/notifications.js?v=242"></script>
+<script src="js/app.js?v=242"></script>
 
 </body>
 </html>

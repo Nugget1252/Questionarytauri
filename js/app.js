@@ -1581,7 +1581,7 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
   // ================================================================
   // FULL-SCREEN MAXIMIZED PDF & DOCUMENT VIEWERS
   // ================================================================
-  async function showPDF(url, customName = null) {
+  async function showPDF(url, customName = null, explicitDocKey = null) {
       if (!url || url === '' || url === '#') return;
 
       const pdfViewer = document.getElementById('pdfViewer');
@@ -1606,6 +1606,7 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
       let targetUrl = url;
       let loadedPdfBytes = null;
       let blobObjectUrl = null;
+      let canonicalDocKey = explicitDocKey || null;
 
       if (url.startsWith('blob-id:')) {
         const blobId = url.replace('blob-id:', '');
@@ -1660,7 +1661,8 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
           }
         } catch (e) {}
       } else if (window.DownloadManager && !url.startsWith('blob:') && !url.startsWith('blob-id:') && !url.startsWith('data:') && !url.startsWith('http') && !url.startsWith('local-pdf:')) {
-        const cleanRelative = url.replace(/^(\.\/|\/)?(documents\/)+/i, '');
+        const cleanRelative = url.replace(/^(\.\/|\/)?(documentshd|documents)\//i, '').replace(/^\/+/, '');
+        if (!canonicalDocKey) canonicalDocKey = cleanRelative;
         targetUrl = typeof window.DownloadManager.resolveDocumentUrlAsync === 'function'
           ? await window.DownloadManager.resolveDocumentUrlAsync(cleanRelative)
           : window.DownloadManager.resolveDocumentUrl(cleanRelative);
@@ -1687,7 +1689,9 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
 
       if (pdfViewer) {
         const viewerUrl = 'pdfviewer.html?file=' + encodeURIComponent(targetUrl) +
-          (blobObjectUrl ? '&blobUrl=' + encodeURIComponent(blobObjectUrl) : '');
+          (blobObjectUrl ? '&blobUrl=' + encodeURIComponent(blobObjectUrl) : '') +
+          (canonicalDocKey ? '&docKey=' + encodeURIComponent(canonicalDocKey) : '') +
+          (filename ? '&name=' + encodeURIComponent(filename) : '');
 
         pdfViewer.onload = function () {
           const theme = localStorage.getItem('questionary-theme') || localStorage.getItem('theme') || 'dark';
@@ -1701,6 +1705,8 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
             type: 'loadPdf',
             url: targetUrl,
             blobUrl: blobObjectUrl || null,
+            docKey: canonicalDocKey || null,
+            name: filename || null,
             pdfBytes: bytesPayload
           }, targetOrigin);
           pdfViewer.contentWindow.postMessage({ type: 'setTheme', theme: theme }, targetOrigin);
@@ -2678,11 +2684,173 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
   window.showDaySessions = showDaySessions;
 
   // ================================================================
-  // MOBILE BOTTOM NAVIGATION & DRAWER
+  // MOBILE BOTTOM NAVIGATION (CUSTOMIZABLE 5 TABS) & DRAWER
   // ================================================================
-  function initializeMobileBottomNav() {
+  const MOBILE_NAV_STORAGE_KEY = 'questionary-mobile-nav-tabs';
+  const DEFAULT_MOBILE_NAV_TABS = ['home', 'favorites', 'recent', 'planner', 'more'];
+  const MOBILE_NAV_OPTIONS = [
+    { id: 'home', label: 'Home', selectLabel: 'Home (Documents)', icon: 'fas fa-home', navId: 'homeNav' },
+    { id: 'favorites', label: 'Favorites', selectLabel: 'Favorites', icon: 'fas fa-star', navId: 'favoritesNav' },
+    { id: 'recent', label: 'Recent', selectLabel: 'Recent Papers', icon: 'fas fa-history', navId: 'recentNav' },
+    { id: 'planner', label: 'Planner', selectLabel: 'Study Planner', icon: 'fas fa-calendar-alt', navId: 'studyPlannerNav' },
+    { id: 'flashcards', label: 'Cards', selectLabel: 'Flashcards', icon: 'fas fa-layer-group', navId: 'flashcardsNav' },
+    { id: 'notes', label: 'Notes', selectLabel: 'Notes', icon: 'fas fa-sticky-note', navId: 'notesNav' },
+    { id: 'tags', label: 'Tags', selectLabel: 'Tags', icon: 'fas fa-tags', navId: 'tagsNav' },
+    { id: 'progress', label: 'Progress', selectLabel: 'Progress', icon: 'fas fa-chart-line', navId: 'progressNav' },
+    { id: 'analytics', label: 'Analytics', selectLabel: 'Analytics', icon: 'fas fa-chart-bar', navId: 'analyticsNav' },
+    { id: 'reminders', label: 'Alerts', selectLabel: 'Reminders', icon: 'fas fa-bell', navId: 'remindersNav' },
+    { id: 'studyRoom', label: 'Study', selectLabel: 'Study Room', icon: 'fas fa-users', navId: 'studyRoomNav' },
+    { id: 'settings', label: 'Settings', selectLabel: 'Settings', icon: 'fas fa-cog', navId: 'settingsNav' },
+    { id: 'more', label: 'More', selectLabel: 'More (Menu Drawer)', icon: 'fas fa-ellipsis-h', navId: null }
+  ];
+
+  function getMobileNavOption(tabId) {
+    return MOBILE_NAV_OPTIONS.find(opt => opt.id === tabId) || null;
+  }
+
+  function normalizeMobileNavTabs(rawTabs) {
+    const validIds = new Set(MOBILE_NAV_OPTIONS.map(o => o.id));
+    const unique = [];
+    if (Array.isArray(rawTabs)) {
+      for (const id of rawTabs) {
+        if (typeof id === 'string' && validIds.has(id) && !unique.includes(id)) {
+          unique.push(id);
+        }
+        if (unique.length >= 5) break;
+      }
+    }
+    for (const defId of DEFAULT_MOBILE_NAV_TABS) {
+      if (unique.length >= 5) break;
+      if (!unique.includes(defId)) unique.push(defId);
+    }
+    for (const opt of MOBILE_NAV_OPTIONS) {
+      if (unique.length >= 5) break;
+      if (!unique.includes(opt.id)) unique.push(opt.id);
+    }
+    return unique.slice(0, 5);
+  }
+
+  function getMobileBottomNavTabs() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(MOBILE_NAV_STORAGE_KEY) || 'null');
+      return normalizeMobileNavTabs(saved);
+    } catch (e) {
+      return DEFAULT_MOBILE_NAV_TABS.slice();
+    }
+  }
+
+  function saveMobileBottomNavTabs(tabs) {
+    const normalized = normalizeMobileNavTabs(tabs);
+    try {
+      localStorage.setItem(MOBILE_NAV_STORAGE_KEY, JSON.stringify(normalized));
+    } catch (e) {}
+    renderMobileBottomNav();
+    updateMobileBottomNavActive(currentView || 'home');
+    renderMobileBottomNavSettings();
+    return normalized;
+  }
+
+  function renderMobileBottomNav() {
     const bottomNav = document.getElementById('mobileBottomNav');
     if (!bottomNav) return;
+    const tabs = getMobileBottomNavTabs();
+    const activeView = currentView || 'home';
+
+    bottomNav.innerHTML = tabs.map((tabId, idx) => {
+      const opt = getMobileNavOption(tabId) || MOBILE_NAV_OPTIONS[0];
+      const isActive = opt.id === activeView;
+      return `
+        <button type="button" class="mobile-bottom-nav-item ${isActive ? 'active' : ''}" data-view="${escapeHtml(opt.id)}" data-slot="${idx}">
+          <i class="${escapeHtml(opt.icon)}"></i>
+          <span>${escapeHtml(opt.label)}</span>
+        </button>
+      `;
+    }).join('');
+  }
+
+  function renderMobileBottomNavSettings() {
+    const container = document.getElementById('mobileBottomNavSettingsPanel');
+    if (!container) return;
+
+    const currentTabs = getMobileBottomNavTabs();
+    const previewHtml = currentTabs.map((tabId) => {
+      const opt = getMobileNavOption(tabId) || MOBILE_NAV_OPTIONS[0];
+      return `
+        <div class="mobile-nav-preview-chip" title="${escapeHtml(opt.selectLabel)}">
+          <i class="${escapeHtml(opt.icon)}"></i>
+          <span>${escapeHtml(opt.label)}</span>
+        </div>
+      `;
+    }).join('');
+
+    const slotsHtml = currentTabs.map((selectedId, slotIdx) => {
+      const currentOpt = getMobileNavOption(selectedId) || MOBILE_NAV_OPTIONS[0];
+      const optionsHtml = MOBILE_NAV_OPTIONS.map((opt) => `
+        <option value="${escapeHtml(opt.id)}" ${opt.id === selectedId ? 'selected' : ''}>${escapeHtml(opt.selectLabel)}</option>
+      `).join('');
+      return `
+        <div class="mobile-nav-slot-row">
+          <label class="mobile-nav-slot-label" for="mobileNavSlotSelect_${slotIdx}">
+            <i class="${escapeHtml(currentOpt.icon)}"></i>
+            <span>Tab ${slotIdx + 1}</span>
+          </label>
+          <select id="mobileNavSlotSelect_${slotIdx}" class="form-input mobile-nav-slot-select" data-slot-idx="${slotIdx}">
+            ${optionsHtml}
+          </select>
+        </div>
+      `;
+    }).join('');
+
+    container.innerHTML = `
+      <div class="mobile-nav-preview-bar" aria-label="Mobile Bottom Bar Preview">
+        ${previewHtml}
+      </div>
+      <div class="mobile-nav-slots-grid">
+        ${slotsHtml}
+      </div>
+      <div class="mobile-nav-settings-footer">
+        <span class="settings-hint" style="margin: 0; font-size: 0.76rem;">Changes apply immediately. Picking a tab already in another slot swaps them.</span>
+        <button type="button" class="btn btn-sm btn-secondary" id="resetMobileBottomNavBtn">
+          <i class="fas fa-undo"></i> Reset Default
+        </button>
+      </div>
+    `;
+
+    container.querySelectorAll('.mobile-nav-slot-select').forEach((sel) => {
+      sel.addEventListener('change', () => {
+        const slotIdx = parseInt(sel.dataset.slotIdx, 10);
+        const chosenId = sel.value;
+        const nextTabs = getMobileBottomNavTabs();
+        const existingIdx = nextTabs.indexOf(chosenId);
+        if (existingIdx !== -1 && existingIdx !== slotIdx) {
+          nextTabs[existingIdx] = nextTabs[slotIdx];
+        }
+        nextTabs[slotIdx] = chosenId;
+        saveMobileBottomNavTabs(nextTabs);
+        if (typeof showNotification === 'function') {
+          const opt = getMobileNavOption(chosenId);
+          showNotification(`Bottom bar Tab ${slotIdx + 1} set to ${opt ? opt.label : chosenId}`, 'success');
+        }
+      });
+    });
+
+    const resetBtn = document.getElementById('resetMobileBottomNavBtn');
+    if (resetBtn) {
+      resetBtn.addEventListener('click', () => {
+        saveMobileBottomNavTabs(DEFAULT_MOBILE_NAV_TABS);
+        if (typeof showNotification === 'function') {
+          showNotification('Mobile bottom bar restored to default 5 tabs', 'info');
+        }
+      });
+    }
+  }
+
+  function initializeMobileBottomNav() {
+    const bottomNav = document.getElementById('mobileBottomNav');
+    renderMobileBottomNav();
+    renderMobileBottomNavSettings();
+    if (!bottomNav || bottomNav.dataset.bound === 'true') return;
+    bottomNav.dataset.bound = 'true';
 
     bottomNav.addEventListener('click', (e) => {
       const item = e.target.closest('.mobile-bottom-nav-item');
@@ -2695,17 +2863,13 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
         if (navLinks) {
           const isOpen = navLinks.classList.toggle('sidebar-open');
           sidebarOverlay?.classList.toggle('active', isOpen);
+          document.body.classList.toggle('mobile-sidebar-open', isOpen);
         }
       } else {
         closeSidebar();
         showView(view);
-        const navMap = {
-          'home': 'homeNav',
-          'favorites': 'favoritesNav',
-          'recent': 'recentNav',
-          'planner': 'studyPlannerNav'
-        };
-        if (navMap[view]) setActiveNav(navMap[view]);
+        const opt = getMobileNavOption(view);
+        if (opt && opt.navId) setActiveNav(opt.navId);
       }
       updateMobileBottomNavActive(view);
     });
@@ -2724,6 +2888,7 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
   function closeSidebar() {
     document.getElementById('navLinks')?.classList.remove('sidebar-open');
     document.getElementById('sidebarOverlay')?.classList.remove('active');
+    document.body.classList.remove('mobile-sidebar-open');
   }
 
   function initHamburgerMenu() {
@@ -2732,15 +2897,52 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
     const navLinks = document.getElementById('navLinks');
     const sidebarOverlay = document.getElementById('sidebarOverlay');
     const sidebarClose = document.getElementById('sidebarClose');
+    const headerLeft = document.getElementById('headerLeft');
+    const appRoot = document.getElementById('app');
 
     if (!navLinks) return;
+
+    // Move #navLinks out of sticky <header> on mobile so it isn't trapped behind #sidebarOverlay (stacking context fix)
+    const mq = window.matchMedia('(max-width: 768px)');
+    const syncNavDrawerPlacement = () => {
+      if (mq.matches) {
+        if (appRoot && navLinks.parentElement !== appRoot) {
+          if (sidebarOverlay && sidebarOverlay.parentElement === appRoot) {
+            appRoot.insertBefore(navLinks, sidebarOverlay.nextSibling);
+          } else {
+            appRoot.appendChild(navLinks);
+          }
+        }
+      } else {
+        closeSidebar();
+        if (headerLeft && navLinks.parentElement !== headerLeft) {
+          headerLeft.appendChild(navLinks);
+        }
+      }
+    };
+    syncNavDrawerPlacement();
+    if (!navLinks.dataset.placementBound) {
+      navLinks.dataset.placementBound = 'true';
+      if (typeof mq.addEventListener === 'function') {
+        mq.addEventListener('change', syncNavDrawerPlacement);
+      } else if (typeof mq.addListener === 'function') {
+        mq.addListener(syncNavDrawerPlacement);
+      }
+      document.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Escape' && navLinks.classList.contains('sidebar-open')) {
+          closeSidebar();
+        }
+      });
+    }
 
     closeSidebar();
 
     const toggleSidebar = (e) => {
       if (e) e.stopPropagation();
+      syncNavDrawerPlacement();
       const isOpen = navLinks.classList.toggle('sidebar-open');
       if (sidebarOverlay) sidebarOverlay.classList.toggle('active', isOpen);
+      document.body.classList.toggle('mobile-sidebar-open', isOpen);
     };
 
     if (hamburgerBtn) hamburgerBtn.onclick = toggleSidebar;
@@ -2748,11 +2950,14 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
     if (sidebarClose) sidebarClose.onclick = closeSidebar;
     if (sidebarOverlay) sidebarOverlay.onclick = closeSidebar;
 
-    navLinks.querySelectorAll('.nav-link').forEach(link => {
-      link.addEventListener('click', () => {
-        closeSidebar();
+    if (!navLinks.dataset.linkCloseBound) {
+      navLinks.dataset.linkCloseBound = 'true';
+      navLinks.querySelectorAll('.nav-link').forEach(link => {
+        link.addEventListener('click', () => {
+          closeSidebar();
+        });
       });
-    });
+    }
   }
 
   async function initializeApp() {
@@ -3421,6 +3626,7 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
         if (breadcrumb) breadcrumb.style.display = 'none';
         if (backBtn) backBtn.style.display = 'none';
         if (typeof window.renderSettings === 'function') window.renderSettings();
+        if (typeof renderMobileBottomNavSettings === 'function') renderMobileBottomNavSettings();
         if (window.DownloadManager && typeof window.DownloadManager.renderSettingsStorageTab === 'function') {
           window.DownloadManager.renderSettingsStorageTab();
         }
@@ -3443,6 +3649,9 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
         if (typeof window.renderTagsMain === 'function') window.renderTagsMain();
         if (typeof window.renderTaggedItems === 'function') window.renderTaggedItems();
         break;
+    }
+    if (typeof updateMobileBottomNavActive === 'function') {
+      updateMobileBottomNavActive(viewName || 'home');
     }
   }
 
@@ -4872,6 +5081,9 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
         closeSidebar();
         if (typeof showNotification === 'function') showNotification('Horizontal navbar restored', 'info');
       }
+      if (window.OfflineEngine && typeof window.OfflineEngine.updateInstallButtons === 'function') {
+        window.OfflineEngine.updateInstallButtons();
+      }
     });
 
     setupToggleRow('compactModeToggle', (checked) => {
@@ -5249,10 +5461,14 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
     function setupButton() {
       const btn = document.getElementById('checkUpdatesBtn');
       const resetSettingsBtn = document.getElementById('resetCodeCacheBtnSettings');
-      const isElectron = Boolean(window.electronAPI);
+      const isElectron = Boolean(
+        window.electronAPI ||
+        (window.OfflineEngine && typeof window.OfflineEngine.isDesktopElectron === 'function' && window.OfflineEngine.isDesktopElectron())
+      );
 
       if (btn) {
         btn.style.display = isElectron ? '' : 'none';
+        btn.classList.toggle('is-hidden-env', !isElectron);
         if (isElectron && !btn.dataset.hotUpdaterBound && !btn.dataset.initialized) {
           btn.dataset.initialized = 'true';
           btn.addEventListener('click', checkForUpdatesManual);
@@ -5260,6 +5476,9 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
       }
       if (resetSettingsBtn) {
         resetSettingsBtn.style.display = isElectron ? '' : 'none';
+      }
+      if (window.OfflineEngine && typeof window.OfflineEngine.updateInstallButtons === 'function') {
+        window.OfflineEngine.updateInstallButtons();
       }
     }
     if (document.readyState === 'loading') {

@@ -814,9 +814,13 @@ async function openAnyDocument(urlOrBlob, fileName) {
         } catch (e) {}
     }
 
+    let canonicalDocKey = null;
     if (window.DownloadManager && typeof target === 'string' && !target.startsWith('blob:') && !target.startsWith('blob-id:') && !target.startsWith('data:') && !target.startsWith('http') && !target.startsWith('local-pdf:')) {
-        const cleanRelative = target.replace(/^(\.\/|\/)?(documents\/)+/i, '');
-        target = window.DownloadManager.resolveDocumentUrl(cleanRelative);
+        const cleanRelative = target.replace(/^(\.\/|\/)?(documentshd|documents)\//i, '').replace(/^\/+/, '');
+        canonicalDocKey = cleanRelative;
+        target = typeof window.DownloadManager.resolveDocumentUrlAsync === 'function'
+          ? await window.DownloadManager.resolveDocumentUrlAsync(cleanRelative)
+          : window.DownloadManager.resolveDocumentUrl(cleanRelative);
     }
 
     if (typeof target === 'string' && target.startsWith('local-pdf://') && !target.startsWith('local-pdf:///') && !target.startsWith('local-pdf://localhost')) {
@@ -861,7 +865,7 @@ async function openAnyDocument(urlOrBlob, fileName) {
         }
 
         if (typeof window.showPDF === 'function') {
-            await window.showPDF(sourceBlobIdUrl || pdfSrc, fileName);
+            await window.showPDF(sourceBlobIdUrl || pdfSrc, fileName, canonicalDocKey);
         }
     }
 }

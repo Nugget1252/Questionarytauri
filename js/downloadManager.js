@@ -25,11 +25,15 @@
     hasDocuments: false,
     isDownloading: false,
     preflightResults: null,
+    _abortController: null,
+    _localDocsAvailable: null,
+    _localProbePromise: null,
 
-    // GitHub Release configuration
+    // GitHub Release & Raw CDN configuration
     repoOwner: 'Nugget1252',
     repoName: 'Questionarytauri',
-    releaseTag: 'v0.9.8',
+    releaseTag: 'documents',
+    githubBranch: 'Electron',
 
     async init() {
       this.qualityProfile = localStorage.getItem('questionary-quality-profile') || 'sd';
@@ -41,9 +45,9 @@
           this.storagePath = 'Local Storage';
         }
       } else if (window.Capacitor) {
-        this.storagePath = localStorage.getItem('questionary-storage-path') || 'App Internal Storage (IndexedDB)';
+        this.storagePath = localStorage.getItem('questionary-storage-path') || 'App Internal Storage (IndexedDB / OPFS)';
       } else {
-        this.storagePath = localStorage.getItem('questionary-storage-path') || 'IndexedDB Offline Cache';
+        this.storagePath = localStorage.getItem('questionary-storage-path') || 'Offline Cache (IndexedDB / OPFS)';
       }
 
       localStorage.setItem('questionary-storage-path', this.storagePath);
@@ -58,9 +62,9 @@
         this.renderOfflineDiagnosticsPanel();
       });
 
-      // Automatically open Setup Wizard only in Electron when no documents exist locally and setup is not marked complete
-      if (window.electronAPI && !this.hasDocuments && !localStorage.getItem('questionary-setup-complete')) {
-        setTimeout(() => this.openSetupWizard(), 300);
+      // Automatically offer Setup Wizard in Electron or Capacitor when no documents exist locally and setup isn't marked complete
+      if ((window.electronAPI || window.Capacitor) && !this.hasDocuments && !localStorage.getItem('questionary-setup-complete')) {
+        setTimeout(() => this.openSetupWizard(), 400);
       }
     },
 
@@ -84,7 +88,7 @@
         }
       }
 
-      if (typeof fetch === 'function' && window.location && window.location.protocol !== 'file:') {
+      if (typeof fetch === 'function' && window.location && window.location.protocol !== 'file:' && !window.Capacitor) {
         try {
           const res = await fetch('/api/stats', { cache: 'no-cache' });
           if (res && res.ok) {
@@ -97,8 +101,9 @@
         } catch (e) {}
       }
 
-      this.hasDocuments = localStorage.getItem('questionary-docs-installed') === 'true';
-      return this.hasDocuments;
+      this.hasDocuments = false;
+      localStorage.removeItem('questionary-docs-installed');
+      return false;
     },
 
     setupProgressListener() {
@@ -146,11 +151,28 @@
       const modal = document.getElementById('setupWizardModal');
       if (!modal) return;
 
+      const isElectron = Boolean(window.electronAPI);
       const pathInput = document.getElementById('wizardStoragePath');
-      if (pathInput) pathInput.value = this.storagePath;
+      const browseBtn = modal.querySelector('.wizard-browse-btn');
+      const hintText = modal.querySelector('.storage-hint-text');
+
+      if (pathInput) {
+        pathInput.value = isElectron ? this.storagePath : 'App Internal Offline Cache (IndexedDB / OPFS)';
+      }
+      if (browseBtn) {
+        browseBtn.style.display = isElectron ? '' : 'none';
+      }
+      if (hintText && !isElectron) {
+        hintText.textContent = 'Papers download directly into persistent offline app storage so they work without internet. You can also download individual papers on demand.';
+      }
 
       this.selectWizardQuality(this.qualityProfile);
       modal.classList.add('active');
+    },
+
+    dismissSetupWizard() {
+      localStorage.setItem('questionary-setup-complete', 'true');
+      document.getElementById('setupWizardModal')?.classList.remove('active');
     },
 
     selectWizardQuality(quality) {
@@ -200,31 +222,112 @@
     },
 
     // ============================================
-    // REAL WEB / CAPACITOR & ELECTRON PACK CACHING
+    // REMOTE MIRROR & REAL WEB / CAPACITOR CACHING
     // ============================================
-    async _getBrowserCatalogList(subjectFilter = null) {
-      // Prefer express catalog API if reachable
-      try {
-        const res = await fetch('/api/documents');
-        if (res.ok) {
-          const payload = await res.json();
-          if (payload && Array.isArray(payload.documents) && payload.documents.length > 0) {
-            let docs = payload.documents;
-            if (subjectFilter) {
-              docs = docs.filter((d) => (d.subject || '').toLowerCase() === subjectFilter.toLowerCase());
-            }
-            return docs.map((d) => ({
-              relPath: d.filename,
-              url: (this.qualityProfile === 'hd' && d.hasHD && d.hdPath) ? d.hdPath : d.path,
-              subject: d.subject || 'General',
-              filename: d.filename,
-              size: d.size || 0
-            }));
-          }
-        }
-      } catch (e) {}
+    getRemoteCandidateUrls(relPath, qualityOverride = null) {
+      const cleanRel = String(relPath || '')
+        .replace(/\\/g, '/')
+        .replace(/^(\.\/)+/, '')
+        .replace(/^\/+/, '')
+        .replace(/^(documentshd|documents)\//i, '');
+      if (!cleanRel) return [];
 
-      // Fallback: extract file nodes from local SQLite database (zero server required)
+      const encodedRel = cleanRel.split('/').map((seg) => encodeURIComponent(seg)).join('/');
+      const base = `https://raw.githubusercontent.com/${this.repoOwner}/${this.repoName}/${this.githubBranch}`;
+      const q = (qualityOverride || this.qualityProfile || 'sd').toLowerCase();
+
+      if (q === 'hd') {
+        return [`${base}/documentshd/${encodedRel}`, `${base}/documents/${encodedRel}`];
+      }
+      return [`${base}/documents/${encodedRel}`];
+    },
+
+    async _probeLocalDocumentsAvailable(sampleRelPath = null) {
+      if (this._localDocsAvailable !== null) return this._localDocsAvailable;
+      if (window.Capacitor || window.location.protocol === 'file:') {
+        this._localDocsAvailable = false;
+        return false;
+      }
+      if (this._localProbePromise) return this._localProbePromise;
+
+      this._localProbePromise = (async () => {
+        try {
+          if (sampleRelPath) {
+            const clean = String(sampleRelPath).replace(/^(documentshd|documents)\//i, '');
+            const encoded = clean.split('/').map((seg) => encodeURIComponent(seg)).join('/');
+            const res = await fetch(`documents/${encoded}`, { method: 'GET', cache: 'no-cache' });
+            const ct = ((res.headers && res.headers.get('content-type')) || '').toLowerCase();
+            if (res.ok && !ct.includes('text/html')) {
+              const ab = await res.arrayBuffer();
+              if (ab && ab.byteLength >= 4) {
+                const b = new Uint8Array(ab);
+                if (b[0] === 0x25 && b[1] === 0x50 && b[2] === 0x44 && b[3] === 0x46) {
+                  this._localDocsAvailable = true;
+                  return true;
+                }
+              }
+            }
+          } else {
+            const res = await fetch('/api/documents', { cache: 'no-cache' });
+            if (res && res.ok) {
+              this._localDocsAvailable = true;
+              return true;
+            }
+          }
+        } catch (e) {}
+        this._localDocsAvailable = false;
+        return false;
+      })();
+
+      try {
+        return await this._localProbePromise;
+      } finally {
+        this._localProbePromise = null;
+      }
+    },
+
+    _buildItemCandidates(relPath, localPath = null, hasLocal = false) {
+      const remoteUrls = this.getRemoteCandidateUrls(relPath);
+      if (!hasLocal) return remoteUrls;
+
+      const locals = [];
+      if (localPath) locals.push(localPath);
+      const encoded = relPath.split('/').map((s) => encodeURIComponent(s)).join('/');
+      if (this.qualityProfile === 'hd') locals.push(`documentshd/${encoded}`);
+      locals.push(`documents/${encoded}`);
+      return Array.from(new Set([...locals, ...remoteUrls]));
+    },
+
+    async _getBrowserCatalogList(subjectFilter = null) {
+      // 1. Prefer Express catalog API if reachable (Node desktop web server)
+      if (!window.Capacitor && window.location && window.location.protocol !== 'file:') {
+        try {
+          const res = await fetch('/api/documents', { cache: 'no-cache' });
+          if (res.ok) {
+            const payload = await res.json();
+            if (payload && Array.isArray(payload.documents) && payload.documents.length > 0) {
+              this._localDocsAvailable = true;
+              let docs = payload.documents;
+              if (subjectFilter) {
+                docs = docs.filter((d) => (d.subject || '').toLowerCase() === subjectFilter.toLowerCase());
+              }
+              return docs.map((d) => {
+                const localUrl = (this.qualityProfile === 'hd' && d.hasHD && d.hdPath) ? d.hdPath : d.path;
+                return {
+                  relPath: d.filename,
+                  url: localUrl,
+                  candidates: this._buildItemCandidates(d.filename, localUrl, true),
+                  subject: d.subject || 'General',
+                  filename: d.filename,
+                  size: d.size || 0
+                };
+              });
+            }
+          }
+        } catch (e) {}
+      }
+
+      // 2. Extract file nodes from bundled local SQLite database (zero server required — works offline & on Capacitor APK)
       if (window.DbService && typeof window.DbService.query === 'function' && !window.DbService.isFallback) {
         try {
           const rows = await window.DbService.query(
@@ -232,27 +335,80 @@
           );
           if (Array.isArray(rows) && rows.length > 0) {
             const seen = new Set();
-            const out = [];
+            const rawItems = [];
             for (const row of rows) {
               const raw = String(row.file_path || '');
-              if (raw.startsWith('http://') || raw.startsWith('https://') || raw.startsWith('blob:')) continue;
-              const rel = raw.replace(/^(\.\/|\/)?(documents\/)+/i, '');
+              if (raw.startsWith('http://') || raw.startsWith('https://') || raw.startsWith('blob:') || raw.startsWith('blob-id:')) continue;
+              const rel = raw.replace(/^(\.\/|\/)?(documentshd|documents)\//i, '').replace(/^\/+/, '');
               if (!rel || seen.has(rel)) continue;
+              if (subjectFilter && !(row.name || '').toLowerCase().includes(subjectFilter.toLowerCase()) && !rel.toLowerCase().includes(subjectFilter.toLowerCase())) {
+                continue;
+              }
               seen.add(rel);
-              out.push({
-                relPath: rel,
-                url: `documents/${rel}`,
-                subject: row.name || 'Study Paper',
-                filename: rel.split('/').pop(),
-                size: 0
+              rawItems.push({ rel, name: row.name || rel.split('/').pop() });
+            }
+
+            if (rawItems.length > 0) {
+              const hasLocal = await this._probeLocalDocumentsAvailable(rawItems[0].rel);
+              return rawItems.map((it) => {
+                const candidates = this._buildItemCandidates(it.rel, null, hasLocal);
+                return {
+                  relPath: it.rel,
+                  url: candidates[0],
+                  candidates,
+                  subject: it.name || 'Study Paper',
+                  filename: it.rel.split('/').pop(),
+                  size: 0
+                };
               });
             }
-            return out;
           }
         } catch (e) {}
       }
 
+      // 3. Fallback: Query GitHub tree API directly if DB catalog is empty
+      try {
+        const treeRes = await fetch(
+          `https://api.github.com/repos/${this.repoOwner}/${this.repoName}/git/trees/${this.githubBranch}?recursive=1`,
+          { cache: 'no-cache', credentials: 'omit' }
+        );
+        if (treeRes && treeRes.ok) {
+          const treeJson = await treeRes.json();
+          const seen = new Set();
+          const out = [];
+          for (const entry of (treeJson.tree || [])) {
+            if (entry.type !== 'blob' || !entry.path.startsWith('documents/') || !entry.path.toLowerCase().endsWith('.pdf')) continue;
+            const rel = entry.path.slice('documents/'.length);
+            if (!rel || seen.has(rel)) continue;
+            if (subjectFilter && !rel.toLowerCase().includes(subjectFilter.toLowerCase())) continue;
+            seen.add(rel);
+            const candidates = this.getRemoteCandidateUrls(rel);
+            out.push({
+              relPath: rel,
+              url: candidates[0],
+              candidates,
+              subject: rel.split('/').pop().replace(/\.pdf$/i, ''),
+              filename: rel.split('/').pop(),
+              size: entry.size || 0
+            });
+          }
+          return out;
+        }
+      } catch (e) {}
+
       return [];
+    },
+
+    cancelDownload() {
+      if (this._abortController) {
+        try { this._abortController.abort(); } catch (e) {}
+      }
+      this.isDownloading = false;
+      const banner = document.getElementById('globalDownloadBanner');
+      if (banner) banner.style.display = 'none';
+      if (typeof window.showNotification === 'function') {
+        window.showNotification('Download cancelled.', 'info');
+      }
     },
 
     async startFullPackDownload(subjectFilter = null) {
@@ -271,6 +427,7 @@
       }
 
       this.isDownloading = true;
+      this._abortController = typeof AbortController !== 'undefined' ? new AbortController() : null;
 
       if (window.electronAPI && typeof window.electronAPI.downloadFullPack === 'function' && !subjectFilter) {
         try {
@@ -295,6 +452,7 @@
           }
         } finally {
           this.isDownloading = false;
+          this._abortController = null;
         }
         return;
       }
@@ -306,24 +464,35 @@
           await window.OfflineEngine.requestPersistentStorage();
         }
 
-        const list = await this._getBrowserCatalogList(subjectFilter);
-        if (!list.length) {
-          throw new Error('No downloadable study catalog found on this origin.');
-        }
-
         if (banner) banner.style.display = 'flex';
         const fileEl = document.getElementById('dlCurrentFile');
         const percentEl = document.getElementById('dlPercent');
         const speedEl = document.getElementById('dlSpeed');
         const fillEl = document.getElementById('dlProgressBarFill');
+        if (fileEl) fileEl.textContent = 'Preparing question paper list...';
+        if (percentEl) percentEl.textContent = '0%';
+        if (speedEl) speedEl.textContent = '';
+        if (fillEl) fillEl.style.width = '2%';
+
+        const list = await this._getBrowserCatalogList(subjectFilter);
+        if (!list.length) {
+          throw new Error('No downloadable study papers found in catalog.');
+        }
 
         let completed = 0;
         let cachedNew = 0;
+        let alreadyCachedCount = 0;
+        let failedCount = 0;
         let downloadedBytes = 0;
         const startTime = Date.now();
         const total = list.length;
-        const CONCURRENCY = 5;
+        const isMobile = Boolean(
+          window.Capacitor ||
+          (typeof navigator !== 'undefined' && /android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent || ''))
+        );
+        const CONCURRENCY = isMobile ? 2 : 5;
         let index = 0;
+        const signal = this._abortController ? this._abortController.signal : undefined;
 
         const updateBanner = (label) => {
           const pct = Math.min(99, Math.round((completed / total) * 100));
@@ -338,34 +507,68 @@
 
         const worker = async () => {
           while (index < list.length) {
+            if (signal && signal.aborted) break;
             const item = list[index++];
             try {
               const alreadyCached = window.OfflineEngine && await window.OfflineEngine.hasPdf(item.relPath);
-              if (!alreadyCached) {
-                const { byteLength } = await window.OfflineEngine.fetchAndCachePdf(item.url, {
+              if (alreadyCached) {
+                alreadyCachedCount++;
+              } else {
+                const sources = (item.candidates && item.candidates.length > 0) ? item.candidates : item.url;
+                const { byteLength } = await window.OfflineEngine.fetchAndCachePdf(sources, {
+                  relPath: item.relPath,
                   subject: item.subject,
                   quality: this.qualityProfile,
-                  filename: item.filename
+                  filename: item.filename,
+                  signal
                 });
                 downloadedBytes += byteLength || item.size || 0;
                 cachedNew++;
               }
             } catch (err) {
+              if (err && err.name === 'AbortError') break;
+              failedCount++;
               console.warn('[DownloadManager] Skipped:', item.relPath, err.message);
             }
             completed++;
-            updateBanner(`Caching (${completed}/${total}): ${item.subject}`);
+            updateBanner(`Downloading (${completed}/${total}): ${item.filename || item.subject}`);
           }
         };
 
         await Promise.all(Array.from({ length: Math.min(CONCURRENCY, list.length) }, () => worker()));
 
+        if (signal && signal.aborted) {
+          await this.refreshHasDocumentsState();
+          this.renderSettingsStorageTab();
+          this.renderOfflineDiagnosticsPanel();
+          return;
+        }
+
+        const totalAvailableOffline = cachedNew + alreadyCachedCount;
+        if (totalAvailableOffline === 0 && failedCount > 0) {
+          if (banner) banner.style.display = 'none';
+          this.hasDocuments = false;
+          localStorage.removeItem('questionary-docs-installed');
+          this.renderSettingsStorageTab();
+          this.renderOfflineDiagnosticsPanel();
+          if (typeof window.showNotification === 'function') {
+            window.showNotification(`Download failed for ${failedCount} paper(s). Please check your internet connection and try again.`, 'error');
+          }
+          return;
+        }
+
         if (percentEl) percentEl.textContent = '100%';
         if (fillEl) fillEl.style.width = '100%';
-        if (fileEl) fileEl.textContent = `Cached ${completed} offline documents (${formatSize(downloadedBytes)} downloaded)`;
+        if (fileEl) {
+          fileEl.textContent = failedCount > 0
+            ? `Cached ${totalAvailableOffline} papers (${failedCount} failed · ${formatSize(downloadedBytes)})`
+            : `Cached ${totalAvailableOffline} offline papers (${formatSize(downloadedBytes)} downloaded)`;
+        }
 
-        this.hasDocuments = true;
-        localStorage.setItem('questionary-docs-installed', 'true');
+        this.hasDocuments = totalAvailableOffline > 0;
+        if (this.hasDocuments) {
+          localStorage.setItem('questionary-docs-installed', 'true');
+        }
 
         setTimeout(() => {
           if (banner) banner.style.display = 'none';
@@ -373,12 +576,13 @@
           this.renderOfflineDiagnosticsPanel();
           if (typeof window.renderTiles === 'function') window.renderTiles();
           if (typeof window.showNotification === 'function') {
-            window.showNotification(
-              cachedNew > 0
-                ? `Cached ${cachedNew} new document(s) for offline access.`
-                : 'All study documents are already cached offline.',
-              'success'
-            );
+            if (failedCount > 0) {
+              window.showNotification(`Downloaded ${cachedNew} paper(s), ${failedCount} failed. Tap Sync again to retry.`, 'warning');
+            } else if (cachedNew > 0) {
+              window.showNotification(`Downloaded & cached ${cachedNew} paper(s) (${formatSize(downloadedBytes)}) for offline use!`, 'success');
+            } else {
+              window.showNotification('All study papers are already cached offline.', 'success');
+            }
           }
         }, 900);
       } catch (err) {
@@ -389,6 +593,7 @@
         }
       } finally {
         this.isDownloading = false;
+        this._abortController = null;
       }
     },
 
@@ -399,6 +604,7 @@
       if (!dbFilePath || dbFilePath === '#' || dbFilePath === '') return dbFilePath;
       if (
         dbFilePath.startsWith('blob:') ||
+        dbFilePath.startsWith('blob-id:') ||
         dbFilePath.startsWith('data:') ||
         dbFilePath.startsWith('http://') ||
         dbFilePath.startsWith('https://') ||
@@ -417,9 +623,16 @@
         return `local-pdf://${fullPath}`;
       }
 
-      // Android / Capacitor / Browser WebView standard local URL resolution
+      // If we already know local /documents/ does not exist (e.g. Capacitor APK), point directly to GitHub raw CDN
+      const relDoc = cleanPath.replace(/^(documentshd|documents)\//i, '');
+      if (window.Capacitor || this._localDocsAvailable === false) {
+        const remoteUrls = this.getRemoteCandidateUrls(relDoc);
+        if (remoteUrls.length > 0) return remoteUrls[0];
+      }
+
+      // Browser WebView standard local URL resolution
       try {
-        if (cleanPath.startsWith('documents/')) {
+        if (cleanPath.startsWith('documents/') || cleanPath.startsWith('documentshd/')) {
           return new URL(cleanPath, window.location.href).href;
         }
         return new URL(`documents/${cleanPath}`, window.location.href).href;
@@ -429,27 +642,61 @@
     },
 
     async resolveDocumentUrlAsync(dbFilePath) {
-      const syncUrl = this.resolveDocumentUrl(dbFilePath);
-      if (!syncUrl || window.electronAPI) return syncUrl;
-      if (syncUrl.startsWith('blob:') || syncUrl.startsWith('data:') || syncUrl.startsWith('blob-id:')) {
-        return syncUrl;
+      if (!dbFilePath || dbFilePath === '#' || dbFilePath === '') return dbFilePath;
+      if (window.electronAPI) return this.resolveDocumentUrl(dbFilePath);
+      if (dbFilePath.startsWith('blob:') || dbFilePath.startsWith('data:') || dbFilePath.startsWith('blob-id:')) {
+        return dbFilePath;
       }
 
+      const cleanRel = String(dbFilePath)
+        .replace(/\\/g, '/')
+        .replace(/^(\.\/)+/, '')
+        .replace(/^\/+/, '')
+        .replace(/^(documentshd|documents)\//i, '');
+
       if (window.OfflineEngine) {
-        const cachedObjectUrl = await window.OfflineEngine.getPdfObjectUrl(dbFilePath);
+        const cachedObjectUrl = await window.OfflineEngine.getPdfObjectUrl(cleanRel);
         if (cachedObjectUrl) {
           return cachedObjectUrl;
         }
+      }
 
-        // Opportunistically cache opened PDF in background if online
-        if (window.OfflineEngine.isOnline()) {
-          window.OfflineEngine.fetchAndCachePdf(syncUrl, {
+      const hasLocal = await this._probeLocalDocumentsAvailable(cleanRel);
+      const syncUrl = this.resolveDocumentUrl(dbFilePath);
+
+      if (hasLocal) {
+        if (window.OfflineEngine && window.OfflineEngine.isOnline()) {
+          window.OfflineEngine.fetchAndCachePdf([syncUrl, ...this.getRemoteCandidateUrls(cleanRel)], {
+            relPath: cleanRel,
+            filename: cleanRel.split('/').pop(),
             quality: this.qualityProfile
           }).catch(() => {});
         }
+        return syncUrl;
       }
 
-      return syncUrl;
+      // On Capacitor Android / static mobile build: download & cache from GitHub raw CDN on demand
+      const remoteUrls = this.getRemoteCandidateUrls(cleanRel);
+      if (window.OfflineEngine && window.OfflineEngine.isOnline() && remoteUrls.length > 0) {
+        if (typeof window.showNotification === 'function') {
+          window.showNotification('Downloading paper for offline reading...', 'info');
+        }
+        try {
+          await window.OfflineEngine.fetchAndCachePdf(remoteUrls, {
+            relPath: cleanRel,
+            filename: cleanRel.split('/').pop(),
+            quality: this.qualityProfile
+          });
+          this.refreshHasDocumentsState().then(() => this.renderSettingsStorageTab());
+          const objUrl = await window.OfflineEngine.getPdfObjectUrl(cleanRel);
+          if (objUrl) return objUrl;
+        } catch (err) {
+          console.warn('[DownloadManager] On-demand mobile fetch failed:', err.message);
+        }
+        return remoteUrls[0];
+      }
+
+      return remoteUrls[0] || syncUrl;
     },
 
     async clearOfflineCache() {
@@ -505,7 +752,8 @@
         const stats = await window.OfflineEngine.getStats();
         usedMB = (stats.totalBytes / (1024 * 1024)).toFixed(1);
         fileCount = stats.fileCount;
-        docsStatus = fileCount > 0 ? `${fileCount} PDFs cached in IndexedDB` : 'No offline PDFs cached yet';
+        const backendLabel = (stats.backends && stats.backends.length > 0) ? stats.backends.join(' + ') : 'IndexedDB / OPFS';
+        docsStatus = fileCount > 0 ? `${fileCount} PDFs cached (${backendLabel})` : 'No offline PDFs cached yet';
       }
 
       const isElectron = Boolean(window.electronAPI);

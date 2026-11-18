@@ -89,7 +89,8 @@ html, body {
     flex-shrink: 0; text-decoration: none; position: relative; font-family: inherit;
     white-space: nowrap;
 }
-.tb-btn:hover { background: var(--surface-2); color: var(--fg); }
+.tb-btn:hover:not(:disabled) { background: var(--surface-2); color: var(--fg); }
+.tb-btn:disabled { opacity: 0.38; cursor: not-allowed; pointer-events: none; }
 .tb-btn.active {
     background: var(--accent) !important; color: #ffffff !important; border-color: var(--accent);
 }
@@ -626,28 +627,87 @@ html, body {
 }
 .sel-pop-btn:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
 
-/* ── TRANSPARENT TEXT BOXES ── */
+/* ── TRANSPARENT INLINE TEXT BOXES ── */
 .pdf-inline-text {
-    position: absolute; z-index: 20;
-    background: transparent; border: 1px dashed transparent;
-    padding: 2px 6px; color: #18181b; outline: none;
-    min-width: 32px; min-height: 22px; word-break: break-word;
-    white-space: pre-wrap; user-select: text; -webkit-user-select: text;
-    line-height: 1.3; font-family: inherit; border-radius: 4px;
+    position: absolute; z-index: 25;
+    background: transparent; border: 1.5px dashed transparent;
+    padding: 0; border-radius: 5px;
+    min-width: 44px; max-width: calc(100% - 16px);
+    font-family: inherit;
+    transition: border-color 0.12s, background-color 0.12s;
 }
-.pdf-inline-text:hover, .pdf-inline-text:focus, .pdf-inline-text.selected {
-    border-color: var(--accent); background: rgba(207, 98, 21, 0.08);
+.pdf-inline-text.bg-paper {
+    background: rgba(255, 255, 255, 0.92);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.14);
+}
+.page-wrapper.dark-inverted .pdf-inline-text.bg-paper {
+    background: rgba(24, 24, 27, 0.9);
+    border-color: rgba(255, 255, 255, 0.16);
+}
+.pdf-inline-text:hover, .pdf-inline-text:focus-within, .pdf-inline-text.selected {
+    border-color: var(--accent);
+}
+.pdf-inline-text:hover:not(.bg-paper),
+.pdf-inline-text:focus-within:not(.bg-paper),
+.pdf-inline-text.selected:not(.bg-paper) {
+    background: rgba(207, 98, 21, 0.08);
+}
+.pdf-text-editor {
+    outline: none;
+    padding: 3px 7px;
+    min-width: 44px; min-height: 22px;
+    line-height: 1.32;
+    white-space: pre-wrap;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    user-select: text; -webkit-user-select: text;
+    cursor: text;
+    font-family: inherit;
+    font-size: inherit;
+    color: inherit;
+    border-radius: 4px;
+}
+.pdf-text-editor:empty::before {
+    content: attr(data-placeholder);
+    color: currentColor;
+    opacity: 0.48;
+    pointer-events: none;
 }
 .text-drag-bar {
-    position: absolute; top: -18px; left: 0;
-    font-size: 10px; background: var(--accent); color: #fff;
-    padding: 1px 6px; border-radius: 3px; cursor: move;
-    display: none; user-select: none; align-items: center; gap: 4px;
+    position: absolute; top: -24px; left: 0;
+    height: 22px;
+    font-size: 10.5px; font-weight: 600;
+    background: var(--accent); color: #fff;
+    padding: 0 5px; border-radius: 5px 5px 0 0;
+    display: none; user-select: none; -webkit-user-select: none;
+    align-items: center; gap: 5px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.22);
+    touch-action: none;
+    white-space: nowrap;
+    z-index: 30;
+}
+.pdf-inline-text.bar-bottom .text-drag-bar {
+    top: auto; bottom: -24px; border-radius: 0 0 5px 5px;
 }
 .pdf-inline-text:hover .text-drag-bar,
-.pdf-inline-text:focus-within .text-drag-bar { display: flex; }
-.text-del-btn { cursor: pointer; color: #fecaca; margin-left: 2px; }
-.text-del-btn:hover { color: #fff; }
+.pdf-inline-text:focus-within .text-drag-bar,
+.pdf-inline-text.selected .text-drag-bar { display: flex; }
+.text-drag-grip {
+    display: inline-flex; align-items: center; gap: 4px;
+    cursor: grab; padding: 2px 4px;
+    touch-action: none;
+}
+.text-drag-grip:active { cursor: grabbing; }
+.text-bar-btn {
+    background: rgba(0,0,0,0.18); border: none; color: #fff;
+    width: 17px; height: 17px; border-radius: 3px;
+    display: inline-flex; align-items: center; justify-content: center;
+    cursor: pointer; font-size: 9.5px; line-height: 1;
+    transition: background 0.12s;
+}
+.text-bar-btn:hover { background: rgba(0,0,0,0.35); }
+.text-bar-btn.active { background: #fff; color: var(--accent); }
+.text-del-btn:hover { background: #dc2626; color: #fff; }
 
 /* ── STICKY NOTES WITH COLOR & TRANSPARENCY CONTROLS ── */
 .pdf-sticky-note {
@@ -763,7 +823,8 @@ html, body {
 
     <div class="toolbar-sep"></div>
 
-    <button class="tb-btn" id="btnUndo" title="Undo Drawing (Ctrl+Z)"><i class="fas fa-undo"></i></button>
+    <button class="tb-btn" id="btnUndo" title="Undo Annotation (Ctrl+Z)"><i class="fas fa-undo"></i></button>
+    <button class="tb-btn" id="btnRedo" title="Redo Annotation (Ctrl+Y)" disabled><i class="fas fa-redo"></i></button>
     <button class="tb-btn" id="clearAnnotations" title="Clear Page Annotations"><i class="fas fa-trash-alt"></i></button>
 
     <div class="toolbar-spacer"></div>
@@ -838,18 +899,26 @@ html, body {
         <span class="pop-label">Font Size</span>
         <span class="pop-val" id="textSizeVal">14px</span>
     </div>
-    <input type="range" class="pop-slider" id="textSizeSlider" min="10" max="36" value="14">
+    <input type="range" class="pop-slider" id="textSizeSlider" min="10" max="42" value="14">
     <div class="pop-row" style="margin-top:2px;">
         <span class="pop-label">Color</span>
         <input type="color" class="pop-color-input" id="textColorCustom" value="#cf6215">
     </div>
     <div class="pop-swatches" id="textSwatches">
-        <div class="pop-dot active" style="background:#cf6215;" data-color="#cf6215"></div>
-        <div class="pop-dot" style="background:#000000;" data-color="#000000"></div>
-        <div class="pop-dot" style="background:#ef4444;" data-color="#ef4444"></div>
-        <div class="pop-dot" style="background:#3b82f6;" data-color="#3b82f6"></div>
-        <div class="pop-dot" style="background:#22c55e;" data-color="#22c55e"></div>
+        <div class="pop-dot active" style="background:#cf6215;" data-color="#cf6215" title="Orange"></div>
+        <div class="pop-dot" style="background:#18181b;" data-color="#18181b" title="Black"></div>
+        <div class="pop-dot" style="background:#ffffff;" data-color="#ffffff" title="White"></div>
+        <div class="pop-dot" style="background:#ef4444;" data-color="#ef4444" title="Red"></div>
+        <div class="pop-dot" style="background:#3b82f6;" data-color="#3b82f6" title="Blue"></div>
+        <div class="pop-dot" style="background:#22c55e;" data-color="#22c55e" title="Green"></div>
     </div>
+    <div class="pop-row" style="margin-top:2px;">
+        <span class="pop-label">Backdrop</span>
+        <button type="button" class="mini-btn" id="textBgToggleBtn" title="Toggle solid backdrop behind text">
+            <i class="fas fa-fill-drip"></i> <span id="textBgToggleLabel">Transparent</span>
+        </button>
+    </div>
+    <p class="pop-hint">Tap anywhere on a page to place a text box. Press Esc when finished typing.</p>
 </div>
 
 <div class="tool-popover" id="popoverEraser">
@@ -1058,17 +1127,21 @@ import * as pdfjsLib from './js/vendor/pdf.min.mjs';
         textHighlight: { color: '#fef08a' },
         pen: { size: 3, color: '#cf6215' },
         highlighter: { size: 22, color: '#eab308' },
-        text: { size: 14, color: '#cf6215' },
+        text: { size: 14, color: '#cf6215', bg: 'none' },
         eraser: { size: 28 },
         shape: { size: 3, color: '#cf6215', shape: 'line' }
     };
 
     let docPageSnapshots = {};
-    let docUndoStacks = {};
+    let rasterApplySeq = {};
+    const MAX_HISTORY_STEPS = 80;
+    let selectedTextBox = null;
     let textHighlights = [];
     let pageTextCache = {};
     let activeDocId = '';
     let activeLoadedUrl = '';
+    let activeDocRelPath = '';
+    let activeDisplayName = '';
     let pendingSelectionData = null;
 
     // Search State
@@ -1080,12 +1153,16 @@ import * as pdfjsLib from './js/vendor/pdf.min.mjs';
     const params = new URLSearchParams(window.location.search);
     let fileUrl = params.get('file');
     let initialPage = parseInt(params.get('page'), 10) || 1;
+    let docKeyParam = params.get('docKey') || '';
+    let docNameParam = params.get('name') || '';
     if (!fileUrl && window.location.hash) {
         const hashParams = new URLSearchParams(window.location.hash.substring(1));
         fileUrl = hashParams.get('file');
         if (!params.get('page') && hashParams.get('page')) {
             initialPage = parseInt(hashParams.get('page'), 10) || 1;
         }
+        if (!docKeyParam && hashParams.get('docKey')) docKeyParam = hashParams.get('docKey');
+        if (!docNameParam && hashParams.get('name')) docNameParam = hashParams.get('name');
     }
 
     if (window.innerWidth <= 768) {
@@ -1160,34 +1237,48 @@ import * as pdfjsLib from './js/vendor/pdf.min.mjs';
         rootMargin: '400px 0px 400px 0px'
     });
 
+    function extractDocRelPath(rawUrl) {
+        if (!rawUrl || typeof rawUrl !== 'string') return '';
+        let key = rawUrl.trim();
+        if (/^(blob:|data:|blob-id:)/i.test(key)) return '';
+        try {
+            if (/^https?:\/\//i.test(key)) key = new URL(key).pathname;
+        } catch (e) {}
+        try { key = decodeURIComponent(key); } catch (e) {}
+        key = key.replace(/\\/g, '/').replace(/^(\.\/)+/, '').replace(/^\/+/, '');
+        key = key.replace(/^Nugget1252\/Questionarytauri\/Electron\//i, '');
+        key = key.replace(/^(documentshd|documents)\//i, '');
+        return key;
+    }
+
     async function lookupOfflinePdfBlobUrl(rawUrl) {
-        if (!rawUrl || /^(blob:|data:|local-pdf:)/i.test(rawUrl)) return null;
+        const relKey = docKeyParam || extractDocRelPath(rawUrl);
+        if (!relKey && (!rawUrl || /^(blob:|data:|local-pdf:)/i.test(rawUrl))) return null;
+        const lookupKey = relKey || rawUrl;
         try {
             if (window.parent && window.parent !== window && window.parent.OfflineEngine) {
-                const parentUrl = await window.parent.OfflineEngine.getPdfObjectUrl(rawUrl);
+                const parentUrl = await window.parent.OfflineEngine.getPdfObjectUrl(lookupKey);
                 if (parentUrl) return parentUrl;
             }
         } catch (e) {}
 
-        // Direct IndexedDB fallback when opened standalone outside parent iframe
-        return new Promise((resolve) => {
+        // Direct IndexedDB -> OPFS -> CacheStorage fallback when opened standalone outside parent iframe
+        const idbUrl = await new Promise((resolve) => {
             try {
-                let key = rawUrl;
-                try {
-                    if (/^https?:\/\//i.test(key)) key = new URL(key).pathname;
-                } catch (e) {}
-                try { key = decodeURIComponent(key); } catch (e) {}
-                key = key.replace(/\\/g, '/').replace(/^(\.\/)+/, '').replace(/^\/+/, '').replace(/^(documentshd|documents)\//i, '');
-
                 const req = indexedDB.open('QuestionaryOfflineDocs', 1);
                 req.onsuccess = () => {
                     const db = req.result;
                     if (!db.objectStoreNames.contains('pdfs')) return resolve(null);
                     const tx = db.transaction('pdfs', 'readonly');
-                    const getReq = tx.objectStore('pdfs').get(key);
+                    const getReq = tx.objectStore('pdfs').get(lookupKey);
                     getReq.onsuccess = () => {
                         const rec = getReq.result;
-                        resolve(rec && rec.blob ? URL.createObjectURL(rec.blob) : null);
+                        if (rec && rec.blob) {
+                            const typed = rec.blob.type === 'application/pdf' ? rec.blob : new Blob([rec.blob], { type: 'application/pdf' });
+                            resolve(URL.createObjectURL(typed));
+                        } else {
+                            resolve(null);
+                        }
                     };
                     getReq.onerror = () => resolve(null);
                 };
@@ -1196,6 +1287,97 @@ import * as pdfjsLib from './js/vendor/pdf.min.mjs';
                 resolve(null);
             }
         });
+        if (idbUrl) return idbUrl;
+
+        // OPFS fallback
+        try {
+            if (navigator.storage && typeof navigator.storage.getDirectory === 'function') {
+                let h1 = 0x811c9dc5, h2 = 0x12345678;
+                for (let i = 0; i < lookupKey.length; i++) {
+                    const c = lookupKey.charCodeAt(i);
+                    h1 ^= c; h1 = Math.imul(h1, 0x01000193);
+                    h2 = Math.imul(h2 ^ c, 2654435761);
+                }
+                const fileId = `doc_${(h1 >>> 0).toString(36)}_${(h2 >>> 0).toString(36)}.pdf`;
+                const root = await navigator.storage.getDirectory();
+                const dir = await root.getDirectoryHandle('questionary-offline-pdfs');
+                const fh = await dir.getFileHandle(fileId);
+                const file = await fh.getFile();
+                if (file && file.size > 0) return URL.createObjectURL(new Blob([file], { type: 'application/pdf' }));
+            }
+        } catch (e) {}
+
+        // Cache Storage fallback
+        try {
+            if (typeof caches !== 'undefined') {
+                const cache = await caches.open('questionary-docs-v1');
+                const clean = String(lookupKey).replace(/^\/+/, '').replace(/^(documentshd|documents)\//i, '');
+                const encoded = clean.split('/').map((s) => encodeURIComponent(s)).join('/');
+                const res = await cache.match(new URL(`documents/${encoded}`, window.location.href).href, { ignoreSearch: true })
+                    || await cache.match(rawUrl, { ignoreSearch: true });
+                if (res && res.ok) {
+                    const blob = await res.blob();
+                    if (blob && blob.size > 0) return URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }));
+                }
+            }
+        } catch (e) {}
+
+        return null;
+    }
+
+    function isPdfSignatureValid(bytes) {
+        if (!bytes || bytes.byteLength < 5) return false;
+        for (let i = 0; i <= Math.min(12, bytes.byteLength - 4); i++) {
+            if (bytes[i] === 0x25 && bytes[i + 1] === 0x50 && bytes[i + 2] === 0x44 && bytes[i + 3] === 0x46) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    async function tryFetchAndCacheRemotePdfFallback(rawUrl) {
+        const relPath = docKeyParam || extractDocRelPath(rawUrl);
+        if (!relPath) return null;
+        if (typeof navigator !== 'undefined' && navigator.onLine === false) return null;
+
+        try {
+            if (window.parent && window.parent !== window && window.parent.OfflineEngine && window.parent.DownloadManager) {
+                const candidates = typeof window.parent.DownloadManager.getRemoteCandidateUrls === 'function'
+                    ? window.parent.DownloadManager.getRemoteCandidateUrls(relPath)
+                    : [];
+                if (candidates.length > 0) {
+                    const { blob } = await window.parent.OfflineEngine.fetchAndCachePdf(candidates, {
+                        relPath,
+                        filename: relPath.split('/').pop(),
+                        quality: window.parent.DownloadManager.qualityProfile || 'sd'
+                    });
+                    if (blob) {
+                        return URL.createObjectURL(blob);
+                    }
+                }
+            }
+        } catch (e) {}
+
+        const encodedRel = relPath.split('/').map(seg => encodeURIComponent(seg)).join('/');
+        const quality = (localStorage.getItem('questionary-quality-profile') || 'sd').toLowerCase();
+        const remoteUrls = quality === 'hd'
+            ? [
+                `https://raw.githubusercontent.com/Nugget1252/Questionarytauri/Electron/documentshd/${encodedRel}`,
+                `https://raw.githubusercontent.com/Nugget1252/Questionarytauri/Electron/documents/${encodedRel}`
+            ]
+            : [`https://raw.githubusercontent.com/Nugget1252/Questionarytauri/Electron/documents/${encodedRel}`];
+
+        for (const rUrl of remoteUrls) {
+            try {
+                const res = await fetch(rUrl, { cache: 'no-cache', credentials: 'omit' });
+                if (!res || !res.ok) continue;
+                const ab = await res.arrayBuffer();
+                const bytes = new Uint8Array(ab);
+                if (!isPdfSignatureValid(bytes)) continue;
+                return { bytes, blob: new Blob([bytes], { type: 'application/pdf' }) };
+            } catch (e) {}
+        }
+        return null;
     }
 
     const localProvidedPdfBytes = {};
@@ -1436,9 +1618,16 @@ import * as pdfjsLib from './js/vendor/pdf.min.mjs';
 
             activeLoadedUrl = url;
             activeLoadedPdfBytes = null;
-            activeDocId = generateDocId(url);
+            activeDocRelPath = docKeyParam || extractDocRelPath(url);
+            activeDisplayName = docNameParam || (activeDocRelPath ? activeDocRelPath.split('/').pop() : '');
+            const canonicalDocIdInput = activeDocRelPath
+                ? `documents/${activeDocRelPath}`
+                : (url.startsWith('blob:') && docKeyParam ? docKeyParam : url);
+            activeDocId = generateDocId(canonicalDocIdInput);
             docPageSnapshots = {};
-            docUndoStacks = {};
+            rasterApplySeq = {};
+            selectedTextBox = null;
+            historyManager.clear();
             pageTextCache = {};
             searchMatches = [];
             currentMatchIdx = -1;
@@ -1470,16 +1659,39 @@ import * as pdfjsLib from './js/vendor/pdf.min.mjs';
                 throw new Error('Imported PDF data could not be loaded from local library storage.');
             }
 
-            const docInitParams = (directPdfBytes && directPdfBytes.byteLength > 0)
-                ? { data: cloneFreshUint8Array(directPdfBytes), cMapPacked: true, isEvalSupported: false }
-                : { url: pdfSourceUrl, cMapPacked: true, isEvalSupported: false };
-
-            const loadingTask = pdfjsLib.getDocument(docInitParams);
+            let loadingTask = pdfjsLib.getDocument(
+                (directPdfBytes && directPdfBytes.byteLength > 0)
+                    ? { data: cloneFreshUint8Array(directPdfBytes), cMapPacked: true, isEvalSupported: false }
+                    : { url: pdfSourceUrl, cMapPacked: true, isEvalSupported: false }
+            );
             loadingTask.onProgress = function(p) {
                 if (p.total > 0) loadingProgress.style.width = Math.min(75, (p.loaded / p.total) * 100) + '%';
             };
 
-            pdfDoc = await loadingTask.promise;
+            try {
+                pdfDoc = await loadingTask.promise;
+            } catch (primaryErr) {
+                // On mobile / Capacitor APKs where local /documents/ does not exist, try GitHub CDN fallback
+                const fallback = (!directPdfBytes && !pdfSourceUrl.startsWith('blob:') && !pdfSourceUrl.startsWith('local-pdf:'))
+                    ? await tryFetchAndCacheRemotePdfFallback(url)
+                    : null;
+                if (!fallback) throw primaryErr;
+
+                if (typeof fallback === 'string') {
+                    pdfSourceUrl = fallback;
+                    const blobBytes = await fetchBlobUrlAsBytes(fallback);
+                    if (blobBytes && blobBytes.byteLength > 0) {
+                        activeLoadedPdfBytes = cloneFreshUint8Array(blobBytes);
+                        loadingTask = pdfjsLib.getDocument({ data: cloneFreshUint8Array(blobBytes), cMapPacked: true, isEvalSupported: false });
+                    } else {
+                        loadingTask = pdfjsLib.getDocument({ url: fallback, cMapPacked: true, isEvalSupported: false });
+                    }
+                } else if (fallback.bytes) {
+                    activeLoadedPdfBytes = cloneFreshUint8Array(fallback.bytes);
+                    loadingTask = pdfjsLib.getDocument({ data: cloneFreshUint8Array(fallback.bytes), cMapPacked: true, isEvalSupported: false });
+                }
+                pdfDoc = await loadingTask.promise;
+            }
             totalPages = pdfDoc.numPages;
             pageCountSpan.textContent = totalPages;
             pageNumInput.max = totalPages;
@@ -1719,6 +1931,7 @@ import * as pdfjsLib from './js/vendor/pdf.min.mjs';
     function commitTextHighlight(selectionData, color, noteText = '') {
         if (!selectionData || !selectionData.rects || selectionData.rects.length === 0) return null;
 
+        const beforeList = cloneHighlightsList(textHighlights);
         const hl = {
             id: 'hl_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
             docId: activeDocId,
@@ -1733,6 +1946,14 @@ import * as pdfjsLib from './js/vendor/pdf.min.mjs';
         textHighlights.push(hl);
         saveTextHighlights();
         renderPageTextHighlights(selectionData.pageNum, selectionData.wrapper);
+        pushUndoHistory({
+            kind: 'highlights',
+            pageNum: selectionData.pageNum,
+            before: beforeList,
+            after: cloneHighlightsList(textHighlights),
+            label: 'highlight'
+        });
+        updatePageState(selectionData.pageNum);
 
         try { window.getSelection().removeAllRanges(); } catch (e) {}
         hideSelectionPopup();
@@ -1952,9 +2173,17 @@ import * as pdfjsLib from './js/vendor/pdf.min.mjs';
 
             card.querySelector('[data-action="delete"]')?.addEventListener('click', (e) => {
                 e.stopPropagation();
+                const beforeList = cloneHighlightsList(textHighlights);
                 textHighlights = textHighlights.filter(h => h.id !== hlId);
                 saveTextHighlights();
                 renderPageTextHighlights(hl.page);
+                pushUndoHistory({
+                    kind: 'highlights',
+                    pageNum: hl.page,
+                    before: beforeList,
+                    after: cloneHighlightsList(textHighlights),
+                    label: 'delete highlight'
+                });
                 showToast('Highlight removed');
             });
 
@@ -2312,21 +2541,43 @@ import * as pdfjsLib from './js/vendor/pdf.min.mjs';
     }
 
     /* ================================================================
-       GLORIOUS OFFSCREEN-BUFFERED HIGHLIGHTER & FAST CANVAS ENGINE
+       GLORIOUS OFFSCREEN-BUFFERED HIGHLIGHTER, RASTER & UNIFIED UNDO
        ================================================================ */
+    function cloneHighlightsList(list) {
+        try { return JSON.parse(JSON.stringify(list || [])); } catch (e) { return []; }
+    }
+
+    function getSavedRasterSnapshot(pageNum) {
+        return docPageSnapshots[pageNum] || localStorage.getItem(getStorageKey(pageNum)) || '';
+    }
+
+    function setSavedRasterSnapshot(pageNum, dataUrl) {
+        if (dataUrl) {
+            docPageSnapshots[pageNum] = dataUrl;
+            try { localStorage.setItem(getStorageKey(pageNum), dataUrl); } catch (e) {}
+        } else {
+            delete docPageSnapshots[pageNum];
+            try { localStorage.removeItem(getStorageKey(pageNum)); } catch (e) {}
+        }
+    }
+
     function savePageSnapshot(pageNum, canvas) {
         try {
             const dataUrl = canvas.toDataURL('image/png');
-            docPageSnapshots[pageNum] = dataUrl;
-            localStorage.setItem(getStorageKey(pageNum), dataUrl);
-        } catch (e) {}
+            setSavedRasterSnapshot(pageNum, dataUrl);
+            return dataUrl;
+        } catch (e) {
+            return '';
+        }
     }
 
     function loadPageSnapshot(pageNum, ctx, width, height) {
-        const saved = docPageSnapshots[pageNum] || localStorage.getItem(getStorageKey(pageNum));
+        const saved = getSavedRasterSnapshot(pageNum);
+        const seq = (rasterApplySeq[pageNum] = (rasterApplySeq[pageNum] || 0) + 1);
         if (saved) {
             const img = new Image();
             img.onload = () => {
+                if (rasterApplySeq[pageNum] !== seq) return;
                 ctx.clearRect(0, 0, width, height);
                 ctx.drawImage(img, 0, 0, width, height);
             };
@@ -2334,10 +2585,197 @@ import * as pdfjsLib from './js/vendor/pdf.min.mjs';
         }
     }
 
-    function pushUndoState(pageNum, canvas) {
-        if (!docUndoStacks[pageNum]) docUndoStacks[pageNum] = [];
-        docUndoStacks[pageNum].push(canvas.toDataURL('image/png'));
-        if (docUndoStacks[pageNum].length > 25) docUndoStacks[pageNum].shift();
+    function getSavedDOMOverlaysJson(pageNum) {
+        return localStorage.getItem(getDOMStorageKey(pageNum)) || '[]';
+    }
+
+    const historyManager = {
+        undoStack: [],
+        redoStack: [],
+        clear() {
+            this.undoStack.length = 0;
+            this.redoStack.length = 0;
+            this.updateUI();
+        },
+        execute(cmd) {
+            if (!cmd || typeof cmd.undo !== 'function' || typeof cmd.redo !== 'function') return;
+            this.undoStack.push(cmd);
+            if (this.undoStack.length > MAX_HISTORY_STEPS) {
+                this.undoStack.shift();
+            }
+            this.redoStack.length = 0;
+            this.updateUI();
+        },
+        undo() {
+            if (this.undoStack.length === 0) return null;
+            const cmd = this.undoStack.pop();
+            cmd.undo();
+            this.redoStack.push(cmd);
+            this.updateUI();
+            return cmd;
+        },
+        redo() {
+            if (this.redoStack.length === 0) return null;
+            const cmd = this.redoStack.pop();
+            cmd.redo();
+            this.undoStack.push(cmd);
+            this.updateUI();
+            return cmd;
+        },
+        updateUI() {
+            const undoBtn = document.getElementById('btnUndo');
+            const redoBtn = document.getElementById('btnRedo');
+            const activeEl = document.activeElement;
+            const isEditingTextOrNote = Boolean(
+                activeEl && (activeEl.classList.contains('pdf-text-editor') || activeEl.classList.contains('pdf-sticky-body'))
+            );
+            if (undoBtn) {
+                undoBtn.disabled = this.undoStack.length === 0 && !isEditingTextOrNote;
+                if (this.undoStack.length > 0) {
+                    const top = this.undoStack[this.undoStack.length - 1];
+                    undoBtn.title = `Undo ${top.label || 'annotation'} on Page ${top.pageNum} (Ctrl+Z)`;
+                } else if (isEditingTextOrNote) {
+                    undoBtn.title = 'Undo active edit (Ctrl+Z)';
+                } else {
+                    undoBtn.title = 'Nothing to undo (Ctrl+Z)';
+                }
+            }
+            if (redoBtn) {
+                redoBtn.disabled = this.redoStack.length === 0;
+                if (this.redoStack.length > 0) {
+                    const top = this.redoStack[this.redoStack.length - 1];
+                    redoBtn.title = `Redo ${top.label || 'annotation'} on Page ${top.pageNum} (Ctrl+Y)`;
+                } else {
+                    redoBtn.title = 'Nothing to redo (Ctrl+Y)';
+                }
+            }
+        }
+    };
+
+    function updateUndoButtonUI() {
+        historyManager.updateUI();
+    }
+
+    function pushUndoHistory(entry) {
+        if (!entry || !entry.kind) return;
+        const pageNum = entry.pageNum;
+        const label = entry.label || 'annotation';
+
+        if (entry.kind === 'raster') {
+            const beforeVal = entry.before || '';
+            const afterVal = entry.after !== undefined ? entry.after : (getSavedRasterSnapshot(pageNum) || '');
+            historyManager.execute({
+                kind: 'raster',
+                pageNum,
+                label,
+                undo() { applyRasterSnapshotToPage(pageNum, beforeVal); },
+                redo() { applyRasterSnapshotToPage(pageNum, afterVal); }
+            });
+            return;
+        }
+
+        if (entry.kind === 'dom') {
+            const beforeVal = entry.before || '[]';
+            const afterVal = entry.after !== undefined ? entry.after : getSavedDOMOverlaysJson(pageNum);
+            historyManager.execute({
+                kind: 'dom',
+                pageNum,
+                label,
+                undo() { applyDOMOverlaysToPage(pageNum, beforeVal); },
+                redo() { applyDOMOverlaysToPage(pageNum, afterVal); }
+            });
+            return;
+        }
+
+        if (entry.kind === 'highlights') {
+            const beforeVal = cloneHighlightsList(entry.before);
+            const afterVal = cloneHighlightsList(entry.after !== undefined ? entry.after : textHighlights);
+            historyManager.execute({
+                kind: 'highlights',
+                pageNum,
+                label,
+                undo() {
+                    textHighlights = cloneHighlightsList(beforeVal);
+                    saveTextHighlights();
+                    renderPageTextHighlights(pageNum);
+                },
+                redo() {
+                    textHighlights = cloneHighlightsList(afterVal);
+                    saveTextHighlights();
+                    renderPageTextHighlights(pageNum);
+                }
+            });
+            return;
+        }
+
+        if (entry.kind === 'clearPage') {
+            const beforeRaster = entry.beforeRaster || '';
+            const beforeDom = entry.beforeDom || '[]';
+            const beforeHls = cloneHighlightsList(entry.beforeHighlights);
+            const afterHls = cloneHighlightsList(
+                entry.afterHighlights !== undefined
+                    ? entry.afterHighlights
+                    : beforeHls.filter(h => h.page !== pageNum)
+            );
+            historyManager.execute({
+                kind: 'clearPage',
+                pageNum,
+                label,
+                undo() {
+                    applyRasterSnapshotToPage(pageNum, beforeRaster);
+                    applyDOMOverlaysToPage(pageNum, beforeDom);
+                    textHighlights = cloneHighlightsList(beforeHls);
+                    saveTextHighlights();
+                    renderPageTextHighlights(pageNum);
+                },
+                redo() {
+                    applyRasterSnapshotToPage(pageNum, '');
+                    applyDOMOverlaysToPage(pageNum, '[]');
+                    textHighlights = cloneHighlightsList(afterHls);
+                    saveTextHighlights();
+                    renderPageTextHighlights(pageNum);
+                }
+            });
+        }
+    }
+
+    function applyRasterSnapshotToPage(pageNum, dataUrl) {
+        const seq = (rasterApplySeq[pageNum] = (rasterApplySeq[pageNum] || 0) + 1);
+        setSavedRasterSnapshot(pageNum, dataUrl || '');
+        const wrapper = viewerContainer.querySelector(`.page-wrapper[data-page-num="${pageNum}"]`);
+        if (wrapper) {
+            const canvas = wrapper.querySelector('.annotation-canvas');
+            if (canvas) {
+                const ctx = canvas.getContext('2d');
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                if (dataUrl) {
+                    const img = new Image();
+                    img.onload = () => {
+                        if (rasterApplySeq[pageNum] !== seq) return;
+                        ctx.clearRect(0, 0, canvas.width, canvas.height);
+                        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                    };
+                    img.src = dataUrl;
+                }
+            }
+        }
+    }
+
+    function applyDOMOverlaysToPage(pageNum, jsonStr) {
+        const cleanJson = jsonStr && jsonStr !== '[]' ? jsonStr : '';
+        if (cleanJson) {
+            try { localStorage.setItem(getDOMStorageKey(pageNum), cleanJson); } catch (e) {}
+        } else {
+            try { localStorage.removeItem(getDOMStorageKey(pageNum)); } catch (e) {}
+        }
+        const wrapper = viewerContainer.querySelector(`.page-wrapper[data-page-num="${pageNum}"]`);
+        if (wrapper) {
+            if (selectedTextBox && wrapper.contains(selectedTextBox)) {
+                selectedTextBox = null;
+            }
+            wrapper.querySelectorAll('.pdf-inline-text, .pdf-sticky-note').forEach(el => el.remove());
+            if (cleanJson) restoreDOMOverlays(wrapper, pageNum);
+        }
     }
 
     function renderGloriousHighlighter(targetCtx, baseImage, points, color, size, width, height) {
@@ -2422,6 +2860,7 @@ import * as pdfjsLib from './js/vendor/pdf.min.mjs';
         let isDrawing = false;
         let lastX = 0, lastY = 0;
         let strokeSnapshot = null;
+        let strokeBeforeDataUrl = '';
         let highlighterPoints = [];
         let shapeStartX = 0, shapeStartY = 0;
 
@@ -2435,19 +2874,59 @@ import * as pdfjsLib from './js/vendor/pdf.min.mjs';
             };
         }
 
+        function finishStroke(e) {
+            if (!isDrawing) return;
+            isDrawing = false;
+
+            if (activeTool === 'highlighter' && highlighterPoints.length > 0) {
+                if (highlighterPoints.length === 1) {
+                    highlighterPoints.push({ x: highlighterPoints[0].x + 0.5, y: highlighterPoints[0].y });
+                }
+                renderGloriousHighlighter(ctx, strokeSnapshot, highlighterPoints, toolSettings.highlighter.color, toolSettings.highlighter.size, width, height);
+                highlighterPoints = [];
+            } else if (activeTool === 'shape' && strokeSnapshot && e) {
+                const p = getPos(e);
+                ctx.putImageData(strokeSnapshot, 0, 0);
+                drawShapeDirect(ctx, activeShape, shapeStartX, shapeStartY, p.x, p.y, toolSettings.shape.color, toolSettings.shape.size);
+            }
+
+            strokeSnapshot = null;
+            const afterDataUrl = savePageSnapshot(pageNum, annotCanvas);
+            if (afterDataUrl && afterDataUrl !== strokeBeforeDataUrl) {
+                pushUndoHistory({
+                    kind: 'raster',
+                    pageNum,
+                    before: strokeBeforeDataUrl,
+                    after: afterDataUrl,
+                    label: activeTool || 'drawing'
+                });
+            }
+            strokeBeforeDataUrl = '';
+        }
+
         function onPointerDown(e) {
             if (!activeTool || activeTool === 'textHighlight') return;
+            if (e.button && e.button !== 0) return;
+
+            if (pageNum !== currentPageNum) {
+                updatePageState(pageNum);
+            }
 
             if (activeTool === 'text') {
+                e.preventDefault();
                 createInlineTextBox(wrapper, pageNum, e);
                 return;
             }
             if (activeTool === 'note') {
+                e.preventDefault();
                 createStickyNote(wrapper, pageNum, e);
                 return;
             }
 
-            pushUndoState(pageNum, annotCanvas);
+            e.preventDefault();
+            try { annotCanvas.setPointerCapture(e.pointerId); } catch (err) {}
+
+            strokeBeforeDataUrl = getSavedRasterSnapshot(pageNum) || '';
             isDrawing = true;
             const p = getPos(e);
             lastX = p.x;
@@ -2456,7 +2935,7 @@ import * as pdfjsLib from './js/vendor/pdf.min.mjs';
             strokeSnapshot = ctx.getImageData(0, 0, width, height);
 
             if (activeTool === 'highlighter') {
-                highlighterPoints = [{ x: p.x, y: p.y }];
+                highlighterPoints = [{ x: p.x, y: p.y }, { x: p.x + 0.5, y: p.y }];
                 renderGloriousHighlighter(ctx, strokeSnapshot, highlighterPoints, toolSettings.highlighter.color, toolSettings.highlighter.size, width, height);
                 return;
             }
@@ -2464,6 +2943,17 @@ import * as pdfjsLib from './js/vendor/pdf.min.mjs';
             if (activeTool === 'shape') {
                 shapeStartX = p.x;
                 shapeStartY = p.y;
+                return;
+            }
+
+            if (activeTool === 'pen') {
+                ctx.save();
+                ctx.globalCompositeOperation = 'source-over';
+                ctx.fillStyle = toolSettings.pen.color;
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, Math.max(1, toolSettings.pen.size / 2), 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
                 return;
             }
 
@@ -2475,7 +2965,6 @@ import * as pdfjsLib from './js/vendor/pdf.min.mjs';
                 ctx.fill();
                 ctx.restore();
             }
-            e.preventDefault();
         }
 
         function onPointerMove(e) {
@@ -2537,32 +3026,11 @@ import * as pdfjsLib from './js/vendor/pdf.min.mjs';
             }
         }
 
-        function onPointerUp(e) {
-            if (!isDrawing) return;
-            isDrawing = false;
-
-            if (activeTool === 'highlighter' && highlighterPoints.length > 1) {
-                renderGloriousHighlighter(ctx, strokeSnapshot, highlighterPoints, toolSettings.highlighter.color, toolSettings.highlighter.size, width, height);
-                highlighterPoints = [];
-            } else if (activeTool === 'shape' && strokeSnapshot) {
-                const p = getPos(e);
-                ctx.putImageData(strokeSnapshot, 0, 0);
-                drawShapeDirect(ctx, activeShape, shapeStartX, shapeStartY, p.x, p.y, toolSettings.shape.color, toolSettings.shape.size);
-            }
-
-            strokeSnapshot = null;
-            savePageSnapshot(pageNum, annotCanvas);
-        }
-
         annotCanvas.addEventListener('pointerdown', onPointerDown);
         annotCanvas.addEventListener('pointermove', onPointerMove);
-        annotCanvas.addEventListener('pointerup', onPointerUp);
+        annotCanvas.addEventListener('pointerup', finishStroke);
+        annotCanvas.addEventListener('pointercancel', finishStroke);
         annotCanvas.addEventListener('pointerleave', () => {
-            if (isDrawing) {
-                isDrawing = false;
-                strokeSnapshot = null;
-                savePageSnapshot(pageNum, annotCanvas);
-            }
             eraserRing.style.display = 'none';
         });
     }
@@ -2570,32 +3038,111 @@ import * as pdfjsLib from './js/vendor/pdf.min.mjs';
     /* ================================================================
        STICKY NOTES & INLINE TEXT BOXES
        ================================================================ */
+    function getTextEditorPlainValue(editor) {
+        if (!editor) return '';
+        return (editor.innerText || '')
+            .replace(/\r\n/g, '\n')
+            .replace(/\u00a0/g, ' ')
+            .replace(/\n+$/, '');
+    }
+
+    function syncTextPopoverUI(baseSize, color, bgMode) {
+        const size = Math.max(10, Math.min(42, Math.round(baseSize || toolSettings.text.size || 14)));
+        const col = color || toolSettings.text.color || '#cf6215';
+        const bg = bgMode === 'paper' ? 'paper' : 'none';
+
+        const slider = document.getElementById('textSizeSlider');
+        const valEl = document.getElementById('textSizeVal');
+        const customCol = document.getElementById('textColorCustom');
+        const bgBtn = document.getElementById('textBgToggleBtn');
+        const bgLbl = document.getElementById('textBgToggleLabel');
+
+        if (slider) slider.value = size;
+        if (valEl) valEl.textContent = size + 'px';
+        if (customCol && /^#[0-9a-f]{6}$/i.test(col)) customCol.value = col;
+
+        document.querySelectorAll('#textSwatches .pop-dot').forEach(d => {
+            d.classList.toggle('active', (d.dataset.color || '').toLowerCase() === col.toLowerCase());
+        });
+
+        if (bgBtn) bgBtn.classList.toggle('active', bg === 'paper');
+        if (bgLbl) bgLbl.textContent = bg === 'paper' ? 'Paper Pill' : 'Transparent';
+    }
+
+    function selectTextBox(box) {
+        document.querySelectorAll('.pdf-inline-text.selected').forEach(el => {
+            if (el !== box) el.classList.remove('selected');
+        });
+        selectedTextBox = box || null;
+        if (box) {
+            box.classList.add('selected');
+            const baseSize = parseFloat(box.dataset.baseSize) || toolSettings.text.size;
+            const col = box.dataset.color || toolSettings.text.color;
+            const bg = box.dataset.bg || 'none';
+            syncTextPopoverUI(baseSize, col, bg);
+        }
+    }
+
+    function deselectAllTextBoxes() {
+        document.querySelectorAll('.pdf-inline-text.selected').forEach(el => el.classList.remove('selected'));
+        selectedTextBox = null;
+    }
+
+    function applyTextBoxVisualStyle(box, baseSize, color, bgMode) {
+        const scale = getEffectiveScale();
+        const bSize = Math.max(8, Math.min(60, parseFloat(baseSize) || 14));
+        const col = color || '#cf6215';
+        const bg = bgMode === 'paper' ? 'paper' : 'none';
+
+        box.dataset.baseSize = String(bSize);
+        box.dataset.color = col;
+        box.dataset.bg = bg;
+        box.style.color = col;
+        box.style.fontSize = (Math.round(bSize * scale * 10) / 10) + 'px';
+        box.classList.toggle('bg-paper', bg === 'paper');
+
+        const bgBtn = box.querySelector('.text-bg-btn');
+        if (bgBtn) bgBtn.classList.toggle('active', bg === 'paper');
+    }
+
     function saveDOMOverlays(wrapper, pageNum) {
         const items = [];
+        const cw = Math.max(1, wrapper.clientWidth);
+        const ch = Math.max(1, wrapper.clientHeight);
         wrapper.querySelectorAll('.pdf-inline-text, .pdf-sticky-note').forEach(el => {
             if (el.classList.contains('pdf-inline-text')) {
-                const textVal = el.childNodes[0]?.nodeValue || el.innerText.replace('✕', '').trim();
+                const editor = el.querySelector('.pdf-text-editor');
+                const textVal = getTextEditorPlainValue(editor);
+                if (!textVal.trim()) return;
+                const baseSize = parseFloat(el.dataset.baseSize) || parseFloat(el.style.fontSize) || toolSettings.text.size;
                 items.push({
                     type: 'text',
                     text: textVal,
-                    x: parseFloat(el.style.left) / wrapper.clientWidth,
-                    y: parseFloat(el.style.top) / wrapper.clientHeight,
-                    color: el.style.color,
-                    fontSize: el.style.fontSize
+                    x: Math.max(0, Math.min(0.98, (parseFloat(el.style.left) || 0) / cw)),
+                    y: Math.max(0, Math.min(0.98, (parseFloat(el.style.top) || 0) / ch)),
+                    color: el.dataset.color || el.style.color || toolSettings.text.color,
+                    baseFontSize: baseSize,
+                    bg: el.dataset.bg === 'paper' ? 'paper' : 'none'
                 });
             } else if (el.classList.contains('pdf-sticky-note')) {
                 const textarea = el.querySelector('textarea');
                 items.push({
                     type: 'note',
                     text: textarea ? textarea.value : '',
-                    x: parseFloat(el.style.left) / wrapper.clientWidth,
-                    y: parseFloat(el.style.top) / wrapper.clientHeight,
+                    x: Math.max(0, Math.min(0.95, (parseFloat(el.style.left) || 0) / cw)),
+                    y: Math.max(0, Math.min(0.95, (parseFloat(el.style.top) || 0) / ch)),
                     bgColor: el.dataset.bgColor || '#fef08a',
                     opacity: el.style.opacity || '0.95'
                 });
             }
         });
-        localStorage.setItem(getDOMStorageKey(pageNum), JSON.stringify(items));
+        const json = JSON.stringify(items);
+        if (items.length > 0) {
+            try { localStorage.setItem(getDOMStorageKey(pageNum), json); } catch (e) {}
+        } else {
+            try { localStorage.removeItem(getDOMStorageKey(pageNum)); } catch (e) {}
+        }
+        return json;
     }
 
     function restoreDOMOverlays(wrapper, pageNum) {
@@ -2607,67 +3154,189 @@ import * as pdfjsLib from './js/vendor/pdf.min.mjs';
                 if (item.type === 'text') createInlineTextBox(wrapper, pageNum, null, item);
                 else if (item.type === 'note') createStickyNote(wrapper, pageNum, null, item);
             });
-        } catch(e) {}
+        } catch (e) {}
+    }
+
+    function updateDragBarFlip(box) {
+        const topPx = parseFloat(box.style.top) || 0;
+        box.classList.toggle('bar-bottom', topPx < 26);
     }
 
     function createInlineTextBox(wrapper, pageNum, e, restoreData = null) {
+        const preCreateDom = !restoreData ? getSavedDOMOverlaysJson(pageNum) : null;
+
         const box = document.createElement('div');
         box.className = 'pdf-inline-text';
-        box.contentEditable = 'true';
 
-        let x = 20, y = 20;
+        let x = 24, y = 24;
+        let baseSize = toolSettings.text.size;
+        let col = toolSettings.text.color;
+        let bg = toolSettings.text.bg || 'none';
+        let initialText = '';
+
         if (restoreData) {
-            x = restoreData.x * wrapper.clientWidth;
-            y = restoreData.y * wrapper.clientHeight;
-            box.innerText = restoreData.text;
-            box.style.color = restoreData.color || toolSettings.text.color;
-            box.style.fontSize = restoreData.fontSize || (toolSettings.text.size + 'px');
+            x = (restoreData.x || 0) * wrapper.clientWidth;
+            y = (restoreData.y || 0) * wrapper.clientHeight;
+            initialText = restoreData.text || '';
+            col = restoreData.color || toolSettings.text.color;
+            baseSize = restoreData.baseFontSize || parseFloat(restoreData.fontSize) || toolSettings.text.size;
+            bg = restoreData.bg || 'none';
         } else if (e) {
             const rect = wrapper.getBoundingClientRect();
-            x = e.clientX - rect.left;
-            y = e.clientY - rect.top;
-            box.innerText = 'Type note…';
-            box.style.color = toolSettings.text.color;
-            box.style.fontSize = toolSettings.text.size + 'px';
+            const rawX = (e.clientX - rect.left);
+            const rawY = (e.clientY - rect.top) - 10;
+            x = Math.max(8, Math.min(wrapper.clientWidth - 76, rawX));
+            y = Math.max(6, Math.min(wrapper.clientHeight - 28, rawY));
         }
 
         box.style.left = x + 'px';
         box.style.top = y + 'px';
+        updateDragBarFlip(box);
 
         const dragBar = document.createElement('div');
         dragBar.className = 'text-drag-bar';
-        dragBar.innerHTML = `<i class="fas fa-arrows-alt"></i> <span class="text-del-btn" title="Delete">✕</span>`;
+        dragBar.innerHTML = `
+            <span class="text-drag-grip" title="Drag to move"><i class="fas fa-arrows-alt"></i> Move</span>
+            <button type="button" class="text-bar-btn text-bg-btn" title="Toggle backdrop fill"><i class="fas fa-fill-drip"></i></button>
+            <button type="button" class="text-bar-btn text-del-btn" title="Delete text box"><i class="fas fa-times"></i></button>
+        `;
+
+        const editor = document.createElement('div');
+        editor.className = 'pdf-text-editor';
+        editor.contentEditable = 'true';
+        editor.spellcheck = true;
+        editor.dataset.placeholder = 'Type text…';
+        if (initialText) {
+            editor.innerText = initialText;
+        }
+
         box.appendChild(dragBar);
+        box.appendChild(editor);
+        applyTextBoxVisualStyle(box, baseSize, col, bg);
+
+        let editStartDom = null;
+        let isNewBox = !restoreData;
+
+        const bgBtn = dragBar.querySelector('.text-bg-btn');
+        bgBtn.addEventListener('pointerdown', (ev) => ev.stopPropagation());
+        bgBtn.addEventListener('click', (ev) => {
+            ev.preventDefault();
+            ev.stopPropagation();
+            const before = getSavedDOMOverlaysJson(pageNum);
+            const nextBg = box.dataset.bg === 'paper' ? 'none' : 'paper';
+            applyTextBoxVisualStyle(box, box.dataset.baseSize, box.dataset.color, nextBg);
+            syncTextPopoverUI(parseFloat(box.dataset.baseSize), box.dataset.color, nextBg);
+            saveDOMOverlays(wrapper, pageNum);
+            const after = getSavedDOMOverlaysJson(pageNum);
+            if (after !== before) {
+                pushUndoHistory({ kind: 'dom', pageNum, before, label: 'text style' });
+            }
+        });
 
         const delBtn = dragBar.querySelector('.text-del-btn');
+        delBtn.addEventListener('pointerdown', (ev) => ev.stopPropagation());
         delBtn.addEventListener('click', (ev) => {
+            ev.preventDefault();
             ev.stopPropagation();
+            const before = getSavedDOMOverlaysJson(pageNum);
+            if (selectedTextBox === box) selectedTextBox = null;
             box.remove();
             saveDOMOverlays(wrapper, pageNum);
+            const after = getSavedDOMOverlaysJson(pageNum);
+            if (after !== before) {
+                pushUndoHistory({ kind: 'dom', pageNum, before, label: 'delete text box' });
+            }
         });
 
-        makeDraggable(box, dragBar, wrapper, () => saveDOMOverlays(wrapper, pageNum));
+        let dragStartDom = null;
+        makeDraggable(
+            box,
+            dragBar,
+            wrapper,
+            () => {
+                updateDragBarFlip(box);
+                saveDOMOverlays(wrapper, pageNum);
+                const after = getSavedDOMOverlaysJson(pageNum);
+                if (dragStartDom !== null && after !== dragStartDom) {
+                    pushUndoHistory({ kind: 'dom', pageNum, before: dragStartDom, label: 'move text box' });
+                }
+                dragStartDom = null;
+            },
+            () => {
+                selectTextBox(box);
+                dragStartDom = getSavedDOMOverlaysJson(pageNum);
+                updatePageState(pageNum);
+            }
+        );
 
-        box.addEventListener('focus', () => {
-            box.classList.add('selected');
-            document.getElementById('textSizeSlider').value = parseInt(box.style.fontSize) || toolSettings.text.size;
-            document.getElementById('textSizeVal').textContent = box.style.fontSize || (toolSettings.text.size + 'px');
+        box.addEventListener('pointerdown', (ev) => {
+            ev.stopPropagation();
+            selectTextBox(box);
+            updatePageState(pageNum);
         });
 
-        box.addEventListener('blur', () => {
-            box.classList.remove('selected');
-            if (!box.innerText.trim()) box.remove();
+        editor.addEventListener('focus', () => {
+            selectTextBox(box);
+            updatePageState(pageNum);
+            if (editStartDom === null) {
+                editStartDom = isNewBox ? preCreateDom : getSavedDOMOverlaysJson(pageNum);
+            }
+            updateUndoButtonUI();
+        });
+
+        editor.addEventListener('input', () => {
             saveDOMOverlays(wrapper, pageNum);
+            updateUndoButtonUI();
+        });
+
+        editor.addEventListener('keydown', (ev) => {
+            if (ev.key === 'Escape') {
+                ev.preventDefault();
+                ev.stopPropagation();
+                editor.blur();
+            }
+        });
+
+        editor.addEventListener('blur', () => {
+            const val = getTextEditorPlainValue(editor);
+            const baseline = editStartDom !== null ? editStartDom : (isNewBox ? preCreateDom : getSavedDOMOverlaysJson(pageNum));
+            editStartDom = null;
+
+            if (!val.trim()) {
+                if (selectedTextBox === box) selectedTextBox = null;
+                box.remove();
+                saveDOMOverlays(wrapper, pageNum);
+                if (!isNewBox) {
+                    const after = getSavedDOMOverlaysJson(pageNum);
+                    if (baseline !== null && after !== baseline) {
+                        pushUndoHistory({ kind: 'dom', pageNum, before: baseline, label: 'delete text box' });
+                    }
+                }
+            } else {
+                isNewBox = false;
+                saveDOMOverlays(wrapper, pageNum);
+                const after = getSavedDOMOverlaysJson(pageNum);
+                if (baseline !== null && after !== baseline) {
+                    pushUndoHistory({ kind: 'dom', pageNum, before: baseline, label: 'text box' });
+                }
+            }
+            updateUndoButtonUI();
         });
 
         wrapper.appendChild(box);
         if (!restoreData) {
-            box.focus();
-            document.execCommand('selectAll', false, null);
+            selectTextBox(box);
+            try {
+                editor.focus({ preventScroll: true });
+            } catch (err) {
+                editor.focus();
+            }
         }
     }
 
     function createStickyNote(wrapper, pageNum, e, restoreData = null) {
+        const preCreateDom = !restoreData ? getSavedDOMOverlaysJson(pageNum) : null;
+
         const note = document.createElement('div');
         note.className = 'pdf-sticky-note';
 
@@ -2676,14 +3345,14 @@ import * as pdfjsLib from './js/vendor/pdf.min.mjs';
         let opacity = '0.95';
 
         if (restoreData) {
-            x = restoreData.x * wrapper.clientWidth;
-            y = restoreData.y * wrapper.clientHeight;
+            x = (restoreData.x || 0) * wrapper.clientWidth;
+            y = (restoreData.y || 0) * wrapper.clientHeight;
             bgColor = restoreData.bgColor || bgColor;
             opacity = restoreData.opacity || opacity;
         } else if (e) {
             const rect = wrapper.getBoundingClientRect();
-            x = e.clientX - rect.left;
-            y = e.clientY - rect.top;
+            x = Math.max(8, Math.min(wrapper.clientWidth - 216, e.clientX - rect.left));
+            y = Math.max(8, Math.min(wrapper.clientHeight - 105, e.clientY - rect.top));
         }
 
         note.style.left = x + 'px';
@@ -2718,35 +3387,94 @@ import * as pdfjsLib from './js/vendor/pdf.min.mjs';
         colorBtns.forEach(btn => {
             btn.addEventListener('click', (ev) => {
                 ev.stopPropagation();
+                const before = getSavedDOMOverlaysJson(pageNum);
                 const col = btn.dataset.color;
                 note.style.background = col;
                 note.dataset.bgColor = col;
                 saveDOMOverlays(wrapper, pageNum);
+                const after = getSavedDOMOverlaysJson(pageNum);
+                if (after !== before) {
+                    pushUndoHistory({ kind: 'dom', pageNum, before, label: 'note color' });
+                }
             });
         });
 
+        let opacityStartDom = null;
+        opacitySlider.addEventListener('pointerdown', (ev) => {
+            ev.stopPropagation();
+            opacityStartDom = getSavedDOMOverlaysJson(pageNum);
+        });
         opacitySlider.addEventListener('input', (ev) => {
             ev.stopPropagation();
             const op = (parseInt(opacitySlider.value, 10) / 100).toFixed(2);
             note.style.opacity = op;
             saveDOMOverlays(wrapper, pageNum);
         });
+        opacitySlider.addEventListener('change', () => {
+            const after = getSavedDOMOverlaysJson(pageNum);
+            if (opacityStartDom !== null && after !== opacityStartDom) {
+                pushUndoHistory({ kind: 'dom', pageNum, before: opacityStartDom, label: 'note opacity' });
+            }
+            opacityStartDom = null;
+        });
 
         closeBtn.addEventListener('click', (ev) => {
             ev.preventDefault();
             ev.stopPropagation();
+            const before = getSavedDOMOverlaysJson(pageNum);
             note.remove();
             saveDOMOverlays(wrapper, pageNum);
+            const after = getSavedDOMOverlaysJson(pageNum);
+            if (after !== before) {
+                pushUndoHistory({ kind: 'dom', pageNum, before, label: 'delete note' });
+            }
         });
 
+        let noteEditStartDom = null;
+        textarea.addEventListener('focus', () => {
+            updatePageState(pageNum);
+            if (noteEditStartDom === null) {
+                noteEditStartDom = getSavedDOMOverlaysJson(pageNum);
+            }
+        });
         textarea.addEventListener('input', () => saveDOMOverlays(wrapper, pageNum));
-        makeDraggable(note, header, wrapper, () => saveDOMOverlays(wrapper, pageNum));
+        textarea.addEventListener('blur', () => {
+            const after = saveDOMOverlays(wrapper, pageNum);
+            if (noteEditStartDom !== null && after !== noteEditStartDom) {
+                pushUndoHistory({ kind: 'dom', pageNum, before: noteEditStartDom, label: 'note edit' });
+            }
+            noteEditStartDom = null;
+        });
+
+        let noteDragStartDom = null;
+        makeDraggable(
+            note,
+            header,
+            wrapper,
+            () => {
+                const after = saveDOMOverlays(wrapper, pageNum);
+                if (noteDragStartDom !== null && after !== noteDragStartDom) {
+                    pushUndoHistory({ kind: 'dom', pageNum, before: noteDragStartDom, label: 'move note' });
+                }
+                noteDragStartDom = null;
+            },
+            () => {
+                noteDragStartDom = getSavedDOMOverlaysJson(pageNum);
+                updatePageState(pageNum);
+            }
+        );
 
         wrapper.appendChild(note);
-        if (!restoreData) textarea.focus();
+        if (!restoreData) {
+            const after = saveDOMOverlays(wrapper, pageNum);
+            if (preCreateDom !== null && after !== preCreateDom) {
+                pushUndoHistory({ kind: 'dom', pageNum, before: preCreateDom, label: 'sticky note' });
+            }
+            textarea.focus();
+        }
     }
 
-    function makeDraggable(element, handle, container, onDropCallback) {
+    function makeDraggable(element, handle, container, onDropCallback, onStartCallback) {
         let isDragging = false;
         let startX, startY, initX, initY;
 
@@ -2757,7 +3485,9 @@ import * as pdfjsLib from './js/vendor/pdf.min.mjs';
             startY = e.clientY;
             initX = parseFloat(element.style.left) || 0;
             initY = parseFloat(element.style.top) || 0;
-            handle.setPointerCapture(e.pointerId);
+            if (onStartCallback) onStartCallback();
+            try { handle.setPointerCapture(e.pointerId); } catch (err) {}
+            e.preventDefault();
             e.stopPropagation();
         });
 
@@ -2765,16 +3495,23 @@ import * as pdfjsLib from './js/vendor/pdf.min.mjs';
             if (!isDragging) return;
             const dx = e.clientX - startX;
             const dy = e.clientY - startY;
-            element.style.left = Math.max(0, Math.min(container.clientWidth - 40, initX + dx)) + 'px';
-            element.style.top = Math.max(0, Math.min(container.clientHeight - 30, initY + dy)) + 'px';
+            const maxW = Math.max(20, container.clientWidth - Math.max(40, element.offsetWidth || 60));
+            const maxH = Math.max(20, container.clientHeight - 28);
+            element.style.left = Math.max(0, Math.min(maxW, initX + dx)) + 'px';
+            element.style.top = Math.max(0, Math.min(maxH, initY + dy)) + 'px';
+            if (element.classList.contains('pdf-inline-text')) {
+                updateDragBarFlip(element);
+            }
         });
 
-        handle.addEventListener('pointerup', () => {
+        const endDrag = () => {
             if (isDragging) {
                 isDragging = false;
                 if (onDropCallback) onDropCallback();
             }
-        });
+        };
+        handle.addEventListener('pointerup', endDrag);
+        handle.addEventListener('pointercancel', endDrag);
     }
 
     /* ================================================================
@@ -2888,6 +3625,9 @@ import * as pdfjsLib from './js/vendor/pdf.min.mjs';
         if (!e.target.closest('.tool-popover') && !e.target.closest('.tb-btn')) {
             closeAllPopovers();
         }
+        if (!e.target.closest('.pdf-inline-text') && !e.target.closest('#popoverText') && !e.target.closest('#toolbar')) {
+            deselectAllTextBoxes();
+        }
     });
 
     /* Sliders & Color Swatches */
@@ -2938,28 +3678,107 @@ import * as pdfjsLib from './js/vendor/pdf.min.mjs';
         });
     });
 
-    document.getElementById('textSizeSlider').addEventListener('input', (e) => {
-        toolSettings.text.size = parseInt(e.target.value, 10);
-        document.getElementById('textSizeVal').textContent = toolSettings.text.size + 'px';
-        const activeText = document.querySelector('.pdf-inline-text.selected, .pdf-inline-text:focus');
-        if (activeText) activeText.style.fontSize = toolSettings.text.size + 'px';
+    let textStyleStartDom = null;
+    function getSelectedTextPageInfo() {
+        if (!selectedTextBox || !document.body.contains(selectedTextBox)) return null;
+        const wrapper = selectedTextBox.closest('.page-wrapper');
+        if (!wrapper) return null;
+        return { box: selectedTextBox, wrapper, pageNum: parseInt(wrapper.dataset.pageNum, 10) };
+    }
+
+    const textSizeSlider = document.getElementById('textSizeSlider');
+    textSizeSlider.addEventListener('pointerdown', () => {
+        const info = getSelectedTextPageInfo();
+        textStyleStartDom = info ? getSavedDOMOverlaysJson(info.pageNum) : null;
     });
-    document.getElementById('textColorCustom').addEventListener('input', (e) => {
+    textSizeSlider.addEventListener('input', (e) => {
+        const size = parseInt(e.target.value, 10);
+        toolSettings.text.size = size;
+        document.getElementById('textSizeVal').textContent = size + 'px';
+        const info = getSelectedTextPageInfo();
+        if (info) {
+            applyTextBoxVisualStyle(info.box, size, info.box.dataset.color, info.box.dataset.bg);
+            saveDOMOverlays(info.wrapper, info.pageNum);
+        }
+    });
+    textSizeSlider.addEventListener('change', () => {
+        const info = getSelectedTextPageInfo();
+        if (info) {
+            const after = saveDOMOverlays(info.wrapper, info.pageNum);
+            if (textStyleStartDom !== null && after !== textStyleStartDom) {
+                pushUndoHistory({ kind: 'dom', pageNum: info.pageNum, before: textStyleStartDom, label: 'text size' });
+            }
+        }
+        textStyleStartDom = null;
+    });
+
+    const textColorCustom = document.getElementById('textColorCustom');
+    textColorCustom.addEventListener('pointerdown', () => {
+        const info = getSelectedTextPageInfo();
+        textStyleStartDom = info ? getSavedDOMOverlaysJson(info.pageNum) : null;
+    });
+    textColorCustom.addEventListener('input', (e) => {
         toolSettings.text.color = e.target.value;
         document.querySelectorAll('#textSwatches .pop-dot').forEach(d => d.classList.remove('active'));
-        const activeText = document.querySelector('.pdf-inline-text.selected, .pdf-inline-text:focus');
-        if (activeText) activeText.style.color = toolSettings.text.color;
+        const info = getSelectedTextPageInfo();
+        if (info) {
+            applyTextBoxVisualStyle(info.box, info.box.dataset.baseSize, toolSettings.text.color, info.box.dataset.bg);
+            saveDOMOverlays(info.wrapper, info.pageNum);
+        }
     });
+    textColorCustom.addEventListener('change', () => {
+        const info = getSelectedTextPageInfo();
+        if (info) {
+            const after = saveDOMOverlays(info.wrapper, info.pageNum);
+            if (textStyleStartDom !== null && after !== textStyleStartDom) {
+                pushUndoHistory({ kind: 'dom', pageNum: info.pageNum, before: textStyleStartDom, label: 'text color' });
+            }
+        }
+        textStyleStartDom = null;
+    });
+
     document.querySelectorAll('#textSwatches .pop-dot').forEach(dot => {
+        dot.addEventListener('pointerdown', (e) => e.preventDefault());
         dot.addEventListener('click', () => {
+            const info = getSelectedTextPageInfo();
+            const before = info ? getSavedDOMOverlaysJson(info.pageNum) : null;
             document.querySelectorAll('#textSwatches .pop-dot').forEach(d => d.classList.remove('active'));
             dot.classList.add('active');
             toolSettings.text.color = dot.dataset.color;
-            document.getElementById('textColorCustom').value = dot.dataset.color;
-            const activeText = document.querySelector('.pdf-inline-text.selected, .pdf-inline-text:focus');
-            if (activeText) activeText.style.color = dot.dataset.color;
+            textColorCustom.value = dot.dataset.color;
+            if (info) {
+                applyTextBoxVisualStyle(info.box, info.box.dataset.baseSize, dot.dataset.color, info.box.dataset.bg);
+                const after = saveDOMOverlays(info.wrapper, info.pageNum);
+                if (before !== null && after !== before) {
+                    pushUndoHistory({ kind: 'dom', pageNum: info.pageNum, before, label: 'text color' });
+                }
+            }
         });
     });
+
+    const textBgToggleBtn = document.getElementById('textBgToggleBtn');
+    if (textBgToggleBtn) {
+        textBgToggleBtn.addEventListener('pointerdown', (e) => e.preventDefault());
+        textBgToggleBtn.addEventListener('click', () => {
+            const info = getSelectedTextPageInfo();
+            const before = info ? getSavedDOMOverlaysJson(info.pageNum) : null;
+            const currentBg = info ? (info.box.dataset.bg || 'none') : (toolSettings.text.bg || 'none');
+            const nextBg = currentBg === 'paper' ? 'none' : 'paper';
+            toolSettings.text.bg = nextBg;
+            syncTextPopoverUI(
+                info ? parseFloat(info.box.dataset.baseSize) : toolSettings.text.size,
+                info ? info.box.dataset.color : toolSettings.text.color,
+                nextBg
+            );
+            if (info) {
+                applyTextBoxVisualStyle(info.box, info.box.dataset.baseSize, info.box.dataset.color, nextBg);
+                const after = saveDOMOverlays(info.wrapper, info.pageNum);
+                if (before !== null && after !== before) {
+                    pushUndoHistory({ kind: 'dom', pageNum: info.pageNum, before, label: 'text backdrop' });
+                }
+            }
+        });
+    }
 
     document.getElementById('eraserSizeSlider').addEventListener('input', (e) => {
         toolSettings.eraser.size = parseInt(e.target.value, 10);
@@ -2981,47 +3800,100 @@ import * as pdfjsLib from './js/vendor/pdf.min.mjs';
         toolSettings.shape.color = e.target.value;
     });
 
-    /* Undo Handler */
-    function undoAction() {
-        const stack = docUndoStacks[currentPageNum];
-        if (!stack || stack.length === 0) return;
-        const previousData = stack.pop();
-
-        const wrapper = viewerContainer.querySelector(`[data-page-num="${currentPageNum}"]`);
-        if (wrapper) {
-            const canvas = wrapper.querySelector('.annotation-canvas');
-            if (canvas) {
-                const ctx = canvas.getContext('2d');
-                const img = new Image();
-                img.onload = () => {
-                    ctx.clearRect(0, 0, canvas.width, canvas.height);
-                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-                    savePageSnapshot(currentPageNum, canvas);
-                };
-                img.src = previousData;
-            }
+    /* Unified Document-Wide Undo / Redo Handlers */
+    function flushActiveAnnotationEditor() {
+        const activeEl = document.activeElement;
+        if (activeEl && (activeEl.classList.contains('pdf-text-editor') || activeEl.classList.contains('pdf-sticky-body'))) {
+            activeEl.blur();
         }
     }
 
-    document.getElementById('btnUndo').addEventListener('click', undoAction);
+    function undoAction() {
+        flushActiveAnnotationEditor();
+
+        if (historyManager.undoStack.length === 0) {
+            historyManager.updateUI();
+            showToast('Nothing left to undo');
+            return;
+        }
+
+        const cmd = historyManager.undo();
+        if (!cmd) return;
+
+        if (cmd.pageNum && cmd.pageNum !== currentPageNum) {
+            scrollToPage(cmd.pageNum);
+        }
+        showToast(`Undid ${cmd.label || 'action'} on Page ${cmd.pageNum}`);
+    }
+
+    function redoAction() {
+        flushActiveAnnotationEditor();
+
+        if (historyManager.redoStack.length === 0) {
+            historyManager.updateUI();
+            showToast('Nothing left to redo');
+            return;
+        }
+
+        const cmd = historyManager.redo();
+        if (!cmd) return;
+
+        if (cmd.pageNum && cmd.pageNum !== currentPageNum) {
+            scrollToPage(cmd.pageNum);
+        }
+        showToast(`Redid ${cmd.label || 'action'} on Page ${cmd.pageNum}`);
+    }
+
+    const btnUndoEl = document.getElementById('btnUndo');
+    btnUndoEl.addEventListener('pointerdown', (e) => {
+        flushActiveAnnotationEditor();
+        e.preventDefault();
+    });
+    btnUndoEl.addEventListener('click', undoAction);
+
+    const btnRedoEl = document.getElementById('btnRedo');
+    if (btnRedoEl) {
+        btnRedoEl.addEventListener('pointerdown', (e) => {
+            flushActiveAnnotationEditor();
+            e.preventDefault();
+        });
+        btnRedoEl.addEventListener('click', redoAction);
+    }
 
     document.getElementById('clearAnnotations').addEventListener('click', () => {
-        const wrapper = viewerContainer.querySelector(`[data-page-num="${currentPageNum}"]`);
-        if (wrapper) {
-            const canvas = wrapper.querySelector('.annotation-canvas');
-            if (canvas) {
-                pushUndoState(currentPageNum, canvas);
-                canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
-                savePageSnapshot(currentPageNum, canvas);
-            }
-            wrapper.querySelectorAll('.pdf-inline-text, .pdf-sticky-note').forEach(n => n.remove());
-            localStorage.removeItem(getDOMStorageKey(currentPageNum));
+        const targetPage = currentPageNum;
+        const wrapper = viewerContainer.querySelector(`[data-page-num="${targetPage}"]`);
+        if (!wrapper) return;
+        const canvas = wrapper.querySelector('.annotation-canvas');
+        const beforeRaster = getSavedRasterSnapshot(targetPage) || '';
+        const beforeDom = getSavedDOMOverlaysJson(targetPage);
+        const beforeHighlights = cloneHighlightsList(textHighlights);
+        const hasPageHighlights = textHighlights.some(h => h.page === targetPage);
 
-            textHighlights = textHighlights.filter(h => h.page !== currentPageNum);
-            saveTextHighlights();
-            renderPageTextHighlights(currentPageNum, wrapper);
-            showToast(`Cleared annotations on page ${currentPageNum}`);
+        if (canvas) {
+            canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
         }
+        setSavedRasterSnapshot(targetPage, '');
+        if (selectedTextBox && wrapper.contains(selectedTextBox)) selectedTextBox = null;
+        wrapper.querySelectorAll('.pdf-inline-text, .pdf-sticky-note').forEach(n => n.remove());
+        localStorage.removeItem(getDOMStorageKey(targetPage));
+
+        textHighlights = textHighlights.filter(h => h.page !== targetPage);
+        saveTextHighlights();
+        renderPageTextHighlights(targetPage, wrapper);
+
+        if (beforeRaster || (beforeDom && beforeDom !== '[]') || hasPageHighlights) {
+            pushUndoHistory({
+                kind: 'clearPage',
+                pageNum: targetPage,
+                beforeRaster,
+                beforeDom,
+                beforeHighlights,
+                afterHighlights: cloneHighlightsList(textHighlights),
+                label: 'clear page'
+            });
+        }
+        showToast(`Cleared annotations on page ${targetPage}`);
     });
 
     /* Dark Mode / Page Color Inversion */
@@ -3074,6 +3946,35 @@ import * as pdfjsLib from './js/vendor/pdf.min.mjs';
 
         if (annotCanvas) outCtx.drawImage(annotCanvas, 0, 0);
 
+        // Include inline text boxes
+        const scaleX = outCanvas.width / Math.max(1, currentWrapper.clientWidth);
+        const scaleY = outCanvas.height / Math.max(1, currentWrapper.clientHeight);
+        currentWrapper.querySelectorAll('.pdf-inline-text').forEach(box => {
+            const editor = box.querySelector('.pdf-text-editor');
+            const text = getTextEditorPlainValue(editor);
+            if (!text.trim()) return;
+            const bx = (parseFloat(box.style.left) || 0) * scaleX;
+            const by = (parseFloat(box.style.top) || 0) * scaleY;
+            const bw = (box.offsetWidth || 100) * scaleX;
+            const bh = (box.offsetHeight || 24) * scaleY;
+            const fontSizePx = (parseFloat(box.style.fontSize) || 14) * scaleY;
+            const lines = text.split('\n');
+
+            outCtx.save();
+            if (box.dataset.bg === 'paper') {
+                outCtx.fillStyle = 'rgba(255, 255, 255, 0.92)';
+                outCtx.fillRect(bx, by, bw, bh);
+            }
+            outCtx.fillStyle = box.dataset.color || box.style.color || '#cf6215';
+            outCtx.font = `${fontSizePx}px "DM Sans", -apple-system, sans-serif`;
+            outCtx.textBaseline = 'top';
+            const lineH = fontSizePx * 1.32;
+            lines.forEach((line, idx) => {
+                outCtx.fillText(line, bx + 7 * scaleX, by + 3 * scaleY + idx * lineH);
+            });
+            outCtx.restore();
+        });
+
         const a = document.createElement('a');
         a.href = outCanvas.toDataURL('image/png');
         a.download = `Questionary-Page-${currentPageNum}.png`;
@@ -3081,7 +3982,7 @@ import * as pdfjsLib from './js/vendor/pdf.min.mjs';
         showToast(`Exported Page ${currentPageNum} as PNG`);
     });
 
-    /* Download Original PDF */
+    /* Download Original PDF (Mobile-safe same-origin Blob synthesis) */
     document.getElementById('downloadOriginalPdf').addEventListener('click', async () => {
         if (!fileUrl) return;
         const targetUrl = decodeURIComponent(fileUrl);
@@ -3091,19 +3992,49 @@ import * as pdfjsLib from './js/vendor/pdf.min.mjs';
         }
         let downloadHref = targetUrl;
         let revokeAfter = false;
-        if (targetUrl.startsWith('blob-id:') || (activeLoadedPdfBytes && activeLoadedPdfBytes.byteLength > 0)) {
-            const bytes = activeLoadedPdfBytes || await resolveLocalOrBlobPdfBytes(targetUrl);
-            if (bytes && bytes.byteLength > 0) {
-                downloadHref = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
-                revokeAfter = true;
-            }
+        let bytes = (activeLoadedPdfBytes && activeLoadedPdfBytes.byteLength > 0)
+            ? activeLoadedPdfBytes
+            : await resolveLocalOrBlobPdfBytes(targetUrl);
+
+        if ((!bytes || bytes.byteLength === 0) && pdfDoc && typeof pdfDoc.getData === 'function') {
+            try {
+                const docBytes = await pdfDoc.getData();
+                if (docBytes && docBytes.byteLength > 0) {
+                    bytes = docBytes;
+                }
+            } catch (e) {}
         }
+
+        if (bytes && bytes.byteLength > 0) {
+            downloadHref = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+            revokeAfter = true;
+        } else if (/^https?:/i.test(targetUrl)) {
+            try {
+                const res = await fetch(targetUrl, { credentials: 'omit' });
+                if (res && res.ok) {
+                    const blob = await res.blob();
+                    if (blob && blob.size > 0) {
+                        downloadHref = URL.createObjectURL(blob.type === 'application/pdf' ? blob : new Blob([blob], { type: 'application/pdf' }));
+                        revokeAfter = true;
+                    }
+                }
+            } catch (e) {}
+        }
+
+        const rawFallbackName = targetUrl.startsWith('blob-id:') ? 'imported-document.pdf' : (targetUrl.split('/').pop().split('?')[0] || 'document.pdf');
+        const cleanName = activeDisplayName || (activeDocRelPath ? activeDocRelPath.split('/').pop() : rawFallbackName);
+        const fileName = cleanName.toLowerCase().endsWith('.pdf') ? cleanName : `${cleanName}.pdf`;
+
         const a = document.createElement('a');
         a.href = downloadHref;
-        const cleanName = targetUrl.startsWith('blob-id:') ? 'imported-document.pdf' : (targetUrl.split('/').pop().split('?')[0] || 'document.pdf');
-        a.download = cleanName.toLowerCase().endsWith('.pdf') ? cleanName : `${cleanName}.pdf`;
+        a.download = fileName;
+        a.rel = 'noopener noreferrer';
+        a.style.display = 'none';
+        document.body.appendChild(a);
         a.click();
-        if (revokeAfter) setTimeout(() => URL.revokeObjectURL(downloadHref), 5000);
+        setTimeout(() => a.remove(), 250);
+        if (revokeAfter) setTimeout(() => URL.revokeObjectURL(downloadHref), 60000);
+        showToast(`Downloading ${fileName}`);
     });
 
     /* Print */
@@ -3230,8 +4161,15 @@ import * as pdfjsLib from './js/vendor/pdf.min.mjs';
         if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return;
 
         if (e.ctrlKey || e.metaKey) {
-            if (e.key === 'z') { e.preventDefault(); undoAction(); }
-            else if (e.key === 'f') {
+            const k = e.key.toLowerCase();
+            if (k === 'z') {
+                e.preventDefault();
+                if (e.shiftKey) redoAction();
+                else undoAction();
+            } else if (k === 'y') {
+                e.preventDefault();
+                redoAction();
+            } else if (k === 'f') {
                 e.preventDefault();
                 openSidebarTab('search');
                 setTimeout(() => { sidebarSearchInput.focus(); sidebarSearchInput.select(); }, 80);
@@ -3266,6 +4204,8 @@ import * as pdfjsLib from './js/vendor/pdf.min.mjs';
             const page = parseInt(e.data.page, 10);
             if (page >= 1 && page <= totalPages) scrollToPage(page);
         } else if (e.data.type === 'loadPdf' && typeof e.data.url === 'string') {
+            if (typeof e.data.docKey === 'string' && e.data.docKey) docKeyParam = e.data.docKey;
+            if (typeof e.data.name === 'string' && e.data.name) docNameParam = e.data.name;
             const incomingUrl = decodeURIComponent(e.data.url);
             if (!isSafePdfUrl(incomingUrl)) return;
             toLocalUint8Array(e.data.pdfBytes).then((incomingBytes) => {
@@ -3291,6 +4231,7 @@ import * as pdfjsLib from './js/vendor/pdf.min.mjs';
     });
 
     updateToolUI();
+    updateUndoButtonUI();
     if (fileUrl) loadDocument(decodeURIComponent(fileUrl));
 })();
 </script>

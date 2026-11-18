@@ -20,12 +20,21 @@
   let _cachedDatabaseBytes = null;
   let _databaseLoadPromise = null;
 
+  const OPFS_DIR_NAME = 'questionary-offline-pdfs';
+  const CACHE_DOCS_NAME = 'questionary-docs-v1';
+
   function isDesktopElectron() {
-    return Boolean(window.electronAPI);
+    if (typeof window === 'undefined') return false;
+    if (window.electronAPI) return true;
+    try {
+      if (window.process && window.process.versions && window.process.versions.electron) return true;
+      if (typeof navigator !== 'undefined' && /\bElectron\b/i.test(navigator.userAgent || '')) return true;
+    } catch (e) {}
+    return false;
   }
 
   function isCapacitorNative() {
-    return Boolean(window.Capacitor);
+    return Boolean(typeof window !== 'undefined' && window.Capacitor);
   }
 
   function getRuntimeContext() {
@@ -115,15 +124,31 @@
     );
   }
 
+  function isValidPdfHeader(u8) {
+    if (!u8 || u8.byteLength < 16) return false;
+    for (let i = 0; i <= Math.min(12, u8.byteLength - 4); i++) {
+      if (u8[i] === 0x25 && u8[i + 1] === 0x50 && u8[i + 2] === 0x44 && u8[i + 3] === 0x46) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   async function fetchBinaryWithDiagnostics(url, options = {}) {
     const ctx = getRuntimeContext();
     const requireSqliteHeader = Boolean(options.requireSqliteHeader);
-    console.log(`[OfflineEngine] Requesting file path: ${url} (context: ${ctx.isFileProtocol ? 'file-system' : 'dev-server'})`);
+    const requirePdfHeader = Boolean(options.requirePdfHeader);
+    const signal = options.signal || undefined;
+    const isCrossOrigin = /^https?:\/\//i.test(url) && (!ctx.origin || !url.startsWith(ctx.origin));
 
-    // 1. Use fetch() in HTTP/HTTPS dev/production web server contexts
+    // 1. Use fetch() + stream reader in HTTP/HTTPS contexts
     if (!ctx.isFileProtocol && typeof fetch === 'function') {
       try {
-        const res = await fetch(url, { cache: 'no-cache', credentials: 'same-origin' });
+        const res = await fetch(url, {
+          cache: 'no-cache',
+          credentials: isCrossOrigin ? 'omit' : 'same-origin',
+          signal
+        });
         if (!res.ok) {
           if (res.status === 404) {
             console.warn(`[OfflineEngine] 404 Not Found when requesting: ${url}`);
@@ -134,30 +159,83 @@
           }
           return null;
         }
-        const ct = (res.headers && res.headers.get('content-type')) || '';
-        if (requireSqliteHeader && ct.includes('text/html')) {
-          console.warn(`[OfflineEngine] Received HTML fallback instead of binary SQLite DB from: ${url}`);
+        const ct = ((res.headers && res.headers.get('content-type')) || '').toLowerCase();
+        if ((requireSqliteHeader || requirePdfHeader) && ct.includes('text/html')) {
+          console.warn(`[OfflineEngine] Received HTML fallback instead of binary file from: ${url}`);
           return null;
         }
-        const ab = await res.arrayBuffer();
-        const u8 = new Uint8Array(ab);
+
+        const expectedLenHeader = res.headers && !res.headers.get('content-encoding')
+          ? parseInt(res.headers.get('content-length') || '0', 10)
+          : 0;
+
+        let u8 = null;
+        if (res.body && typeof res.body.getReader === 'function') {
+          const reader = res.body.getReader();
+          const chunks = [];
+          let totalBytes = 0;
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            if (value && value.byteLength > 0) {
+              chunks.push(value);
+              totalBytes += value.byteLength;
+            }
+          }
+          if (expectedLenHeader > 0 && totalBytes < expectedLenHeader) {
+            console.warn(`[OfflineEngine] Truncated mobile stream (${totalBytes}/${expectedLenHeader} bytes) from: ${url}`);
+            return null;
+          }
+          u8 = new Uint8Array(totalBytes);
+          let offset = 0;
+          for (const chunk of chunks) {
+            u8.set(chunk, offset);
+            offset += chunk.byteLength;
+          }
+        } else {
+          const ab = await res.arrayBuffer();
+          u8 = new Uint8Array(ab);
+          if (expectedLenHeader > 0 && u8.byteLength < expectedLenHeader) {
+            console.warn(`[OfflineEngine] Truncated response (${u8.byteLength}/${expectedLenHeader} bytes) from: ${url}`);
+            return null;
+          }
+        }
+
         if (requireSqliteHeader && !isValidSqliteHeader(u8)) {
           console.warn(`[OfflineEngine] Invalid SQLite header (${u8.byteLength} bytes) from: ${url}`);
           return null;
         }
-        console.log(`[OfflineEngine] Successfully loaded ${u8.byteLength} bytes via fetch from: ${url}`);
+        if (requirePdfHeader && !isValidPdfHeader(u8)) {
+          console.warn(`[OfflineEngine] Invalid PDF header (${u8.byteLength} bytes) from: ${url}`);
+          return null;
+        }
         return u8;
       } catch (fetchErr) {
+        if (fetchErr && fetchErr.name === 'AbortError') throw fetchErr;
         console.warn(`[OfflineEngine] fetch() error for ${url} (${fetchErr && fetchErr.message ? fetchErr.message : fetchErr}) — trying XMLHttpRequest fallback`);
       }
     }
 
     // 2. XMLHttpRequest (supports local file:// protocol status 0 as well as HTTP status 200)
-    return await new Promise((resolve) => {
+    return await new Promise((resolve, reject) => {
       try {
+        if (signal && signal.aborted) {
+          const err = new Error('Aborted');
+          err.name = 'AbortError';
+          reject(err);
+          return;
+        }
         const xhr = new XMLHttpRequest();
         xhr.open('GET', url, true);
         xhr.responseType = 'arraybuffer';
+        if (signal) {
+          signal.addEventListener('abort', () => {
+            try { xhr.abort(); } catch (e) {}
+            const err = new Error('Aborted');
+            err.name = 'AbortError';
+            reject(err);
+          }, { once: true });
+        }
         xhr.onload = () => {
           if ((xhr.status === 200 || (xhr.status === 0 && xhr.response)) && xhr.response) {
             const u8 = new Uint8Array(xhr.response);
@@ -171,7 +249,11 @@
               resolve(null);
               return;
             }
-            console.log(`[OfflineEngine] Successfully loaded ${u8.byteLength} bytes via XHR (status ${xhr.status}) from: ${url}`);
+            if (requirePdfHeader && !isValidPdfHeader(u8)) {
+              console.warn(`[OfflineEngine] Invalid PDF header (${u8.byteLength} bytes) via XHR from: ${url}`);
+              resolve(null);
+              return;
+            }
             resolve(u8);
             return;
           }
@@ -318,6 +400,7 @@
     } catch (e) {}
 
     p = p.replace(/\\/g, '/').replace(/^(\.\/)+/, '').replace(/^\/+/, '');
+    p = p.replace(/^Nugget1252\/Questionarytauri\/Electron\//i, '');
     p = p.replace(/^(documentshd|documents)\//i, '');
     return p;
   }
@@ -351,25 +434,141 @@
     return false;
   }
 
+  function makeSafeStorageFileId(key) {
+    let h1 = 0x811c9dc5;
+    let h2 = 0x12345678;
+    for (let i = 0; i < key.length; i++) {
+      const c = key.charCodeAt(i);
+      h1 ^= c;
+      h1 = Math.imul(h1, 0x01000193);
+      h2 = Math.imul(h2 ^ c, 2654435761);
+    }
+    const hex = ((h1 >>> 0).toString(36) + '_' + (h2 >>> 0).toString(36));
+    return `doc_${hex}.pdf`;
+  }
+
+  function buildCacheStorageKey(key) {
+    const clean = String(key || '').replace(/^\/+/, '').replace(/^(documentshd|documents)\//i, '');
+    const encoded = clean.split('/').map((s) => encodeURIComponent(s)).join('/');
+    try {
+      return new URL(`documents/${encoded}`, window.location.href).href;
+    } catch (e) {
+      return `documents/${encoded}`;
+    }
+  }
+
+  async function getOpfsDir(create = false) {
+    if (!navigator.storage || typeof navigator.storage.getDirectory !== 'function') return null;
+    try {
+      const root = await navigator.storage.getDirectory();
+      return await root.getDirectoryHandle(OPFS_DIR_NAME, { create });
+    } catch (e) {
+      return null;
+    }
+  }
+
+  async function putPdfOpfs(key, blob) {
+    const dir = await getOpfsDir(true);
+    if (!dir) return false;
+    const fileId = makeSafeStorageFileId(key);
+    const fileHandle = await dir.getFileHandle(fileId, { create: true });
+    const writable = await fileHandle.createWritable();
+    await writable.write(blob);
+    await writable.close();
+    return true;
+  }
+
+  async function getPdfOpfs(key) {
+    const dir = await getOpfsDir(false);
+    if (!dir) return null;
+    try {
+      const fileId = makeSafeStorageFileId(key);
+      const fh = await dir.getFileHandle(fileId);
+      const file = await fh.getFile();
+      return file && file.size > 0 ? file : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  async function putPdfCacheStorage(key, blob, meta = {}) {
+    if (typeof caches === 'undefined') return false;
+    const cache = await caches.open(CACHE_DOCS_NAME);
+    const cacheUrl = buildCacheStorageKey(key);
+    const headers = {
+      'Content-Type': 'application/pdf',
+      'Content-Length': String(blob.size || 0),
+      'X-Questionary-RelPath': encodeURIComponent(key),
+      'X-Questionary-Subject': encodeURIComponent(meta.subject || 'General')
+    };
+    await cache.put(cacheUrl, new Response(blob, { status: 200, headers }));
+    return true;
+  }
+
+  async function getPdfCacheStorage(key) {
+    if (typeof caches === 'undefined') return null;
+    try {
+      const cache = await caches.open(CACHE_DOCS_NAME);
+      const cacheUrl = buildCacheStorageKey(key);
+      const res = await cache.match(cacheUrl, { ignoreSearch: true });
+      if (!res || !res.ok) return null;
+      const ct = (res.headers.get('content-type') || '').toLowerCase();
+      if (ct.includes('text/html')) return null;
+      const blob = await res.blob();
+      return blob && blob.size > 0 ? blob : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
   async function putPdf(rawPath, blob, meta = {}) {
     const key = normalizeDocPath(rawPath);
     if (!key || !blob) return false;
-    const db = await openDocsDb();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(STORE_NAME, 'readwrite');
-      const record = {
-        path: key,
-        blob: blob,
-        byteLength: blob.size || 0,
-        subject: meta.subject || 'General',
-        quality: meta.quality || (localStorage.getItem('questionary-quality-profile') || 'sd'),
-        filename: meta.filename || key.split('/').pop(),
-        cachedAt: Date.now()
-      };
-      const req = tx.objectStore(STORE_NAME).put(record);
-      req.onsuccess = () => resolve(true);
-      req.onerror = () => reject(req.error);
-    });
+
+    const record = {
+      path: key,
+      blob: blob,
+      byteLength: blob.size || 0,
+      subject: meta.subject || 'General',
+      quality: meta.quality || (localStorage.getItem('questionary-quality-profile') || 'sd'),
+      filename: meta.filename || key.split('/').pop(),
+      cachedAt: Date.now()
+    };
+
+    // Tier 1: IndexedDB (store ArrayBuffer fallback if Blob cloning fails on mobile Safari/WebView)
+    try {
+      const db = await openDocsDb();
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE_NAME, 'readwrite');
+        const req = tx.objectStore(STORE_NAME).put(record);
+        tx.oncomplete = () => resolve(true);
+        req.onerror = () => reject(req.error);
+        tx.onerror = () => reject(tx.error);
+      });
+      return true;
+    } catch (idbErr) {
+      console.warn('[OfflineEngine] IndexedDB PDF put failed, trying OPFS/CacheStorage fallback:', idbErr && idbErr.message ? idbErr.message : idbErr);
+    }
+
+    // Tier 2: Origin Private File System (OPFS)
+    try {
+      if (await putPdfOpfs(key, blob)) {
+        return true;
+      }
+    } catch (opfsErr) {
+      console.warn('[OfflineEngine] OPFS PDF put failed, trying CacheStorage fallback:', opfsErr && opfsErr.message ? opfsErr.message : opfsErr);
+    }
+
+    // Tier 3: Cache Storage API
+    try {
+      if (await putPdfCacheStorage(key, blob, meta)) {
+        return true;
+      }
+    } catch (cacheErr) {
+      console.warn('[OfflineEngine] CacheStorage PDF put failed:', cacheErr && cacheErr.message ? cacheErr.message : cacheErr);
+    }
+
+    return false;
   }
 
   async function getPdfRecord(rawPath) {
@@ -389,8 +588,19 @@
   }
 
   async function getPdfBlob(rawPath) {
-    const rec = await getPdfRecord(rawPath);
-    return rec && rec.blob ? rec.blob : null;
+    const key = normalizeDocPath(rawPath);
+    if (!key) return null;
+
+    const rec = await getPdfRecord(key);
+    if (rec && rec.blob) return rec.blob;
+
+    const opfsBlob = await getPdfOpfs(key);
+    if (opfsBlob) return opfsBlob;
+
+    const cacheBlob = await getPdfCacheStorage(key);
+    if (cacheBlob) return cacheBlob;
+
+    return null;
   }
 
   async function hasPdf(rawPath) {
@@ -398,15 +608,18 @@
     if (!key) return false;
     try {
       const db = await openDocsDb();
-      return await new Promise((resolve) => {
+      const inIdb = await new Promise((resolve) => {
         const tx = db.transaction(STORE_NAME, 'readonly');
         const req = tx.objectStore(STORE_NAME).getKey(key);
         req.onsuccess = () => resolve(req.result !== undefined);
         req.onerror = () => resolve(false);
       });
-    } catch (e) {
-      return false;
-    }
+      if (inIdb) return true;
+    } catch (e) {}
+
+    if (await getPdfOpfs(key)) return true;
+    if (await getPdfCacheStorage(key)) return true;
+    return false;
   }
 
   async function getPdfObjectUrl(rawPath) {
@@ -417,70 +630,124 @@
     }
     const blob = await getPdfBlob(key);
     if (!blob) return null;
-    const objUrl = URL.createObjectURL(blob);
+    const typedBlob = blob.type === 'application/pdf' ? blob : new Blob([blob], { type: 'application/pdf' });
+    const objUrl = URL.createObjectURL(typedBlob);
     OBJECT_URL_CACHE.set(key, objUrl);
     return objUrl;
   }
 
-  async function fetchAndCachePdf(urlOrRelPath, meta = {}) {
-    const cleanRel = normalizeDocPath(urlOrRelPath);
+  async function fetchAndCachePdf(urlOrCandidates, meta = {}) {
+    const rawInputs = Array.isArray(urlOrCandidates) ? urlOrCandidates : [urlOrCandidates];
+    const firstInput = String(rawInputs[0] || '');
+    const cleanRel = normalizeDocPath(meta.relPath || firstInput);
     const candidateDocUrls = [];
-    if (/^(https?:|blob:|local-pdf:)/i.test(urlOrRelPath)) {
-      candidateDocUrls.push(urlOrRelPath);
-    } else {
-      candidateDocUrls.push(resolveRuntimeUrl(`documents/${cleanRel}`));
-      candidateDocUrls.push(`documents/${cleanRel}`);
-      if (getRuntimeContext().isDevServer) {
-        candidateDocUrls.push(`/documents/${cleanRel}`);
+
+    for (const entry of rawInputs) {
+      if (!entry || typeof entry !== 'string') continue;
+      if (/^(https?:|blob:|local-pdf:)/i.test(entry)) {
+        candidateDocUrls.push(entry);
+      } else {
+        const normalizedEntry = normalizeDocPath(entry);
+        candidateDocUrls.push(resolveRuntimeUrl(`documents/${normalizedEntry}`));
+        candidateDocUrls.push(`documents/${normalizedEntry}`);
+        if (getRuntimeContext().isDevServer) {
+          candidateDocUrls.push(`/documents/${normalizedEntry}`);
+        }
       }
     }
 
     let lastStatusError = null;
     for (const fetchUrl of Array.from(new Set(candidateDocUrls))) {
-      console.log(`[OfflineEngine] Requesting PDF document path: ${fetchUrl}`);
-      const bytes = await fetchBinaryWithDiagnostics(fetchUrl, { requireSqliteHeader: false });
+      const bytes = await fetchBinaryWithDiagnostics(fetchUrl, {
+        requireSqliteHeader: false,
+        requirePdfHeader: true,
+        signal: meta.signal
+      });
       if (bytes && bytes.byteLength > 0) {
         const blob = new Blob([bytes], { type: 'application/pdf' });
-        await putPdf(cleanRel || urlOrRelPath, blob, meta);
+        await putPdf(cleanRel || firstInput, blob, meta);
         return { blob, byteLength: blob.size };
       }
-      lastStatusError = `Unreachable or 404 at ${fetchUrl}`;
+      lastStatusError = `Unreachable or invalid PDF at ${fetchUrl}`;
     }
 
     throw new Error(lastStatusError || 'Document fetch failed');
   }
 
   async function getStats() {
+    let fileCount = 0;
+    let totalBytes = 0;
+    const subjects = {};
+    const backends = [];
+
     try {
       const db = await openDocsDb();
-      return await new Promise((resolve) => {
+      const idbRes = await new Promise((resolve) => {
         const tx = db.transaction(STORE_NAME, 'readonly');
         const store = tx.objectStore(STORE_NAME);
-        let fileCount = 0;
-        let totalBytes = 0;
-        const subjects = {};
+        let cnt = 0;
+        let bytesSum = 0;
+        const subMap = {};
         const cursorReq = store.openCursor();
         cursorReq.onsuccess = (e) => {
           const cursor = e.target.result;
           if (cursor) {
             const val = cursor.value;
-            const bytes = val.byteLength || (val.blob ? val.blob.size : 0);
-            fileCount++;
-            totalBytes += bytes;
+            const b = val.byteLength || (val.blob ? val.blob.size : 0);
+            cnt++;
+            bytesSum += b;
             const subj = val.subject || 'General';
-            if (!subjects[subj]) subjects[subj] = { count: 0, bytes: 0 };
-            subjects[subj].count++;
-            subjects[subj].bytes += bytes;
+            if (!subMap[subj]) subMap[subj] = { count: 0, bytes: 0 };
+            subMap[subj].count++;
+            subMap[subj].bytes += b;
             cursor.continue();
           } else {
-            resolve({ fileCount, totalBytes, subjects });
+            resolve({ cnt, bytesSum, subMap });
           }
         };
-        cursorReq.onerror = () => resolve({ fileCount: 0, totalBytes: 0, subjects: {} });
+        cursorReq.onerror = () => resolve({ cnt: 0, bytesSum: 0, subMap: {} });
       });
-    } catch (e) {
-      return { fileCount: 0, totalBytes: 0, subjects: {} };
+      if (idbRes.cnt > 0) backends.push('IndexedDB');
+      fileCount += idbRes.cnt;
+      totalBytes += idbRes.bytesSum;
+      Object.assign(subjects, idbRes.subMap);
+    } catch (e) {}
+
+    // Check OPFS fallback entries
+    try {
+      const dir = await getOpfsDir(false);
+      if (dir && typeof dir.values === 'function') {
+        let opfsCount = 0;
+        for await (const entry of dir.values()) {
+          if (entry.kind === 'file') {
+            const file = await entry.getFile();
+            opfsCount++;
+            fileCount++;
+            totalBytes += file.size || 0;
+          }
+        }
+        if (opfsCount > 0) backends.push('OPFS');
+      }
+    } catch (e) {}
+
+    // Check CacheStorage fallback entries (when IDB/OPFS not already counted)
+    if (fileCount === 0 && typeof caches !== 'undefined') {
+      try {
+        const cache = await caches.open(CACHE_DOCS_NAME);
+        const keys = await cache.keys();
+        if (keys.length > 0) {
+          backends.push('CacheStorage');
+          for (const req of keys) {
+            const res = await cache.match(req);
+            const len = res ? parseInt(res.headers.get('content-length') || '0', 10) : 0;
+            fileCount++;
+            totalBytes += Number.isNaN(len) ? 0 : len;
+          }
+        }
+      } catch (e) {}
     }
+
+    return { fileCount, totalBytes, subjects, backends };
   }
 
   async function clearAllCachedPdfs() {
@@ -488,15 +755,23 @@
       try { URL.revokeObjectURL(url); } catch (e) {}
     });
     OBJECT_URL_CACHE.clear();
-    const db = await openDocsDb();
-    await new Promise((resolve, reject) => {
-      const tx = db.transaction(STORE_NAME, 'readwrite');
-      const req = tx.objectStore(STORE_NAME).clear();
-      req.onsuccess = () => resolve();
-      req.onerror = () => reject(req.error);
-    });
+    try {
+      const db = await openDocsDb();
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE_NAME, 'readwrite');
+        const req = tx.objectStore(STORE_NAME).clear();
+        req.onsuccess = () => resolve();
+        req.onerror = () => reject(req.error);
+      });
+    } catch (e) {}
+    try {
+      if (navigator.storage && typeof navigator.storage.getDirectory === 'function') {
+        const root = await navigator.storage.getDirectory();
+        await root.removeEntry(OPFS_DIR_NAME, { recursive: true });
+      }
+    } catch (e) {}
     if (typeof caches !== 'undefined') {
-      try { await caches.delete('questionary-docs-v1'); } catch (e) {}
+      try { await caches.delete(CACHE_DOCS_NAME); } catch (e) {}
     }
     return true;
   }
@@ -518,24 +793,41 @@
 
   /* ---------- PWA Install Lifecycle ---------- */
   function detectPwaEnvironment() {
+    const isElectron = isDesktopElectron();
     isInstalledApp =
       window.matchMedia('(display-mode: standalone)').matches ||
       window.navigator.standalone === true ||
-      isDesktopElectron() ||
+      isElectron ||
       isCapacitorNative();
 
     const ua = (window.navigator.userAgent || '').toLowerCase();
     isIOSDevice = /iphone|ipad|ipod/.test(ua) && !isInstalledApp;
+
+    if (typeof document !== 'undefined') {
+      if (document.documentElement) {
+        document.documentElement.classList.toggle('desktop-electron-app', isElectron);
+        document.documentElement.classList.toggle('installed-app-env', isInstalledApp);
+      }
+      if (document.body) {
+        document.body.classList.toggle('desktop-electron-app', isElectron);
+        document.body.classList.toggle('installed-app-env', isInstalledApp);
+      }
+    }
   }
 
   function updateInstallButtons() {
     detectPwaEnvironment();
     const headerBtn = document.getElementById('pwaInstallHeaderBtn');
     const settingsBtn = document.getElementById('pwaInstallSettingsBtn');
-    const showBtn = !isInstalledApp && (Boolean(deferredInstallPrompt) || isIOSDevice);
+    const isElectron = isDesktopElectron();
+    const showBtn = !isElectron && !isInstalledApp && (Boolean(deferredInstallPrompt) || isIOSDevice);
 
     [headerBtn, settingsBtn].forEach((btn) => {
       if (!btn) return;
+      btn.hidden = !showBtn;
+      btn.disabled = !showBtn || isElectron || isInstalledApp;
+      btn.setAttribute('aria-hidden', String(!showBtn));
+      btn.classList.toggle('is-hidden-env', !showBtn);
       btn.style.display = showBtn ? 'inline-flex' : 'none';
       const labelEl = btn.querySelector('.pwa-install-label');
       if (labelEl) {
@@ -724,7 +1016,8 @@
       const idbStats = await getStats();
       docsOk = idbStats.fileCount > 0;
       const mb = (idbStats.totalBytes / (1024 * 1024)).toFixed(1);
-      docsDetail = `${idbStats.fileCount} PDFs (${mb} MB) in IndexedDB${persisted ? ' · Persistent' : ''}${quotaText}`;
+      const backendLabel = (idbStats.backends && idbStats.backends.length > 0) ? idbStats.backends.join('+') : 'IndexedDB/OPFS';
+      docsDetail = `${idbStats.fileCount} PDFs (${mb} MB) in ${backendLabel}${persisted ? ' · Persistent' : ''}${quotaText}`;
     }
 
     checks.push({

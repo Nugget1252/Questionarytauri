@@ -4,7 +4,7 @@
  * Caches accessed PDFs and supports offline fallback on Web / PWA.
  * ========================================================================= */
 
-const CACHE_SHELL = 'questionary-shell-v240';
+const CACHE_SHELL = 'questionary-shell-v242';
 const CACHE_DOCS = 'questionary-docs-v1';
 
 const PRECACHE_URLS = [
@@ -124,6 +124,48 @@ self.addEventListener('message', (event) => {
   }
 });
 
+async function buildRangeResponse(fullResponse, rangeHeader) {
+  const ab = await fullResponse.arrayBuffer();
+  const total = ab.byteLength;
+  const match = /^bytes=(\d*)-(\d*)$/i.exec((rangeHeader || '').trim());
+  if (!match) {
+    return new Response(ab, {
+      status: 200,
+      headers: {
+        'Content-Type': fullResponse.headers.get('Content-Type') || 'application/pdf',
+        'Content-Length': String(total),
+        'Accept-Ranges': 'bytes'
+      }
+    });
+  }
+
+  let start = match[1] ? parseInt(match[1], 10) : 0;
+  let end = match[2] ? parseInt(match[2], 10) : total - 1;
+  if (!match[1] && match[2]) {
+    const suffixLen = parseInt(match[2], 10);
+    start = Math.max(0, total - suffixLen);
+    end = total - 1;
+  }
+  if (Number.isNaN(start) || Number.isNaN(end) || start > end || start >= total) {
+    return new Response('', {
+      status: 416,
+      headers: { 'Content-Range': `bytes */${total}` }
+    });
+  }
+  end = Math.min(end, total - 1);
+  const sliced = ab.slice(start, end + 1);
+  return new Response(sliced, {
+    status: 206,
+    statusText: 'Partial Content',
+    headers: {
+      'Content-Type': fullResponse.headers.get('Content-Type') || 'application/pdf',
+      'Content-Range': `bytes ${start}-${end}/${total}`,
+      'Content-Length': String(sliced.byteLength),
+      'Accept-Ranges': 'bytes'
+    }
+  });
+}
+
 self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET') return;
@@ -144,26 +186,53 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Document PDFs: Cache-first + background cache write when online
-  if (url.pathname.startsWith('/documents/') || url.pathname.startsWith('/documentshd/')) {
-    event.respondWith(
-      caches.open(CACHE_DOCS).then(async (cache) => {
-        const cached = await cache.match(req, { ignoreSearch: true });
-        if (cached) return cached;
-        try {
-          const networkRes = await fetch(req);
-          if (networkRes && networkRes.ok && networkRes.status === 200) {
-            cache.put(req, networkRes.clone());
+  // Document PDFs: Range-aware Cache-first + background cache write (safe for mobile streams)
+  if (url.pathname.includes('/documents/') || url.pathname.includes('/documentshd/')) {
+    event.respondWith((async () => {
+      const cache = await caches.open(CACHE_DOCS);
+      const cacheKeyUrl = url.origin + url.pathname;
+      const rangeHeader = req.headers.get('range');
+      const cached =
+        await cache.match(cacheKeyUrl, { ignoreSearch: true }) ||
+        await cache.match(req.url, { ignoreSearch: true });
+
+      if (cached) {
+        const cachedCt = (cached.headers.get('content-type') || '').toLowerCase();
+        if (!cachedCt.includes('text/html')) {
+          if (rangeHeader) {
+            return await buildRangeResponse(cached.clone(), rangeHeader);
           }
-          return networkRes;
-        } catch (err) {
-          return new Response('Offline: Document has not been cached yet.', {
-            status: 503,
-            statusText: 'Service Unavailable'
-          });
+          return cached;
         }
-      })
-    );
+      }
+
+      if (rangeHeader) {
+        try {
+          return await fetch(req);
+        } catch (err) {
+          return new Response('Offline: Range request unavailable offline.', { status: 503 });
+        }
+      }
+
+      try {
+        const networkRes = await fetch(req);
+        if (networkRes && networkRes.ok && networkRes.status === 200) {
+          const ct = (networkRes.headers.get('content-type') || '').toLowerCase();
+          if (!ct.includes('text/html')) {
+            const cloneForCache = networkRes.clone();
+            event.waitUntil(
+              cache.put(cacheKeyUrl, cloneForCache).catch(() => {})
+            );
+          }
+        }
+        return networkRes;
+      } catch (err) {
+        return new Response('Offline: Document has not been cached yet.', {
+          status: 503,
+          statusText: 'Service Unavailable'
+        });
+      }
+    })());
     return;
   }
 
