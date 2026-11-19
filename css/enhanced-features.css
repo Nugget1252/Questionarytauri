@@ -241,20 +241,20 @@ body.dyslexic-font, body.dyslexic-font * {
 }
 
 .flashcard-face.front {
-    background: linear-gradient(135deg, var(--surface, #1e1f22) 0%, rgba(30, 31, 34, 0.95) 100%);
+    background: var(--surface);
     transform: rotateY(0deg);
     -webkit-transform: rotateY(0deg);
-    color: var(--fg, #f4f4f5);
+    color: var(--fg);
     visibility: visible;
     transition: visibility 0s 0.25s;
 }
 
 .flashcard-face.back {
-    background: linear-gradient(135deg, #18191c 0%, rgba(207, 98, 21, 0.12) 100%);
+    background: linear-gradient(135deg, var(--surface) 0%, var(--accent-light, rgba(207, 98, 21, 0.12)) 100%);
     transform: rotateY(180deg);
     -webkit-transform: rotateY(180deg);
-    color: var(--fg, #f4f4f5);
-    border-color: rgba(207, 98, 21, 0.4);
+    color: var(--fg);
+    border-color: rgba(207, 98, 21, 0.45);
     visibility: hidden;
     transition: visibility 0s 0.25s;
 }
@@ -432,24 +432,33 @@ body.dyslexic-font, body.dyslexic-font * {
 
 .note-card.pinned {
     border-color: rgba(207, 98, 21, 0.6);
-    background: linear-gradient(180deg, rgba(207, 98, 21, 0.06) 0%, var(--surface, #1e1f22) 100%);
+    background: linear-gradient(180deg, rgba(207, 98, 21, 0.07) 0%, var(--surface) 100%);
 }
 
-.note-card-top {
+.note-card-top,
+.deck-badge-row {
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     justify-content: space-between;
     gap: 8px;
-    margin-bottom: 8px;
+    margin-bottom: 10px;
+}
+
+.card-icon-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
 }
 
 .note-category-tag {
     font-size: 0.68rem;
     font-weight: 700;
     text-transform: uppercase;
-    padding: 2px 7px;
-    border-radius: 4px;
-    background: rgba(207, 98, 21, 0.15);
+    letter-spacing: 0.04em;
+    padding: 3px 8px;
+    border-radius: 6px;
+    background: var(--accent-light, rgba(207, 98, 21, 0.14));
     color: var(--accent, #cf6215);
 }
 
@@ -457,12 +466,12 @@ body.dyslexic-font, body.dyslexic-font * {
     margin: 0 0 6px 0;
     font-size: 0.98rem;
     font-weight: 700;
-    color: var(--fg, #f4f4f5);
+    color: var(--fg);
 }
 
 .note-card p {
     font-size: 0.82rem;
-    color: var(--fg2, #a1a1aa);
+    color: var(--fg2);
     line-height: 1.5;
     margin: 0 0 12px 0;
     display: -webkit-box;
@@ -476,20 +485,116 @@ body.dyslexic-font, body.dyslexic-font * {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    font-size: 0.7rem;
-    color: var(--fg3, #71717a);
+    font-size: 0.72rem;
+    color: var(--fg3);
     padding-top: 8px;
-    border-top: 1px solid var(--line, #2e3035);
+    border-top: 1px solid var(--line);
+}
+
+.deck-card-heading {
+    margin: 4px 0 6px 0;
+    font-size: 1.02rem;
+    font-weight: 700;
+    color: var(--fg);
+    line-height: 1.35;
+}
+
+.deck-card-meta {
+    font-size: 0.78rem;
+    color: var(--fg3);
+    margin: 0 0 12px 0;
+}
+
+.deck-card-footer-actions {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-top: auto;
+    padding-top: 10px;
+}
+
+.deck-card-footer-actions .ef-study-deck,
+.deck-card-footer-actions .ef-quiz-deck {
+    flex: 1;
+    justify-content: center;
+}
+
+.deck-card-row {
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 12px;
+    margin-bottom: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.deck-card-row-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+}
+
+.deck-card-row-label {
+    font-size: 0.76rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--accent);
+}
+
+.study-empty-state {
+    grid-column: 1 / -1;
+    text-align: center;
+    padding: 3rem 1.25rem;
+    background: var(--surface);
+    border: 1px dashed var(--line);
+    border-radius: 14px;
+    color: var(--fg2);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+}
+.study-empty-state .study-empty-icon {
+    width: 56px;
+    height: 56px;
+    border-radius: 14px;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 4px;
+}
+.study-empty-state .study-empty-icon i {
+    font-size: 1.5rem;
+    color: var(--fg3);
+}
+.study-empty-state h4 {
+    margin: 0;
+    font-size: 1rem;
+    color: var(--fg);
+}
+.study-empty-state p {
+    margin: 0 0 4px 0;
+    font-size: 0.84rem;
+    color: var(--fg3);
+    max-width: 380px;
+    line-height: 1.5;
 }
 
 /* Note Editor Formatting Toolbar */
 .note-toolbar {
     display: flex;
     flex-wrap: wrap;
+    align-items: center;
     gap: 4px;
     padding: 6px;
-    background: var(--bg, #111113);
-    border: 1px solid var(--line, #2e3035);
+    background: var(--bg);
+    border: 1px solid var(--line);
     border-radius: 8px;
     margin-bottom: 8px;
 }
@@ -497,60 +602,74 @@ body.dyslexic-font, body.dyslexic-font * {
 .note-tool-btn {
     background: transparent;
     border: 1px solid transparent;
-    color: var(--fg2, #a1a1aa);
-    padding: 4px 8px;
-    border-radius: 4px;
+    color: var(--fg2);
+    padding: 5px 8px;
+    border-radius: 5px;
     font-size: 0.8rem;
     cursor: pointer;
     transition: all 0.15s;
 }
 
 .note-tool-btn:hover {
-    background: var(--surface, #1e1f22);
-    color: var(--fg, #f4f4f5);
-    border-color: var(--line, #2e3035);
+    background: var(--surface);
+    color: var(--fg);
+    border-color: var(--line);
 }
 
 /* Markdown rendered output in preview mode */
 .note-rendered-view {
-    min-height: 220px;
-    max-height: 400px;
+    min-height: 190px;
+    max-height: 360px;
     overflow-y: auto;
-    padding: 12px;
-    background: var(--bg, #111113);
-    border: 1px solid var(--line, #2e3035);
+    padding: 14px 16px;
+    border: 1px solid var(--line);
     border-radius: 8px;
-    color: var(--fg, #f4f4f5);
-    font-size: 0.88rem;
+    background: var(--bg);
+    color: var(--fg);
+    font-size: 0.9rem;
     line-height: 1.6;
 }
-
-.note-rendered-view h1, .note-rendered-view h2, .note-rendered-view h3 {
-    margin-top: 12px;
-    margin-bottom: 6px;
-    color: var(--accent, #cf6215);
+.note-rendered-view h1,
+.note-rendered-view h2,
+.note-rendered-view h3 {
+    margin: 0.6em 0 0.35em;
+    color: var(--fg);
 }
-
+.note-rendered-view h1:first-child,
+.note-rendered-view h2:first-child,
+.note-rendered-view h3:first-child {
+    margin-top: 0;
+}
+.note-rendered-view ul,
+.note-rendered-view ol {
+    margin: 0.4em 0;
+    padding-left: 1.4em;
+}
+.note-rendered-view blockquote {
+    margin: 0.5em 0;
+    padding: 6px 12px;
+    border-left: 3px solid var(--accent);
+    background: var(--surface);
+    color: var(--fg2);
+    border-radius: 0 6px 6px 0;
+}
 .note-rendered-view code {
-    background: rgba(255,255,255,0.08);
-    padding: 2px 6px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.85em;
+    background: var(--hover);
+    padding: 1px 5px;
     border-radius: 4px;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.82em;
 }
-
 .note-rendered-view pre {
-    background: rgba(0,0,0,0.3);
-    padding: 10px;
+    background: var(--surface);
+    border: 1px solid var(--line);
     border-radius: 8px;
+    padding: 10px 12px;
     overflow-x: auto;
 }
-
-.note-rendered-view blockquote {
-    border-left: 3px solid var(--accent, #cf6215);
-    padding-left: 10px;
-    margin: 8px 0;
-    color: var(--fg2, #a1a1aa);
+.note-rendered-view pre code {
+    background: none;
+    padding: 0;
 }
 
 /* ── 4. STUDY ROOM ENHANCEMENTS (Inside Session Sidebar) ── */

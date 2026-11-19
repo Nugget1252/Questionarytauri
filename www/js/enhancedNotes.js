@@ -1,91 +1,51 @@
 /* ==========================================================================
-   QUESTIONARY ENHANCED NOTES ENGINE (v2.0)
-   Markdown Editor, Live Split Preview, Subject Categorization, Pinning, Export
+   QUESTIONARY ENHANCED NOTES ENGINE (v3.0)
+   Single Authoritative Engine: Markdown Editor, Live Preview, Pinning, Export
+   Zero pre-seeded sample/test data.
    ========================================================================== */
 
 (function () {
   'use strict';
 
   const STORAGE_KEY = 'questionary-notes';
+  const DEMO_PURGE_KEY = 'questionary-demo-notes-purged-v1';
+  const LEGACY_DEMO_IDS = new Set([
+    'note_icse10_physics_formulas',
+    'note_icse10_chem_reactions',
+    'note_icse10_java_tips'
+  ]);
 
-  const DEFAULT_NOTES = [
-    {
-      id: 'note_icse10_physics_formulas',
-      title: 'ICSE 10 Physics Master Formula Sheet',
-      category: 'physics',
-      pinned: true,
-      content: `# ICSE Class 10 Physics: Essential Formulas
-
-### 1. Force, Work, Power & Energy
-- **Work Done**: $W = F \\cdot s \\cos\\theta$
-  - If $\\theta = 0^\\circ$, $W = F \\cdot s$ (Maximum work)
-  - If $\\theta = 90^\\circ$, $W = 0$ (e.g. satellite in circular orbit)
-- **Power**: $P = \\frac{W}{t} = F \\cdot v$
-  - $1\\text{ H.P.} = 746\\text{ W}$
-- **Kinetic Energy**: $K = \\frac{1}{2}mv^2 = \\frac{p^2}{2m}$
-- **Potential Energy**: $U = mgh$
-
-### 2. Machines
-- **Mechanical Advantage**: $\\text{M.A.} = \\frac{\\text{Load}}{\\text{Effort}}$
-- **Velocity Ratio**: $\\text{V.R.} = \\frac{d_E}{d_L}$
-- **Efficiency**: $\\eta = \\frac{\\text{M.A.}}{\\text{V.R.}}$
-- **Pulley System**: For a block and tackle system with $n$ pulleys, ideal $\\text{V.R.} = n$.
-
-### 3. Refraction & Light
-- **Snell's Law**: $\\mu = \\frac{\\sin i}{\\sin r}$
-- **Critical Angle**: $\\mu = \\frac{1}{\\sin C}$
-- **Lens Formula**: $\\frac{1}{f} = \\frac{1}{v} - \\frac{1}{u}$
-- **Magnification**: $m = \\frac{v}{u} = \\frac{I}{O}$`,
-      updatedAt: Date.now() - 3600000 * 2
-    },
-    {
-      id: 'note_icse10_chem_reactions',
-      title: 'ICSE 10 Chemistry: Salt Reactions & Observations',
-      category: 'chemistry',
-      pinned: true,
-      content: `# Chemistry: Distinctive Observations & Tests
-
-### Action of NaOH and NH4OH on Salt Solutions
-1. **$Cu^{2+}$ (Copper salts)**:
-   - With NaOH: Pale blue precipitate of $Cu(OH)_2$, insoluble in excess.
-   - With $NH_4OH$: Pale blue precipitate, **soluble in excess** to give a deep inky blue solution of $[Cu(NH_3)_4]^{2+}$.
-
-2. **$Fe^{2+}$ (Ferrous salts)**:
-   - Dirty green precipitate of $Fe(OH)_2$, insoluble in excess of both alkalis.
-
-3. **$Fe^{3+}$ (Ferric salts)**:
-   - Reddish brown precipitate of $Fe(OH)_3$, insoluble in excess of both alkalis.
-
-4. **$Zn^{2+}$ (Zinc salts)**:
-   - Gelatinous white precipitate of $Zn(OH)_2$, soluble in excess of both alkalis to form colourless sodium zincate or tetraamminezinc ion.
-
-5. **$Pb^{2+}$ (Lead salts)**:
-   - Chalky white precipitate of $Pb(OH)_2$, soluble in excess NaOH (amphoteric), but **insoluble in excess $NH_4OH$**.`,
-      updatedAt: Date.now() - 3600000 * 5
-    },
-    {
-      id: 'note_icse10_java_tips',
-      title: 'Computer Applications: Java Board Exam Traps',
-      category: 'computer applications',
-      pinned: false,
-      content: `# Java Practical Concepts & Board Tips
-
-### 1. Difference between Math.ceil(), Math.floor(), Math.round()
-- \`Math.ceil(-4.2)\` $\\rightarrow$ \`-4.0\` (rounds up towards $+\\infty$)
-- \`Math.floor(-4.2)\` $\\rightarrow$ \`-5.0\` (rounds down towards $-\\infty$)
-- \`Math.round(-4.6)\` $\\rightarrow$ \`-5\` (returns \`long\` or \`int\`)
-
-### 2. Character Wrapper Class Functions
-- \`Character.isLetterOrDigit(ch)\`
-- \`Character.toUpperCase(ch)\`
-- \`Character.isWhitespace(ch)\`
-
-### 3. Autoboxing & Unboxing
-- **Autoboxing**: Automatic conversion of primitive data types into their corresponding wrapper class objects (e.g. \`int\` $\\rightarrow$ \`Integer\`).
-- **Unboxing**: Automatic conversion of wrapper type to primitive.`,
-      updatedAt: Date.now() - 3600000 * 24
-    }
+  const KNOWN_CATEGORIES = [
+    'General',
+    'Physics',
+    'Chemistry',
+    'Biology',
+    'Mathematics',
+    'Computer Applications',
+    'English',
+    'History',
+    'Geography',
+    'Other'
   ];
+
+  const CATEGORY_ALIASES = {
+    '': 'General',
+    'general': 'General',
+    'physics': 'Physics',
+    'chemistry': 'Chemistry',
+    'biology': 'Biology',
+    'math': 'Mathematics',
+    'maths': 'Mathematics',
+    'mathematics': 'Mathematics',
+    'computer': 'Computer Applications',
+    'computers': 'Computer Applications',
+    'computer science': 'Computer Applications',
+    'computer applications': 'Computer Applications',
+    'english': 'English',
+    'history': 'History',
+    'geography': 'Geography',
+    'other': 'Other'
+  };
 
   let notes = [];
   let selectedCategory = 'all';
@@ -93,19 +53,68 @@
   let activeEditingNote = null;
   let isPreviewMode = false;
 
+  function normalizeCategory(raw) {
+    const cleaned = String(raw || '').trim();
+    if (!cleaned) return 'General';
+    const lower = cleaned.toLowerCase();
+    if (Object.prototype.hasOwnProperty.call(CATEGORY_ALIASES, lower)) {
+      return CATEGORY_ALIASES[lower];
+    }
+    const knownMatch = KNOWN_CATEGORIES.find(c => c.toLowerCase() === lower);
+    if (knownMatch) return knownMatch;
+    return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+  }
+
   function loadNotes() {
+    let parsed = [];
+    let modified = false;
+
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          notes = parsed;
-          return;
+        const raw = JSON.parse(saved);
+        if (Array.isArray(raw)) {
+          parsed = raw;
         }
       }
+    } catch (e) {
+      parsed = [];
+    }
+
+    // One-time cleanup: remove only the old pre-seeded sample notes while keeping all user-created notes
+    try {
+      if (!localStorage.getItem(DEMO_PURGE_KEY)) {
+        const beforeCount = parsed.length;
+        parsed = parsed.filter(n => n && !LEGACY_DEMO_IDS.has(String(n.id)));
+        if (parsed.length !== beforeCount) {
+          modified = true;
+        }
+        localStorage.setItem(DEMO_PURGE_KEY, '1');
+      }
     } catch (e) {}
-    notes = JSON.parse(JSON.stringify(DEFAULT_NOTES));
-    saveNotes();
+
+    notes = parsed
+      .filter(n => n && typeof n === 'object')
+      .map((note, idx) => {
+        const id = note.id ? String(note.id) : `note_${Date.now()}_${idx}`;
+        const title = String(note.title || 'Untitled Note').trim() || 'Untitled Note';
+        const content = String(note.content || '');
+        const category = normalizeCategory(note.category);
+        const pinned = Boolean(note.pinned);
+        const updatedAt = Number(note.updatedAt) || Number(note.createdAt) || Date.now();
+
+        if (note.id !== id || note.category !== category) {
+          modified = true;
+        }
+
+        return { id, title, content, category, pinned, updatedAt };
+      });
+
+    window.notes = notes;
+    if (modified) {
+      saveNotes();
+    }
+    return notes;
   }
 
   function saveNotes() {
@@ -113,6 +122,10 @@
       localStorage.setItem(STORAGE_KEY, JSON.stringify(notes));
       window.notes = notes;
     } catch (e) {}
+  }
+
+  function getNotes() {
+    return loadNotes();
   }
 
   function escapeHtml(text) {
@@ -172,34 +185,136 @@
     return `<pre style="white-space: pre-wrap;">${escapeHtml(raw)}</pre>`;
   }
 
-  // Simple, fast Markdown renderer
+  function formatInlineMarkdown(escapedText) {
+    return escapedText
+      .replace(/`([^`]+)`/g, '<code>$1</code>')
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/(^|[^*])\*([^*]+)\*(?!\*)/g, '$1<em>$2</em>');
+  }
+
   function renderMarkdown(md) {
-    if (!md) return '';
-    let html = escapeHtml(md);
+    const source = String(md || '');
+    if (!source.trim()) {
+      return '<p style="color:var(--fg3); font-style:italic; margin:0;">Nothing to preview yet. Start writing in the editor.</p>';
+    }
 
-    // Headers
-    html = html.replace(/^### (.*$)/gim, '<h3>$1</h3>');
-    html = html.replace(/^## (.*$)/gim, '<h2>$1</h2>');
-    html = html.replace(/^# (.*$)/gim, '<h1>$1</h1>');
+    const lines = source.replace(/\r\n/g, '\n').split('\n');
+    const out = [];
+    let inCodeBlock = false;
+    let codeLines = [];
+    let listType = null; // 'ul' | 'ol' | null
 
-    // Bold & Italic
-    html = html.replace(/\*\*(.*?)\*\*/gim, '<strong>$1</strong>');
-    html = html.replace(/\*(.*?)\*/gim, '<em>$1</em>');
+    function closeList() {
+      if (listType) {
+        out.push(`</${listType}>`);
+        listType = null;
+      }
+    }
 
-    // Code blocks & inline code
-    html = html.replace(/```([\s\S]*?)```/gim, '<pre><code>$1</code></pre>');
-    html = html.replace(/`([^`]+)`/gim, '<code>$1</code>');
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
 
-    // Blockquotes
-    html = html.replace(/^\> (.*$)/gim, '<blockquote>$1</blockquote>');
+      if (line.trim().startsWith('```')) {
+        closeList();
+        if (!inCodeBlock) {
+          inCodeBlock = true;
+          codeLines = [];
+        } else {
+          out.push(`<pre><code>${escapeHtml(codeLines.join('\n'))}</code></pre>`);
+          inCodeBlock = false;
+          codeLines = [];
+        }
+        continue;
+      }
 
-    // Bullet lists
-    html = html.replace(/^\- (.*$)/gim, '<li>$1</li>');
+      if (inCodeBlock) {
+        codeLines.push(line);
+        continue;
+      }
 
-    // Line breaks
-    html = html.replace(/\n/gim, '<br>');
+      const trimmed = line.trim();
+      if (!trimmed) {
+        closeList();
+        continue;
+      }
 
-    return sanitizeHtml(html);
+      const h3Match = trimmed.match(/^###\s+(.+)$/);
+      if (h3Match) {
+        closeList();
+        out.push(`<h3>${formatInlineMarkdown(escapeHtml(h3Match[1]))}</h3>`);
+        continue;
+      }
+
+      const h2Match = trimmed.match(/^##\s+(.+)$/);
+      if (h2Match) {
+        closeList();
+        out.push(`<h2>${formatInlineMarkdown(escapeHtml(h2Match[1]))}</h2>`);
+        continue;
+      }
+
+      const h1Match = trimmed.match(/^#\s+(.+)$/);
+      if (h1Match) {
+        closeList();
+        out.push(`<h1>${formatInlineMarkdown(escapeHtml(h1Match[1]))}</h1>`);
+        continue;
+      }
+
+      const quoteMatch = trimmed.match(/^>\s?(.*)$/);
+      if (quoteMatch) {
+        closeList();
+        out.push(`<blockquote>${formatInlineMarkdown(escapeHtml(quoteMatch[1]))}</blockquote>`);
+        continue;
+      }
+
+      const ulMatch = trimmed.match(/^[-*]\s+(.+)$/);
+      if (ulMatch) {
+        if (listType !== 'ul') {
+          closeList();
+          listType = 'ul';
+          out.push('<ul>');
+        }
+        out.push(`<li>${formatInlineMarkdown(escapeHtml(ulMatch[1]))}</li>`);
+        continue;
+      }
+
+      const olMatch = trimmed.match(/^\d+\.\s+(.+)$/);
+      if (olMatch) {
+        if (listType !== 'ol') {
+          closeList();
+          listType = 'ol';
+          out.push('<ol>');
+        }
+        out.push(`<li>${formatInlineMarkdown(escapeHtml(olMatch[1]))}</li>`);
+        continue;
+      }
+
+      closeList();
+      out.push(`<p style="margin:0.4em 0;">${formatInlineMarkdown(escapeHtml(line))}</p>`);
+    }
+
+    if (inCodeBlock) {
+      out.push(`<pre><code>${escapeHtml(codeLines.join('\n'))}</code></pre>`);
+    }
+    closeList();
+
+    return sanitizeHtml(out.join('\n'));
+  }
+
+  function countWords(text) {
+    const trimmed = String(text || '').trim();
+    if (!trimmed) return 0;
+    return trimmed.split(/\s+/).length;
+  }
+
+  async function confirmAction(message, title) {
+    if (typeof window.showConfirm === 'function') {
+      return await window.showConfirm(message, {
+        title: title || 'Confirm',
+        type: 'danger',
+        confirmText: 'Delete'
+      });
+    }
+    return true;
   }
 
   function renderNotes() {
@@ -207,29 +322,49 @@
     const container = document.getElementById('notesGrid');
     if (!container) return;
 
-    // Filter & Search
-    let filtered = notes.filter(n => {
-      const matchesCategory = selectedCategory === 'all' || (n.category || '').toLowerCase() === selectedCategory.toLowerCase();
-      const matchesSearch = !searchQuery || 
-        (n.title && n.title.toLowerCase().includes(searchQuery.toLowerCase())) ||
-        (n.content && n.content.toLowerCase().includes(searchQuery.toLowerCase()));
-      return matchesCategory && matchesSearch;
-    });
-
-    // Pinned notes first, then latest updated
-    filtered.sort((a, b) => {
-      if (a.pinned && !b.pinned) return -1;
-      if (!a.pinned && b.pinned) return 1;
-      return (b.updatedAt || 0) - (a.updatedAt || 0);
-    });
-
-    // Header Toolbar
     let headerBar = document.getElementById('notesHeaderBar');
-    if (!headerBar) {
+    if (!headerBar && container.parentElement) {
       headerBar = document.createElement('div');
       headerBar.id = 'notesHeaderBar';
       headerBar.className = 'notes-header-bar';
       container.parentElement.insertBefore(headerBar, container);
+    }
+
+    if (notes.length === 0) {
+      selectedCategory = 'all';
+      searchQuery = '';
+      if (headerBar) {
+        headerBar.style.display = 'none';
+        headerBar.innerHTML = '';
+      }
+      container.innerHTML = sanitizeUiHtml(`
+        <div class="study-empty-state">
+          <div class="study-empty-icon"><i class="fas fa-sticky-note"></i></div>
+          <h4>No study notes yet</h4>
+          <p>Capture formulas, summaries, and revision checklists with Markdown formatting and instant preview.</p>
+          <button type="button" id="enhancedEmptyCreateNoteBtn" class="btn btn-primary btn-sm">
+            <i class="fas fa-plus"></i> Create Your First Note
+          </button>
+        </div>
+      `);
+      document.getElementById('enhancedEmptyCreateNoteBtn')?.addEventListener('click', () => openEditor());
+      return;
+    }
+
+    // Collect distinct categories present in user's notes
+    const activeCategories = [];
+    const seenCats = new Set();
+    notes.forEach(n => {
+      const cat = normalizeCategory(n.category);
+      const key = cat.toLowerCase();
+      if (!seenCats.has(key)) {
+        seenCats.add(key);
+        activeCategories.push(cat);
+      }
+    });
+
+    if (selectedCategory !== 'all' && !seenCats.has(selectedCategory.toLowerCase())) {
+      selectedCategory = 'all';
     }
 
     const activeEl = document.activeElement;
@@ -237,84 +372,114 @@
     const searchSelStart = wasSearchFocused ? activeEl.selectionStart : null;
     const searchSelEnd = wasSearchFocused ? activeEl.selectionEnd : null;
 
-    const categories = ['All', 'Physics', 'Chemistry', 'Biology', 'Mathematics', 'English', 'Computer Applications', 'General'];
-    headerBar.innerHTML = sanitizeUiHtml(`
-      <div class="flashcards-filters">
-        ${categories.map(c => `
-          <button type="button" class="subject-chip ${selectedCategory.toLowerCase() === c.toLowerCase() ? 'active' : ''}" data-category="${escapeHtml(c.toLowerCase())}">
-            ${escapeHtml(c)}
-          </button>
-        `).join('')}
-      </div>
-      <div style="display:flex; align-items:center; gap:8px;">
+    if (headerBar) {
+      headerBar.style.display = 'flex';
+      const chips = activeCategories.length > 1 ? ['All', ...activeCategories] : [];
+      headerBar.innerHTML = sanitizeUiHtml(`
+        <div class="flashcards-filters">
+          ${chips.map(c => `
+            <button type="button" class="subject-chip ${selectedCategory.toLowerCase() === c.toLowerCase() ? 'active' : ''}" data-category="${escapeHtml(c.toLowerCase())}">
+              ${escapeHtml(c)}
+            </button>
+          `).join('')}
+        </div>
         <div class="notes-search-box">
-          <i class="fas fa-search" style="color:var(--fg3, #71717a); font-size:0.8rem;"></i>
+          <i class="fas fa-search" style="color:var(--fg3); font-size:0.8rem;"></i>
           <input type="text" id="enhancedNotesSearchInput" placeholder="Search notes..." value="${escapeHtml(searchQuery)}">
         </div>
-        <button type="button" id="enhancedNewNoteBtn" class="btn btn-primary btn-sm">
-          <i class="fas fa-plus"></i> New Note
-        </button>
-      </div>
-    `);
+      `);
 
-    headerBar.querySelectorAll('.subject-chip').forEach(btn => {
-      btn.addEventListener('click', () => {
-        selectedCategory = btn.dataset.category || 'all';
-        renderNotes();
+      headerBar.querySelectorAll('.subject-chip').forEach(btn => {
+        btn.addEventListener('click', () => {
+          selectedCategory = btn.dataset.category || 'all';
+          renderNotes();
+        });
       });
-    });
 
-    const notesSearchInput = document.getElementById('enhancedNotesSearchInput');
-    if (notesSearchInput) {
-      notesSearchInput.addEventListener('input', (e) => {
-        searchQuery = e.target.value;
-        renderNotes();
-      });
-      if (wasSearchFocused) {
-        notesSearchInput.focus();
-        if (typeof searchSelStart === 'number' && typeof searchSelEnd === 'number') {
-          notesSearchInput.setSelectionRange(searchSelStart, searchSelEnd);
+      const notesSearchInput = document.getElementById('enhancedNotesSearchInput');
+      if (notesSearchInput) {
+        notesSearchInput.addEventListener('input', (e) => {
+          searchQuery = e.target.value;
+          renderNotes();
+        });
+        if (wasSearchFocused) {
+          notesSearchInput.focus();
+          if (typeof searchSelStart === 'number' && typeof searchSelEnd === 'number') {
+            notesSearchInput.setSelectionRange(searchSelStart, searchSelEnd);
+          }
         }
       }
     }
 
-    document.getElementById('enhancedNewNoteBtn')?.addEventListener('click', () => openEditor());
+    const q = searchQuery.trim().toLowerCase();
+    const filtered = notes
+      .filter(n => {
+        const matchesCategory = selectedCategory === 'all' || normalizeCategory(n.category).toLowerCase() === selectedCategory.toLowerCase();
+        const matchesSearch = !q ||
+          (n.title && n.title.toLowerCase().includes(q)) ||
+          (n.content && n.content.toLowerCase().includes(q));
+        return matchesCategory && matchesSearch;
+      })
+      .sort((a, b) => {
+        if (a.pinned && !b.pinned) return -1;
+        if (!a.pinned && b.pinned) return 1;
+        return (b.updatedAt || 0) - (a.updatedAt || 0);
+      });
 
     if (filtered.length === 0) {
       container.innerHTML = sanitizeUiHtml(`
-        <div style="grid-column: 1 / -1; text-align: center; padding: 3rem 1rem; color: var(--fg2, #a1a1aa);">
-          <i class="fas fa-sticky-note" style="font-size: 2.5rem; color: var(--fg3, #71717a); margin-bottom: 12px; display:block;"></i>
-          <p style="font-size: 1rem; margin-bottom: 8px;">No study notes found matching your filters.</p>
-          <button type="button" id="enhancedEmptyCreateNoteBtn" class="btn btn-primary btn-sm">Create Note</button>
+        <div class="study-empty-state">
+          <div class="study-empty-icon"><i class="fas fa-search"></i></div>
+          <h4>No matching notes</h4>
+          <p>Try a different search term or clear your active filters.</p>
+          <div style="display:flex; gap:8px; justify-content:center; flex-wrap:wrap;">
+            <button type="button" id="enhancedClearNoteFiltersBtn" class="btn btn-secondary btn-sm">Clear Filters</button>
+            <button type="button" id="enhancedEmptyCreateNoteBtn" class="btn btn-primary btn-sm"><i class="fas fa-plus"></i> New Note</button>
+          </div>
         </div>
       `);
+      document.getElementById('enhancedClearNoteFiltersBtn')?.addEventListener('click', () => {
+        selectedCategory = 'all';
+        searchQuery = '';
+        renderNotes();
+      });
       document.getElementById('enhancedEmptyCreateNoteBtn')?.addEventListener('click', () => openEditor());
       return;
     }
 
     container.innerHTML = sanitizeUiHtml(filtered.map(note => {
-      const wordCount = note.content ? note.content.trim().split(/\s+/).length : 0;
-      const cleanSnippet = (note.content || '').replace(/[#*`_>]/g, '').trim().substring(0, 130);
+      const words = countWords(note.content);
+      const cleanSnippet = (note.content || '')
+        .replace(/```[\s\S]*?```/g, ' ')
+        .replace(/[#*`_>]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .substring(0, 140);
+      const categoryLabel = normalizeCategory(note.category);
+
       return `
         <div class="note-card ${note.pinned ? 'pinned' : ''}" data-note-id="${escapeHtml(note.id)}">
           <div class="note-card-top">
-            <span class="note-category-tag">${escapeHtml(note.category || 'General')}</span>
-            <div style="display:flex; gap:6px;">
-              <button type="button" class="btn-icon note-pin-btn" title="${note.pinned ? 'Unpin note' : 'Pin note'}">
-                <i class="fas fa-thumbtack" style="${note.pinned ? 'color:var(--accent,#cf6215); transform:rotate(-45deg);' : 'color:var(--fg3,#71717a);'}"></i>
+            <span class="note-category-tag">${escapeHtml(categoryLabel)}</span>
+            <div class="card-icon-actions">
+              <button type="button" class="btn-icon note-pin-btn ${note.pinned ? 'active' : ''}" title="${note.pinned ? 'Unpin note' : 'Pin note'}" aria-label="${note.pinned ? 'Unpin note' : 'Pin note'}">
+                <i class="fas fa-thumbtack" style="${note.pinned ? 'color:var(--accent); transform:rotate(-35deg);' : ''}"></i>
               </button>
-              <button type="button" class="btn-icon delete note-delete-btn" title="Delete note">
+              <button type="button" class="btn-icon note-edit-btn" title="Edit note" aria-label="Edit note">
+                <i class="fas fa-pen"></i>
+              </button>
+              <button type="button" class="btn-icon delete note-delete-btn" title="Delete note" aria-label="Delete note">
                 <i class="fas fa-trash"></i>
               </button>
             </div>
           </div>
 
-          <h4>${escapeHtml(note.title)}</h4>
-          <p>${escapeHtml(cleanSnippet)}${cleanSnippet.length >= 130 ? '...' : ''}</p>
+          <h4 class="note-card-heading">${escapeHtml(note.title)}</h4>
+          <p class="note-card-snippet">${cleanSnippet ? `${escapeHtml(cleanSnippet)}${cleanSnippet.length >= 140 ? '…' : ''}` : '<span style="color:var(--fg3); font-style:italic;">Empty note</span>'}</p>
 
           <div class="note-card-footer">
             <span><i class="fas fa-clock"></i> ${escapeHtml(new Date(note.updatedAt || Date.now()).toLocaleDateString())}</span>
-            <span><i class="fas fa-file-alt"></i> ${wordCount} words</span>
+            <span><i class="fas fa-file-alt"></i> ${words} ${words === 1 ? 'word' : 'words'}</span>
           </div>
         </div>
       `;
@@ -326,6 +491,10 @@
       card.querySelector('.note-pin-btn')?.addEventListener('click', (e) => {
         e.stopPropagation();
         togglePin(noteId);
+      });
+      card.querySelector('.note-edit-btn')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openEditor(noteId);
       });
       card.querySelector('.note-delete-btn')?.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -344,6 +513,26 @@
     }
   }
 
+  function setSelectValueNormalized(selectEl, value) {
+    if (!selectEl) return;
+    const normalized = normalizeCategory(value);
+    const matchingOpt = Array.from(selectEl.options).find(
+      opt => opt.value.toLowerCase() === normalized.toLowerCase()
+    );
+    if (matchingOpt) {
+      selectEl.value = matchingOpt.value;
+    } else {
+      selectEl.value = 'General';
+    }
+  }
+
+  function closeEditor() {
+    const modal = document.getElementById('noteModal');
+    if (modal) modal.classList.remove('active');
+    activeEditingNote = null;
+    isPreviewMode = false;
+  }
+
   function openEditor(noteId = null) {
     loadNotes();
     const modal = document.getElementById('noteModal');
@@ -360,12 +549,13 @@
     if (modalTitle) {
       modalTitle.innerHTML = sanitizeUiHtml(
         activeEditingNote
-          ? '<i class="fas fa-edit"></i> Edit Study Note'
+          ? '<i class="fas fa-pen"></i> Edit Study Note'
           : '<i class="fas fa-sticky-note"></i> Create Study Note'
       );
     }
     if (titleInput) titleInput.value = activeEditingNote ? activeEditingNote.title : '';
-    if (categorySelect) categorySelect.value = activeEditingNote ? (activeEditingNote.category || 'general').toLowerCase() : 'general';
+    setSelectValueNormalized(categorySelect, activeEditingNote ? activeEditingNote.category : 'General');
+
     if (contentTextarea) {
       contentTextarea.value = activeEditingNote ? activeEditingNote.content : '';
       contentTextarea.style.display = 'block';
@@ -373,9 +563,8 @@
     const existingPreviewEl = document.getElementById('noteRenderedPreview');
     if (existingPreviewEl) existingPreviewEl.style.display = 'none';
 
-    // Insert formatting toolbar above content textarea if not already present
     let toolbar = document.getElementById('noteFormatToolbar');
-    if (!toolbar && contentTextarea) {
+    if (!toolbar && contentTextarea && contentTextarea.parentElement) {
       toolbar = document.createElement('div');
       toolbar.id = 'noteFormatToolbar';
       toolbar.className = 'note-toolbar';
@@ -390,22 +579,24 @@
         <button type="button" class="note-tool-btn note-md-btn" data-prefix="- " data-suffix="" title="Bullet List"><i class="fas fa-list-ul"></i></button>
         <button type="button" class="note-tool-btn note-md-btn" data-prefix="1. " data-suffix="" title="Numbered List"><i class="fas fa-list-ol"></i></button>
         <button type="button" class="note-tool-btn note-md-btn" data-prefix="> " data-suffix="" title="Quote"><i class="fas fa-quote-left"></i></button>
-        <button type="button" class="note-tool-btn note-md-btn" data-prefix="\`" data-suffix="\`" title="Code"><i class="fas fa-code"></i></button>
+        <button type="button" class="note-tool-btn note-md-btn" data-prefix="\`" data-suffix="\`" title="Inline Code"><i class="fas fa-code"></i></button>
         <button type="button" class="note-tool-btn" id="notePreviewToggleBtn" style="margin-left:auto; font-weight:700;">
           <i class="fas fa-eye"></i> Preview
         </button>
       `);
       toolbar.querySelectorAll('.note-md-btn').forEach(btn => {
-        btn.addEventListener('click', () => insertMarkdown(btn.dataset.prefix || '', btn.dataset.suffix || ''));
+        btn.addEventListener('click', () => {
+          if (isPreviewMode) togglePreview();
+          insertMarkdown(btn.dataset.prefix || '', btn.dataset.suffix || '');
+        });
       });
       document.getElementById('notePreviewToggleBtn')?.addEventListener('click', togglePreview);
     }
 
-    // Modal Footer with Export & Save
     const modalFooter = modal.querySelector('.modal-footer');
     if (modalFooter) {
       modalFooter.innerHTML = sanitizeUiHtml(`
-        <div style="display:flex; justify-content:space-between; width:100%; align-items:center;">
+        <div style="display:flex; justify-content:space-between; width:100%; align-items:center; flex-wrap:wrap; gap:8px;">
           <div>
             ${activeEditingNote ? `
               <button type="button" id="enhancedExportNoteBtn" class="btn btn-secondary btn-sm">
@@ -421,11 +612,12 @@
       `);
 
       document.getElementById('enhancedExportNoteBtn')?.addEventListener('click', exportNote);
-      document.getElementById('enhancedCancelNoteBtn')?.addEventListener('click', () => modal.classList.remove('active'));
+      document.getElementById('enhancedCancelNoteBtn')?.addEventListener('click', closeEditor);
       document.getElementById('enhancedSaveNoteBtn')?.addEventListener('click', saveActiveNote);
     }
 
     modal.classList.add('active');
+    setTimeout(() => titleInput?.focus(), 60);
   }
 
   function insertMarkdown(prefix, suffix = '') {
@@ -451,7 +643,7 @@
 
     const toggleBtn = document.getElementById('notePreviewToggleBtn');
     if (toggleBtn) {
-      toggleBtn.innerHTML = sanitizeUiHtml(isPreviewMode ? '<i class="fas fa-edit"></i> Edit' : '<i class="fas fa-eye"></i> Preview');
+      toggleBtn.innerHTML = sanitizeUiHtml(isPreviewMode ? '<i class="fas fa-pen"></i> Edit' : '<i class="fas fa-eye"></i> Preview');
     }
 
     if (isPreviewMode) {
@@ -461,12 +653,13 @@
         previewEl.className = 'note-rendered-view';
         textarea.parentElement.appendChild(previewEl);
       }
-      previewEl.innerHTML = sanitizeHtml(renderMarkdown(textarea.value));
+      previewEl.innerHTML = renderMarkdown(textarea.value);
       textarea.style.display = 'none';
       previewEl.style.display = 'block';
     } else {
       if (previewEl) previewEl.style.display = 'none';
       textarea.style.display = 'block';
+      textarea.focus();
     }
   }
 
@@ -474,17 +667,18 @@
     const titleInput = document.getElementById('noteTitle');
     const categorySelect = document.getElementById('noteCategory');
     const contentTextarea = document.getElementById('noteContent');
-    const modal = document.getElementById('noteModal');
 
-    const title = titleInput?.value.trim();
-    const content = contentTextarea?.value.trim();
-    const category = categorySelect?.value || 'general';
+    const title = titleInput ? titleInput.value.trim() : '';
+    const content = contentTextarea ? contentTextarea.value : '';
+    const category = normalizeCategory(categorySelect ? categorySelect.value : 'General');
 
     if (!title) {
       if (window.showNotification) window.showNotification('Please enter a note title.', 'warning');
+      titleInput?.focus();
       return;
     }
 
+    const wasEditing = Boolean(activeEditingNote);
     if (activeEditingNote) {
       activeEditingNote.title = title;
       activeEditingNote.content = content;
@@ -503,67 +697,86 @@
 
     saveNotes();
     renderNotes();
-    modal?.classList.remove('active');
-    if (window.showNotification) window.showNotification('Note saved successfully!', 'success');
+    closeEditor();
+    if (window.showNotification) {
+      window.showNotification(wasEditing ? 'Note updated!' : 'Note created!', 'success');
+    }
   }
 
-  function deleteNote(noteId) {
+  async function deleteNote(noteId) {
     loadNotes();
     const note = notes.find(n => String(n.id) === String(noteId));
     if (!note) return;
 
-    if (window.confirm(`Delete the note "${note.title}"?`)) {
-      notes = notes.filter(n => String(n.id) !== String(noteId));
-      saveNotes();
-      renderNotes();
-      if (window.showNotification) window.showNotification('Note deleted', 'info');
-    }
+    const confirmed = await confirmAction(
+      `Are you sure you want to delete the note "${note.title}"?`,
+      'Delete Note'
+    );
+    if (!confirmed) return;
+
+    notes = notes.filter(n => String(n.id) !== String(noteId));
+    saveNotes();
+    renderNotes();
+    if (window.showNotification) window.showNotification('Note deleted', 'info');
   }
 
   function exportNote() {
     if (!activeEditingNote) return;
-    const blob = new Blob([activeEditingNote.content], { type: 'text/markdown;charset=utf-8' });
+    const title = (document.getElementById('noteTitle')?.value.trim()) || activeEditingNote.title || 'study-note';
+    const content = (document.getElementById('noteContent')?.value) ?? activeEditingNote.content ?? '';
+    const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${activeEditingNote.title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.md`;
+    a.download = `${title.replace(/[^a-z0-9]/gi, '_').toLowerCase() || 'note'}.md`;
     document.body.appendChild(a);
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
   }
 
+  function bindStaticControls() {
+    const createNoteBtn = document.getElementById('createNoteBtn');
+    if (createNoteBtn) createNoteBtn.onclick = () => openEditor();
+
+    const closeNoteBtn = document.getElementById('closeNoteModal');
+    if (closeNoteBtn) closeNoteBtn.onclick = closeEditor;
+
+    const cancelNoteBtn = document.getElementById('cancelNoteBtn');
+    if (cancelNoteBtn) cancelNoteBtn.onclick = closeEditor;
+  }
+
   window.EnhancedNotes = {
     loadNotes,
     saveNotes,
+    getNotes,
     renderNotes,
     openEditor,
+    closeEditor,
     togglePin,
     deleteNote,
     exportNote,
     insertMarkdown,
     togglePreview,
     filterCategory: (cat) => {
-      selectedCategory = cat;
+      selectedCategory = cat || 'all';
       renderNotes();
     },
     setSearch: (query) => {
-      searchQuery = query;
+      searchQuery = query || '';
       renderNotes();
     }
   };
 
-  // Wire into app.js hooks
   window.renderNotes = renderNotes;
   window.editNote = openEditor;
   window.deleteNote = deleteNote;
   window.openNoteModal = openEditor;
 
-  document.getElementById('createNoteBtn')?.addEventListener('click', () => openEditor());
-  document.getElementById('closeNoteModal')?.addEventListener('click', () => {
-    document.getElementById('noteModal')?.classList.remove('active');
-  });
-  document.getElementById('cancelNoteBtn')?.addEventListener('click', () => {
-    document.getElementById('noteModal')?.classList.remove('active');
-  });
+  loadNotes();
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bindStaticControls);
+  } else {
+    bindStaticControls();
+  }
 })();

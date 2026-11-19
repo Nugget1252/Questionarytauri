@@ -1,168 +1,52 @@
 /* ==========================================================================
-   QUESTIONARY ENHANCED FLASHCARDS ENGINE (v2.0)
-   3D Flipping, Spaced Repetition, ICSE Class 10 Decks, Audio TTS, Quiz Mode
+   QUESTIONARY ENHANCED FLASHCARDS ENGINE (v3.0)
+   Single Authoritative Engine: 3D Flip, Spaced Repetition, Shuffle, Quiz Mode
+   Zero pre-seeded sample/test data.
    ========================================================================== */
 
 (function () {
   'use strict';
 
   const STORAGE_KEY = 'questionary-flashcards';
+  const DEMO_PURGE_KEY = 'questionary-demo-decks-purged-v1';
+  const LEGACY_DEMO_IDS = new Set([
+    'icse10_physics_force',
+    'icse10_chem_periodic',
+    'icse10_bio_cell',
+    'icse10_comp_java'
+  ]);
 
-  // High-Yield Pre-loaded ICSE Class 10 Decks
-  const DEFAULT_DECKS = [
-    {
-      id: 'icse10_physics_force',
-      name: 'Physics: Force, Work, Energy & Machines',
-      subject: 'Physics',
-      cards: [
-        {
-          front: 'State the Principle of Moments.',
-          back: 'For an object in equilibrium, the sum of clockwise moments about any point is equal to the sum of anticlockwise moments about the same point.',
-          hint: 'Equilibrium condition',
-          mastery: 0
-        },
-        {
-          front: 'What is the SI unit of Moment of Force?',
-          back: 'Newton-metre (N·m). In CGS: dyne-cm. (1 N·m = 10^7 dyne-cm)',
-          hint: 'Force × Perpendicular distance',
-          mastery: 0
-        },
-        {
-          front: 'Define Mechanical Advantage (M.A.) of a machine.',
-          back: 'The ratio of the load (L) overcome by the machine to the effort (E) applied. M.A. = Load / Effort.',
-          hint: 'Output force / Input force',
-          mastery: 0
-        },
-        {
-          front: 'What is the Velocity Ratio (V.R.) of a single fixed pulley?',
-          back: 'V.R. = 1. (Distance moved by effort = Distance moved by load. It changes the direction of effort to a convenient direction).',
-          hint: 'dE / dL',
-          mastery: 0
-        },
-        {
-          front: 'State the relationship between M.A., V.R. and Efficiency (η).',
-          back: 'Mechanical Advantage = Velocity Ratio × Efficiency (M.A. = V.R. × η). For an ideal machine, η = 1 (100%), so M.A. = V.R.',
-          hint: 'Output work / Input work',
-          mastery: 0
-        },
-        {
-          front: 'State the Work-Energy Theorem.',
-          back: 'The work done on a body by a net force equals the change in its kinetic energy: W = ΔK = ½mv² - ½mu².',
-          hint: 'W = Kf - Ki',
-          mastery: 0
-        },
-        {
-          front: 'Give an example of a Class 2 Lever and state why its M.A. > 1.',
-          back: 'Nutcracker or Wheelbarrow. The load is situated between the fulcrum and effort, so the effort arm is always longer than the load arm (M.A. = Effort Arm / Load Arm > 1).',
-          hint: 'Load in middle',
-          mastery: 0
-        }
-      ],
-      lastStudied: null
-    },
-    {
-      id: 'icse10_chem_periodic',
-      name: 'Chemistry: Periodic Properties & Bonding',
-      subject: 'Chemistry',
-      cards: [
-        {
-          front: 'How does Electronegativity vary across a period from left to right?',
-          back: 'Electronegativity increases across a period due to increased nuclear charge and decreasing atomic radius, attracting shared pairs more strongly.',
-          hint: 'Tendency to attract shared electrons',
-          mastery: 0
-        },
-        {
-          front: 'Define Electron Affinity.',
-          back: 'The amount of energy released when an electron is added to an isolated gaseous atom to form a univalent negative ion (anion). Unit: kJ/mol or eV.',
-          hint: 'Energy released on gaining electron',
-          mastery: 0
-        },
-        {
-          front: 'Which group has the highest ionization potential in any period?',
-          back: 'Group 18 (Noble Gases), because they possess completely filled stable octet or duplet electronic configurations.',
-          hint: 'Inert gases',
-          mastery: 0
-        },
-        {
-          front: 'Define a Coordinate (Dative) Covalent Bond with an example.',
-          back: 'A covalent bond in which both the shared electrons are contributed by only one of the combining atoms. Example: Ammonium ion (NH4+) or Hydronium ion (H3O+).',
-          hint: 'Lone pair donation',
-          mastery: 0
-        },
-        {
-          front: 'Why do electrovalent compounds have high melting and boiling points?',
-          back: 'Because strong electrostatic forces of attraction bind oppositely charged ions tightly in the crystal lattice, requiring high thermal energy to overcome.',
-          hint: 'Ionic lattice attraction',
-          mastery: 0
-        }
-      ],
-      lastStudied: null
-    },
-    {
-      id: 'icse10_bio_cell',
-      name: 'Biology: Cell Cycle, Mitosis & Genetics',
-      subject: 'Biology',
-      cards: [
-        {
-          front: 'Name the four consecutive phases of Karyokinesis in Mitosis.',
-          back: '1. Prophase (Chromatin condenses, spindle forms)\n2. Metaphase (Chromosomes align at equator)\n3. Anaphase (Sister chromatids separate to opposite poles)\n4. Telophase (Nuclear membrane reforms).',
-          hint: 'PMAT',
-          mastery: 0
-        },
-        {
-          front: 'What is the phenotypic and genotypic ratio of a Monohybrid Cross (F2 generation)?',
-          back: 'Phenotypic Ratio = 3 : 1 (Tall : Dwarf)\nGenotypic Ratio = 1 : 2 : 1 (TT : Tt : tt).',
-          hint: 'Mendel tall vs dwarf',
-          mastery: 0
-        },
-        {
-          front: 'State Mendel\'s Law of Segregation.',
-          back: 'The two alleles of a gene pair separate during gamete formation, so that each gamete carries only one allele for each gene.',
-          hint: 'Purity of gametes',
-          mastery: 0
-        },
-        {
-          front: 'What is Crossing Over and in which stage of meiosis does it occur?',
-          back: 'Exchange of genetic material between non-sister chromatids of homologous chromosomes. It occurs during the Pachytene stage of Prophase I in Meiosis.',
-          hint: 'Genetic recombination in gametes',
-          mastery: 0
-        }
-      ],
-      lastStudied: null
-    },
-    {
-      id: 'icse10_comp_java',
-      name: 'Computer Applications: Java OOPs & Arrays',
-      subject: 'Computer Applications',
-      cards: [
-        {
-          front: 'Name the four fundamental pillars of Object-Oriented Programming (OOP).',
-          back: '1. Encapsulation (Data hiding & binding)\n2. Abstraction (Hiding implementation details)\n3. Inheritance (Code reusability)\n4. Polymorphism (Multiple forms: overloading & overriding).',
-          hint: 'EAIP',
-          mastery: 0
-        },
-        {
-          front: 'What is the difference between = and == operators in Java?',
-          back: '\'=\' is the assignment operator (assigns value from right to left).\n\'==\' is the relational equality operator (compares values or object references and returns boolean true/false).',
-          hint: 'Assignment vs comparison',
-          mastery: 0
-        },
-        {
-          front: 'What prerequisite is required before performing Binary Search on an array?',
-          back: 'The array elements must be sorted in either ascending or descending order.',
-          hint: 'Order condition',
-          mastery: 0
-        },
-        {
-          front: 'Explain the function of String.substring(int startIndex, int endIndex).',
-          back: 'Returns a new substring starting from startIndex (inclusive) up to endIndex (exclusive).',
-          hint: 'Include start, exclude end',
-          mastery: 0
-        }
-      ],
-      lastStudied: null
-    }
+  const KNOWN_SUBJECTS = [
+    'General',
+    'Physics',
+    'Chemistry',
+    'Biology',
+    'Mathematics',
+    'Computer Applications',
+    'English',
+    'History',
+    'Geography',
+    'Other'
   ];
+
+  const SUBJECT_ALIASES = {
+    '': 'General',
+    'general': 'General',
+    'physics': 'Physics',
+    'chemistry': 'Chemistry',
+    'biology': 'Biology',
+    'math': 'Mathematics',
+    'maths': 'Mathematics',
+    'mathematics': 'Mathematics',
+    'computer': 'Computer Applications',
+    'computers': 'Computer Applications',
+    'computer science': 'Computer Applications',
+    'computer applications': 'Computer Applications',
+    'english': 'English',
+    'history': 'History',
+    'geography': 'Geography',
+    'other': 'Other'
+  };
 
   let decks = [];
   let currentActiveDeck = null;
@@ -172,6 +56,19 @@
   let isCardFlipped = false;
   let selectedSubjectFilter = 'all';
   let _cardResetRaf = null;
+  let _quizAdvanceTimer = null;
+
+  function normalizeSubject(raw) {
+    const cleaned = String(raw || '').trim();
+    if (!cleaned) return 'General';
+    const lower = cleaned.toLowerCase();
+    if (Object.prototype.hasOwnProperty.call(SUBJECT_ALIASES, lower)) {
+      return SUBJECT_ALIASES[lower];
+    }
+    const knownMatch = KNOWN_SUBJECTS.find(s => s.toLowerCase() === lower);
+    if (knownMatch) return knownMatch;
+    return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+  }
 
   function shuffleCardList(cards) {
     const arr = Array.isArray(cards) ? [...cards] : [];
@@ -187,18 +84,70 @@
   }
 
   function loadDecks() {
+    let parsed = [];
+    let modified = false;
+
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          decks = parsed;
-          return;
+        const raw = JSON.parse(saved);
+        if (Array.isArray(raw)) {
+          parsed = raw;
         }
       }
+    } catch (e) {
+      parsed = [];
+    }
+
+    // One-time cleanup: remove only the old pre-seeded sample decks while keeping all user-created decks
+    try {
+      if (!localStorage.getItem(DEMO_PURGE_KEY)) {
+        const beforeCount = parsed.length;
+        parsed = parsed.filter(d => d && !LEGACY_DEMO_IDS.has(String(d.id)));
+        if (parsed.length !== beforeCount) {
+          modified = true;
+        }
+        localStorage.setItem(DEMO_PURGE_KEY, '1');
+      }
     } catch (e) {}
-    decks = JSON.parse(JSON.stringify(DEFAULT_DECKS));
-    saveDecks();
+
+    // Normalize deck shape cleanly
+    decks = parsed
+      .filter(d => d && typeof d === 'object')
+      .map((deck, idx) => {
+        const id = deck.id ? String(deck.id) : `deck_${Date.now()}_${idx}`;
+        const name = String(deck.name || 'Untitled Deck').trim() || 'Untitled Deck';
+        const subject = normalizeSubject(deck.subject);
+        const cards = Array.isArray(deck.cards)
+          ? deck.cards
+              .filter(c => c && typeof c === 'object' && (c.front || c.back))
+              .map(c => ({
+                front: String(c.front || '').trim(),
+                back: String(c.back || '').trim(),
+                hint: String(c.hint || '').trim(),
+                mastery: Math.max(0, Math.min(3, Number(c.mastery) || 0))
+              }))
+          : [];
+
+        if (deck.id !== id || deck.subject !== subject || !Array.isArray(deck.cards)) {
+          modified = true;
+        }
+
+        return {
+          id,
+          name,
+          subject,
+          cards,
+          lastStudied: deck.lastStudied || null,
+          createdAt: deck.createdAt || Date.now()
+        };
+      });
+
+    window.flashcardDecks = decks;
+    if (modified) {
+      saveDecks();
+    }
+    return decks;
   }
 
   function saveDecks() {
@@ -206,6 +155,10 @@
       localStorage.setItem(STORAGE_KEY, JSON.stringify(decks));
       window.flashcardDecks = decks;
     } catch (e) {}
+  }
+
+  function getDecks() {
+    return loadDecks();
   }
 
   function escapeHtml(text) {
@@ -218,85 +171,169 @@
       .replace(/'/g, '&#39;');
   }
 
-  // Calculate mastery percentage for a deck
   function calculateMastery(deck) {
-    if (!deck.cards || deck.cards.length === 0) return 0;
-    const totalMastery = deck.cards.reduce((sum, c) => sum + (c.mastery || 0), 0);
-    const maxPossible = deck.cards.length * 3; // 0 to 3 scale
+    if (!deck || !Array.isArray(deck.cards) || deck.cards.length === 0) return 0;
+    const totalMastery = deck.cards.reduce((sum, c) => sum + (Number(c.mastery) || 0), 0);
+    const maxPossible = deck.cards.length * 3;
     return Math.round((totalMastery / maxPossible) * 100);
   }
 
-  // Render Flashcard Decks in the main view
+  function speakText(text) {
+    if (!text) return;
+    if (window.AccessibilityManager && typeof window.AccessibilityManager.speak === 'function') {
+      window.AccessibilityManager.speak(text);
+      return;
+    }
+    if ('speechSynthesis' in window) {
+      try {
+        window.speechSynthesis.cancel();
+        const utter = new SpeechSynthesisUtterance(text);
+        window.speechSynthesis.speak(utter);
+      } catch (e) {}
+    }
+  }
+
+  async function confirmAction(message, title) {
+    if (typeof window.showConfirm === 'function') {
+      return await window.showConfirm(message, {
+        title: title || 'Confirm',
+        type: 'danger',
+        confirmText: 'Delete'
+      });
+    }
+    return true;
+  }
+
   function renderDecks() {
     loadDecks();
     const container = document.getElementById('flashcardsGrid');
     if (!container) return;
 
-    // Filter by subject
-    let filtered = decks;
-    if (selectedSubjectFilter !== 'all') {
-      filtered = decks.filter(d => (d.subject || '').toLowerCase() === selectedSubjectFilter.toLowerCase());
+    // Update export button disabled state in section header
+    const exportBtn = document.getElementById('exportDecksBtn');
+    if (exportBtn) {
+      exportBtn.disabled = decks.length === 0;
+      exportBtn.style.opacity = decks.length === 0 ? '0.5' : '';
     }
 
-    // Render header toolbar if not present
+    // Build / manage filter bar (only shown when there are decks)
     let headerBar = document.getElementById('flashcardsHeaderBar');
-    if (!headerBar) {
+    if (!headerBar && container.parentElement) {
       headerBar = document.createElement('div');
       headerBar.id = 'flashcardsHeaderBar';
       headerBar.className = 'flashcards-header-bar';
       container.parentElement.insertBefore(headerBar, container);
     }
 
-    const subjects = ['All', 'Physics', 'Chemistry', 'Biology', 'Computer Applications', 'Mathematics'];
-    headerBar.innerHTML = `
-      <div class="flashcards-filters">
-        ${subjects.map(s => `
-          <button type="button" class="subject-chip ${selectedSubjectFilter.toLowerCase() === s.toLowerCase() ? 'active' : ''}" 
-                  onclick="window.EnhancedFlashcards.filterSubject('${s.toLowerCase()}')">
-            ${s}
+    if (decks.length === 0) {
+      selectedSubjectFilter = 'all';
+      if (headerBar) {
+        headerBar.style.display = 'none';
+        headerBar.innerHTML = '';
+      }
+      container.innerHTML = `
+        <div class="study-empty-state">
+          <div class="study-empty-icon"><i class="fas fa-layer-group"></i></div>
+          <h4>No flashcard decks yet</h4>
+          <p>Create your first deck to start studying with 3D flip cards, spaced repetition, shuffle, and quiz mode.</p>
+          <button type="button" class="btn btn-primary btn-sm ef-empty-create-btn">
+            <i class="fas fa-plus"></i> Create Your First Deck
           </button>
-        `).join('')}
-      </div>
-      <div style="display:flex; gap:8px;">
-        <button type="button" class="btn btn-secondary btn-sm" onclick="window.EnhancedFlashcards.exportDecks()" title="Export Decks Backup">
-          <i class="fas fa-file-export"></i> Export
-        </button>
-        <button type="button" class="btn btn-primary btn-sm" onclick="window.EnhancedFlashcards.openEditor()" title="Create New Deck">
-          <i class="fas fa-plus"></i> New Deck
-        </button>
-      </div>
-    `;
+        </div>
+      `;
+      container.querySelector('.ef-empty-create-btn')?.addEventListener('click', () => openEditor());
+      return;
+    }
+
+    // Collect distinct active subjects in stable order
+    const activeSubjects = [];
+    const seenSubjects = new Set();
+    decks.forEach(d => {
+      const subj = normalizeSubject(d.subject);
+      const key = subj.toLowerCase();
+      if (!seenSubjects.has(key)) {
+        seenSubjects.add(key);
+        activeSubjects.push(subj);
+      }
+    });
+
+    if (selectedSubjectFilter !== 'all' && !seenSubjects.has(selectedSubjectFilter.toLowerCase())) {
+      selectedSubjectFilter = 'all';
+    }
+
+    if (headerBar) {
+      if (activeSubjects.length > 1) {
+        headerBar.style.display = 'flex';
+        const chips = ['All', ...activeSubjects];
+        headerBar.innerHTML = `
+          <div class="flashcards-filters">
+            ${chips.map(s => {
+              const val = s.toLowerCase();
+              const isActive = selectedSubjectFilter.toLowerCase() === val;
+              return `
+                <button type="button" class="subject-chip ${isActive ? 'active' : ''}" data-subject="${escapeHtml(val)}">
+                  ${escapeHtml(s)}
+                </button>
+              `;
+            }).join('')}
+          </div>
+        `;
+        headerBar.querySelectorAll('.subject-chip').forEach(btn => {
+          btn.addEventListener('click', () => {
+            selectedSubjectFilter = btn.dataset.subject || 'all';
+            renderDecks();
+          });
+        });
+      } else {
+        headerBar.style.display = 'none';
+        headerBar.innerHTML = '';
+      }
+    }
+
+    const filtered = selectedSubjectFilter === 'all'
+      ? decks
+      : decks.filter(d => normalizeSubject(d.subject).toLowerCase() === selectedSubjectFilter.toLowerCase());
 
     if (filtered.length === 0) {
       container.innerHTML = `
-        <div style="grid-column: 1 / -1; text-align: center; padding: 3rem 1rem; color: var(--fg2, #a1a1aa);">
-          <i class="fas fa-layer-group" style="font-size: 2.5rem; color: var(--fg3, #71717a); margin-bottom: 12px; display:block;"></i>
-          <p style="font-size: 1rem; margin-bottom: 8px;">No flashcard decks found in this category.</p>
-          <button class="btn btn-primary btn-sm" onclick="window.EnhancedFlashcards.openEditor()">Create Deck</button>
+        <div class="study-empty-state">
+          <div class="study-empty-icon"><i class="fas fa-filter"></i></div>
+          <h4>No decks in this subject</h4>
+          <p>Switch back to all decks or create a new deck for this subject.</p>
+          <div style="display:flex; gap:8px; justify-content:center; flex-wrap:wrap;">
+            <button type="button" class="btn btn-secondary btn-sm ef-reset-filter-btn">Show All Decks</button>
+            <button type="button" class="btn btn-primary btn-sm ef-empty-create-btn"><i class="fas fa-plus"></i> New Deck</button>
+          </div>
         </div>
       `;
+      container.querySelector('.ef-reset-filter-btn')?.addEventListener('click', () => {
+        selectedSubjectFilter = 'all';
+        renderDecks();
+      });
+      container.querySelector('.ef-empty-create-btn')?.addEventListener('click', () => openEditor());
       return;
     }
 
     container.innerHTML = filtered.map(deck => {
       const masteryPct = calculateMastery(deck);
       const cardCount = deck.cards ? deck.cards.length : 0;
+      const subjectLabel = normalizeSubject(deck.subject);
       return `
         <div class="deck-card" data-deck-id="${escapeHtml(deck.id)}">
           <div class="deck-badge-row">
-            <span class="deck-subject-badge">${escapeHtml(deck.subject || 'General')}</span>
-            <div style="display: flex; gap: 6px;">
-              <button type="button" class="btn-icon ef-edit-deck" title="Edit Deck">
-                <i class="fas fa-edit"></i>
+            <span class="deck-subject-badge">${escapeHtml(subjectLabel)}</span>
+            <div class="card-icon-actions">
+              <button type="button" class="btn-icon ef-edit-deck" title="Edit Deck" aria-label="Edit Deck">
+                <i class="fas fa-pen"></i>
               </button>
-              <button type="button" class="btn-icon delete ef-delete-deck" title="Delete Deck">
+              <button type="button" class="btn-icon delete ef-delete-deck" title="Delete Deck" aria-label="Delete Deck">
                 <i class="fas fa-trash"></i>
               </button>
             </div>
           </div>
 
-          <h4 style="margin: 4px 0 8px 0; font-size: 1.05rem; font-weight: 700; color: var(--fg, #f4f4f5);">${escapeHtml(deck.name)}</h4>
-          <p style="font-size: 0.78rem; color: var(--fg3, #71717a); margin: 0 0 10px 0;">${cardCount} ${cardCount === 1 ? 'flashcard' : 'flashcards'}</p>
+          <h4 class="deck-card-heading">${escapeHtml(deck.name)}</h4>
+          <p class="deck-card-meta">${cardCount} ${cardCount === 1 ? 'flashcard' : 'flashcards'}</p>
 
           <div class="deck-mastery-container">
             <div class="deck-mastery-label">
@@ -308,14 +345,14 @@
             </div>
           </div>
 
-          <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-top: auto; padding-top: 10px;">
-            <button type="button" class="btn btn-primary btn-sm ef-study-deck" style="flex: 1;">
+          <div class="deck-card-footer-actions">
+            <button type="button" class="btn btn-primary btn-sm ef-study-deck">
               <i class="fas fa-play"></i> Study
             </button>
             <button type="button" class="btn btn-secondary btn-sm ef-shuffle-deck" title="Shuffle & Study in Random Order">
               <i class="fas fa-random"></i> Shuffle
             </button>
-            <button type="button" class="btn btn-secondary btn-sm ef-quiz-deck" style="flex: 1;">
+            <button type="button" class="btn btn-secondary btn-sm ef-quiz-deck">
               <i class="fas fa-question-circle"></i> Quiz
             </button>
           </div>
@@ -339,12 +376,14 @@
     });
   }
 
-  // Open 3D Study Session Modal
+  // ================================================================
+  // 3D STUDY SESSION MODAL (with zero-answer-flash & Shuffle)
+  // ================================================================
   function startStudy(deckId, options = {}) {
     loadDecks();
     const deck = decks.find(d => String(d.id) === String(deckId));
     if (!deck || !deck.cards || deck.cards.length === 0) {
-      if (window.showNotification) window.showNotification('This deck has no cards to study.', 'warning');
+      if (window.showNotification) window.showNotification('This deck has no cards to study. Click Edit to add cards.', 'warning');
       return;
     }
 
@@ -396,71 +435,83 @@
 
     const modalBody = modal.querySelector('.modal-body');
     const modalHeader = modal.querySelector('.modal-header');
+    const modalFooter = modal.querySelector('.modal-footer');
 
     if (modalHeader) {
       modalHeader.innerHTML = `
         <h3><i class="fas fa-graduation-cap"></i> ${escapeHtml(currentActiveDeck.name)}</h3>
         <div style="display:flex; align-items:center; gap:12px;">
-          <span style="font-size:0.8rem; font-weight:700; color:var(--accent, #cf6215);">Card ${currentCardIndex + 1} of ${total}${isShuffled ? ' · Shuffled' : ''}</span>
-          <button class="modal-close" onclick="window.EnhancedFlashcards.closeStudy()"><i class="fas fa-times"></i></button>
+          <span style="font-size:0.8rem; font-weight:700; color:var(--accent);">Card ${currentCardIndex + 1} of ${total}${isShuffled ? ' · Shuffled' : ''}</span>
+          <button type="button" class="modal-close ef-study-close-btn" aria-label="Close"><i class="fas fa-times"></i></button>
         </div>
       `;
+      modalHeader.querySelector('.ef-study-close-btn')?.addEventListener('click', closeStudy);
     }
 
-    modalBody.innerHTML = `
-      <div style="width: 100%; max-width: 580px; margin: 0 auto;">
-        <!-- Progress Bar -->
-        <div style="height: 6px; background: var(--bg, #111113); border-radius: 3px; overflow: hidden; margin-bottom: 1rem;">
-          <div style="height: 100%; width: ${((currentCardIndex + 1) / total) * 100}%; background: var(--accent, #cf6215); transition: width 0.25s;"></div>
-        </div>
+    if (modalBody) {
+      modalBody.innerHTML = `
+        <div style="width: 100%; max-width: 580px; margin: 0 auto;">
+          <div style="height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; margin-bottom: 1rem;">
+            <div style="height: 100%; width: ${((currentCardIndex + 1) / total) * 100}%; background: var(--accent); transition: width 0.25s;"></div>
+          </div>
 
-        <!-- 3D Flip Card -->
-        <div class="flashcard-3d-wrapper" onclick="window.EnhancedFlashcards.flipCard()">
-          <div class="flashcard-3d-card no-transition ${isCardFlipped ? 'flipped' : ''}" id="flashcard3dCard">
-            <!-- Front Face -->
-            <div class="flashcard-face front">
-              <span class="card-tag-pill">Question</span>
-              <button class="card-tts-btn" onclick="event.stopPropagation(); window.EnhancedFlashcards.speakFront()" title="Read aloud">
-                <i class="fas fa-volume-up"></i>
-              </button>
-              <div class="card-content-text">${escapeHtml(card.front)}</div>
-              ${card.hint ? `<div style="font-size:0.75rem; color:var(--fg3,#71717a); margin-top:8px;"><i class="fas fa-lightbulb"></i> Hint: ${escapeHtml(card.hint)}</div>` : ''}
-              <div class="card-flip-prompt"><i class="fas fa-sync-alt"></i> Click card or press Space to reveal answer</div>
-            </div>
+          <div class="flashcard-3d-wrapper" id="flashcard3dWrapper">
+            <div class="flashcard-3d-card no-transition ${isCardFlipped ? 'flipped' : ''}" id="flashcard3dCard">
+              <div class="flashcard-face front">
+                <span class="card-tag-pill">Question</span>
+                <button type="button" class="card-tts-btn ef-speak-front" title="Read aloud" aria-label="Read question aloud">
+                  <i class="fas fa-volume-up"></i>
+                </button>
+                <div class="card-content-text" style="white-space:pre-line;">${escapeHtml(card.front)}</div>
+                ${card.hint ? `<div style="font-size:0.78rem; color:var(--fg3); margin-top:8px;"><i class="fas fa-lightbulb"></i> Hint: ${escapeHtml(card.hint)}</div>` : ''}
+                <div class="card-flip-prompt"><i class="fas fa-sync-alt"></i> Click card or press Space to reveal answer</div>
+              </div>
 
-            <!-- Back Face -->
-            <div class="flashcard-face back">
-              <span class="card-tag-pill" style="color:#10b981; background:rgba(16,185,129,0.12);">Answer</span>
-              <button class="card-tts-btn" onclick="event.stopPropagation(); window.EnhancedFlashcards.speakBack()" title="Read aloud">
-                <i class="fas fa-volume-up"></i>
-              </button>
-              <div class="card-content-text" style="white-space:pre-line;">${escapeHtml(card.back)}</div>
-              <div class="card-flip-prompt"><i class="fas fa-sync-alt"></i> Click card to flip back</div>
+              <div class="flashcard-face back">
+                <span class="card-tag-pill" style="color:#10b981; background:rgba(16,185,129,0.12);">Answer</span>
+                <button type="button" class="card-tts-btn ef-speak-back" title="Read aloud" aria-label="Read answer aloud">
+                  <i class="fas fa-volume-up"></i>
+                </button>
+                <div class="card-content-text" style="white-space:pre-line;">${escapeHtml(card.back)}</div>
+                <div class="card-flip-prompt"><i class="fas fa-sync-alt"></i> Click card to flip back</div>
+              </div>
             </div>
           </div>
-        </div>
 
-        <!-- Spaced Repetition Buttons -->
-        <div class="study-rating-grid">
-          <button type="button" class="rating-btn again" onclick="window.EnhancedFlashcards.rateCard(0)">
-            <span class="label">Again (1)</span>
-            <span class="sub">Needs Review</span>
-          </button>
-          <button type="button" class="rating-btn hard" onclick="window.EnhancedFlashcards.rateCard(1)">
-            <span class="label">Hard (2)</span>
-            <span class="sub">Struggled</span>
-          </button>
-          <button type="button" class="rating-btn good" onclick="window.EnhancedFlashcards.rateCard(2)">
-            <span class="label">Good (3)</span>
-            <span class="sub">Recalled</span>
-          </button>
-          <button type="button" class="rating-btn easy" onclick="window.EnhancedFlashcards.rateCard(3)">
-            <span class="label">Easy (4)</span>
-            <span class="sub">Mastered</span>
-          </button>
+          <div class="study-rating-grid">
+            <button type="button" class="rating-btn again" data-rating="0">
+              <span class="label">Again (1)</span>
+              <span class="sub">Needs Review</span>
+            </button>
+            <button type="button" class="rating-btn hard" data-rating="1">
+              <span class="label">Hard (2)</span>
+              <span class="sub">Struggled</span>
+            </button>
+            <button type="button" class="rating-btn good" data-rating="2">
+              <span class="label">Good (3)</span>
+              <span class="sub">Recalled</span>
+            </button>
+            <button type="button" class="rating-btn easy" data-rating="3">
+              <span class="label">Easy (4)</span>
+              <span class="sub">Mastered</span>
+            </button>
+          </div>
         </div>
-      </div>
-    `;
+      `;
+
+      modalBody.querySelector('#flashcard3dWrapper')?.addEventListener('click', flipCard);
+      modalBody.querySelector('.ef-speak-front')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        speakFront();
+      });
+      modalBody.querySelector('.ef-speak-back')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        speakBack();
+      });
+      modalBody.querySelectorAll('.rating-btn').forEach(btn => {
+        btn.addEventListener('click', () => rateCard(Number(btn.dataset.rating)));
+      });
+    }
 
     const cardEl = document.getElementById('flashcard3dCard');
     if (cardEl) {
@@ -473,27 +524,29 @@
       });
     }
 
-    // Modal Footer with navigation & shuffle
-    const modalFooter = modal.querySelector('.modal-footer');
     if (modalFooter) {
       modalFooter.innerHTML = `
         <div style="display:flex; justify-content:space-between; width:100%; align-items:center; flex-wrap:wrap; gap:8px;">
-          <button type="button" class="btn btn-secondary btn-sm" onclick="window.EnhancedFlashcards.prevCard()" ${currentCardIndex === 0 ? 'disabled' : ''}>
+          <button type="button" class="btn btn-secondary btn-sm ef-prev-btn" ${currentCardIndex === 0 ? 'disabled' : ''}>
             <i class="fas fa-arrow-left"></i> Previous
           </button>
           <div style="display:flex; align-items:center; gap:8px;">
-            <button type="button" class="btn btn-primary btn-sm" onclick="window.EnhancedFlashcards.flipCard()">
-              <i class="fas fa-sync-alt"></i> Flip Card (Space)
+            <button type="button" class="btn btn-primary btn-sm ef-flip-btn">
+              <i class="fas fa-sync-alt"></i> Flip Card
             </button>
-            <button type="button" class="btn btn-secondary btn-sm ef-shuffle-btn ${isShuffled ? 'active' : ''}" onclick="window.EnhancedFlashcards.shuffleDeck()" ${total < 2 ? 'disabled' : ''} title="Shuffle cards in this deck (S)">
+            <button type="button" class="btn btn-secondary btn-sm ef-shuffle-btn ${isShuffled ? 'active' : ''}" ${total < 2 ? 'disabled' : ''} title="Shuffle cards in this deck (S)">
               <i class="fas fa-random"></i> Shuffle
             </button>
           </div>
-          <button type="button" class="btn btn-secondary btn-sm" onclick="window.EnhancedFlashcards.nextCard()">
-            Next <i class="fas fa-arrow-right"></i>
+          <button type="button" class="btn btn-secondary btn-sm ef-next-btn">
+            ${currentCardIndex === total - 1 ? 'Finish' : 'Next'} <i class="fas fa-arrow-right"></i>
           </button>
         </div>
       `;
+      modalFooter.querySelector('.ef-prev-btn')?.addEventListener('click', prevCard);
+      modalFooter.querySelector('.ef-flip-btn')?.addEventListener('click', flipCard);
+      modalFooter.querySelector('.ef-shuffle-btn')?.addEventListener('click', shuffleDeck);
+      modalFooter.querySelector('.ef-next-btn')?.addEventListener('click', nextCard);
     }
   }
 
@@ -528,21 +581,19 @@
 
   function rateCard(ratingLevel) {
     if (!currentActiveDeck || !studyCards[currentCardIndex]) return;
-    studyCards[currentCardIndex].mastery = ratingLevel;
+    studyCards[currentCardIndex].mastery = Math.max(0, Math.min(3, Number(ratingLevel) || 0));
     saveDecks();
     nextCard();
   }
 
   function speakFront() {
     if (!currentActiveDeck) return;
-    const text = studyCards[currentCardIndex]?.front;
-    if (text && window.AccessibilityManager) window.AccessibilityManager.speak(text);
+    speakText(studyCards[currentCardIndex]?.front);
   }
 
   function speakBack() {
     if (!currentActiveDeck) return;
-    const text = studyCards[currentCardIndex]?.back;
-    if (text && window.AccessibilityManager) window.AccessibilityManager.speak(text);
+    speakText(studyCards[currentCardIndex]?.back);
   }
 
   function showCompletionScreen() {
@@ -552,36 +603,41 @@
     const masteryPct = calculateMastery(currentActiveDeck);
     const modalBody = modal.querySelector('.modal-body');
     const modalFooter = modal.querySelector('.modal-footer');
+    const finishedDeckId = currentActiveDeck.id;
+    const cardCount = currentActiveDeck.cards.length;
 
-    modalBody.innerHTML = `
-      <div style="text-align: center; padding: 2rem 1rem;">
-        <div style="width: 72px; height: 72px; border-radius: 50%; background: rgba(16,185,129,0.15); color: #10b981; display:flex; align-items:center; justify-content:center; font-size:2.2rem; margin:0 auto 1.2rem auto;">
-          <i class="fas fa-check-circle"></i>
-        </div>
-        <h3 style="margin: 0 0 8px 0; color: var(--fg, #f4f4f5);">Deck Complete!</h3>
-        <p style="font-size: 0.9rem; color: var(--fg2, #a1a1aa); margin-bottom: 1.5rem;">
-          Great job! You reviewed all ${currentActiveDeck.cards.length} cards in <strong>${escapeHtml(currentActiveDeck.name)}</strong>.
-        </p>
-        <div style="max-width: 300px; margin: 0 auto 1.5rem auto; background: var(--bg, #111113); border: 1px solid var(--line, #2e3035); border-radius: 12px; padding: 12px 18px;">
-          <div style="display:flex; justify-content:space-between; font-size:0.85rem; margin-bottom:6px;">
-            <span>Deck Mastery</span>
-            <span style="font-weight:700; color:var(--accent, #cf6215);">${masteryPct}%</span>
+    if (modalBody) {
+      modalBody.innerHTML = `
+        <div style="text-align: center; padding: 2rem 1rem;">
+          <div style="width: 72px; height: 72px; border-radius: 50%; background: rgba(16,185,129,0.15); color: #10b981; display:flex; align-items:center; justify-content:center; font-size:2.2rem; margin:0 auto 1.2rem auto;">
+            <i class="fas fa-check-circle"></i>
           </div>
-          <div class="deck-mastery-bar">
-            <div class="deck-mastery-fill" style="width: ${masteryPct}%;"></div>
+          <h3 style="margin: 0 0 8px 0; color: var(--fg);">Deck Complete!</h3>
+          <p style="font-size: 0.9rem; color: var(--fg2); margin-bottom: 1.5rem;">
+            You reviewed all ${cardCount} ${cardCount === 1 ? 'card' : 'cards'} in <strong>${escapeHtml(currentActiveDeck.name)}</strong>.
+          </p>
+          <div style="max-width: 300px; margin: 0 auto 1.5rem auto; background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 12px 18px;">
+            <div style="display:flex; justify-content:space-between; font-size:0.85rem; margin-bottom:6px; color: var(--fg);">
+              <span>Deck Mastery</span>
+              <span style="font-weight:700; color:var(--accent);">${masteryPct}%</span>
+            </div>
+            <div class="deck-mastery-bar">
+              <div class="deck-mastery-fill" style="width: ${masteryPct}%;"></div>
+            </div>
           </div>
         </div>
-      </div>
-    `;
+      `;
+    }
 
     if (modalFooter) {
-      const finishedDeckId = currentActiveDeck.id;
       modalFooter.innerHTML = `
         <div style="display:flex; gap:10px; width:100%; justify-content:center; flex-wrap:wrap;">
           <button type="button" class="btn btn-secondary ef-finish-close">Close</button>
-          <button type="button" class="btn btn-secondary ef-finish-shuffle">
-            <i class="fas fa-random"></i> Shuffle & Review
-          </button>
+          ${cardCount > 1 ? `
+            <button type="button" class="btn btn-secondary ef-finish-shuffle">
+              <i class="fas fa-random"></i> Shuffle &amp; Review
+            </button>
+          ` : ''}
           <button type="button" class="btn btn-primary ef-finish-retry">
             <i class="fas fa-redo"></i> Review Again
           </button>
@@ -596,15 +652,40 @@
   }
 
   function closeStudy() {
+    if (_cardResetRaf !== null) {
+      cancelAnimationFrame(_cardResetRaf);
+      _cardResetRaf = null;
+    }
     const modal = document.getElementById('studyModal');
     if (modal) modal.classList.remove('active');
     currentActiveDeck = null;
     studyCards = [];
     isShuffled = false;
+    isCardFlipped = false;
     renderDecks();
   }
 
-  // Quiz Mode
+  // ================================================================
+  // QUIZ MODE
+  // ================================================================
+  function clearQuizTimer() {
+    if (_quizAdvanceTimer !== null) {
+      clearTimeout(_quizAdvanceTimer);
+      _quizAdvanceTimer = null;
+    }
+  }
+
+  function closeQuiz() {
+    clearQuizTimer();
+    const modal = document.getElementById('quizModal');
+    if (modal) modal.classList.remove('active');
+    const footer = document.getElementById('quizModalFooter') || modal?.querySelector('.modal-footer');
+    if (footer) {
+      footer.innerHTML = '';
+      footer.style.display = 'none';
+    }
+  }
+
   function startQuiz(deckId) {
     loadDecks();
     const deck = decks.find(d => String(d.id) === String(deckId));
@@ -613,104 +694,203 @@
       return;
     }
 
+    clearQuizTimer();
     const modal = document.getElementById('quizModal');
     if (!modal) return;
 
+    const modalTitle = document.getElementById('quizModalTitle') || modal.querySelector('.modal-header h3');
+    const modalBody = document.getElementById('quizContent') || modal.querySelector('.modal-body');
+    const modalFooter = document.getElementById('quizModalFooter') || modal.querySelector('.modal-footer');
+
     let quizIndex = 0;
     let score = 0;
-    const questions = [...deck.cards].sort(() => 0.5 - Math.random());
+    const questions = shuffleCardList(deck.cards);
 
     function renderQuizQuestion() {
+      if (!modal.classList.contains('active') && quizIndex > 0) return;
+
       if (quizIndex >= questions.length) {
-        // Quiz completed
-        modal.querySelector('.modal-body').innerHTML = `
-          <div style="text-align: center; padding: 2rem 1rem;">
-            <i class="fas fa-trophy" style="font-size: 3rem; color: #f59e0b; margin-bottom: 1rem;"></i>
-            <h3 style="color:var(--fg, #f4f4f5);">Quiz Completed!</h3>
-            <p style="font-size:1.1rem; color:var(--fg2, #a1a1aa); margin-top:8px;">
-              You scored <strong>${score}</strong> out of <strong>${questions.length}</strong>!
-            </p>
-          </div>
-        `;
-        modal.querySelector('.modal-footer').innerHTML = `
-          <button class="btn btn-primary" onclick="document.getElementById('quizModal').classList.remove('active')">Done</button>
-        `;
+        const pct = Math.round((score / questions.length) * 100);
+        if (modalTitle) {
+          modalTitle.innerHTML = `<i class="fas fa-trophy"></i> Quiz Results`;
+        }
+        if (modalBody) {
+          modalBody.innerHTML = `
+            <div style="text-align: center; padding: 2rem 1rem;">
+              <i class="fas fa-trophy" style="font-size: 3rem; color: #f59e0b; margin-bottom: 1rem; display:block;"></i>
+              <h3 style="color:var(--fg); margin:0 0 8px 0;">Quiz Completed!</h3>
+              <p style="font-size:1.05rem; color:var(--fg2); margin:0;">
+                You scored <strong>${score}</strong> out of <strong>${questions.length}</strong> (${pct}%)
+              </p>
+            </div>
+          `;
+        }
+        if (modalFooter) {
+          modalFooter.style.display = 'flex';
+          modalFooter.innerHTML = `
+            <button type="button" class="btn btn-secondary ef-quiz-retake"><i class="fas fa-redo"></i> Retake Quiz</button>
+            <button type="button" class="btn btn-primary ef-quiz-done">Done</button>
+          `;
+          modalFooter.querySelector('.ef-quiz-retake')?.addEventListener('click', () => startQuiz(deck.id));
+          modalFooter.querySelector('.ef-quiz-done')?.addEventListener('click', closeQuiz);
+        }
         return;
       }
 
+      if (modalFooter) {
+        modalFooter.style.display = 'none';
+        modalFooter.innerHTML = '';
+      }
+
       const q = questions[quizIndex];
-      // Generate 3 distractors
-      const otherAnswers = deck.cards.filter(c => c.back !== q.back).map(c => c.back);
-      const distractors = otherAnswers.sort(() => 0.5 - Math.random()).slice(0, 3);
-      const choices = [q.back, ...distractors].sort(() => 0.5 - Math.random());
+      const uniqueOtherAnswers = Array.from(
+        new Set(deck.cards.map(c => c.back).filter(ans => ans && ans !== q.back))
+      );
+      const distractors = shuffleCardList(uniqueOtherAnswers).slice(0, 3);
+      const choices = shuffleCardList([q.back, ...distractors]);
 
-      modal.querySelector('.modal-header h3').innerHTML = `<i class="fas fa-question-circle"></i> Quiz: Question ${quizIndex + 1} of ${questions.length}`;
-      modal.querySelector('.modal-body').innerHTML = `
-        <div style="max-width: 520px; margin: 0 auto;">
-          <h4 style="font-size: 1.15rem; color: var(--fg, #f4f4f5); margin-bottom: 1.5rem; text-align: center;">${escapeHtml(q.front)}</h4>
-          <div style="display: flex; flex-direction: column; gap: 10px;">
-            ${choices.map((choice, i) => `
-              <button type="button" class="btn btn-secondary quiz-opt-btn" style="text-align: left; padding: 12px 16px; font-size: 0.88rem; justify-content: flex-start; line-height: 1.4;"
-                      data-ans="${escapeHtml(choice)}">
-                <strong style="margin-right: 8px; color: var(--accent, #cf6215);">${String.fromCharCode(65 + i)}.</strong>
-                <span>${escapeHtml(choice)}</span>
-              </button>
-            `).join('')}
+      if (modalTitle) {
+        modalTitle.innerHTML = `<i class="fas fa-question-circle"></i> Quiz: Question ${quizIndex + 1} of ${questions.length}`;
+      }
+      if (modalBody) {
+        modalBody.innerHTML = `
+          <div style="max-width: 540px; margin: 0 auto;">
+            <div style="height: 5px; background: var(--line); border-radius: 3px; overflow: hidden; margin-bottom: 1.25rem;">
+              <div style="height: 100%; width: ${((quizIndex + 1) / questions.length) * 100}%; background: var(--accent); transition: width 0.25s;"></div>
+            </div>
+            <h4 style="font-size: 1.12rem; color: var(--fg); margin: 0 0 1.25rem 0; text-align: center; line-height: 1.5;">${escapeHtml(q.front)}</h4>
+            <div style="display: flex; flex-direction: column; gap: 10px;">
+              ${choices.map((choice, i) => `
+                <button type="button" class="btn btn-secondary quiz-opt-btn" style="text-align: left; padding: 12px 16px; font-size: 0.88rem; justify-content: flex-start; line-height: 1.45; white-space: normal; height: auto;"
+                        data-choice-idx="${i}">
+                  <strong style="margin-right: 8px; color: var(--accent); flex-shrink:0;">${String.fromCharCode(65 + i)}.</strong>
+                  <span>${escapeHtml(choice)}</span>
+                </button>
+              `).join('')}
+            </div>
+            <div id="quizFeedback" style="margin-top: 1rem; font-size: 0.88rem; font-weight: 600; text-align: center; min-height: 24px;"></div>
           </div>
-          <div id="quizFeedback" style="margin-top: 1rem; font-size: 0.88rem; font-weight: 600; text-align: center; min-height: 24px;"></div>
-        </div>
-      `;
+        `;
 
-      modal.querySelectorAll('.quiz-opt-btn').forEach(btn => {
-        btn.onclick = () => {
-          const selected = btn.dataset.ans;
-          const feedback = document.getElementById('quizFeedback');
-          modal.querySelectorAll('.quiz-opt-btn').forEach(b => b.disabled = true);
+        modalBody.querySelectorAll('.quiz-opt-btn').forEach(btn => {
+          btn.onclick = () => {
+            const idx = Number(btn.dataset.choiceIdx);
+            const selected = choices[idx];
+            const feedback = document.getElementById('quizFeedback');
+            modalBody.querySelectorAll('.quiz-opt-btn').forEach(b => {
+              b.disabled = true;
+              const bIdx = Number(b.dataset.choiceIdx);
+              if (choices[bIdx] === q.back) {
+                b.style.borderColor = '#10b981';
+                b.style.background = 'rgba(16,185,129,0.14)';
+              }
+            });
 
-          if (selected === q.back) {
-            score++;
-            btn.style.borderColor = '#10b981';
-            btn.style.background = 'rgba(16,185,129,0.15)';
-            feedback.innerHTML = '<span style="color:#10b981;"><i class="fas fa-check"></i> Correct!</span>';
-          } else {
-            btn.style.borderColor = '#ef4444';
-            btn.style.background = 'rgba(239,68,68,0.15)';
-            feedback.innerHTML = `<span style="color:#ef4444;"><i class="fas fa-times"></i> Incorrect. Correct: ${escapeHtml(q.back)}</span>`;
-          }
+            if (selected === q.back) {
+              score++;
+              if (feedback) {
+                feedback.innerHTML = '<span style="color:#10b981;"><i class="fas fa-check"></i> Correct!</span>';
+              }
+            } else {
+              btn.style.borderColor = '#ef4444';
+              btn.style.background = 'rgba(239,68,68,0.14)';
+              if (feedback) {
+                feedback.innerHTML = `<span style="color:#ef4444;"><i class="fas fa-times"></i> Incorrect</span>`;
+              }
+            }
 
-          setTimeout(() => {
-            quizIndex++;
-            renderQuizQuestion();
-          }, 1200);
-        };
-      });
+            clearQuizTimer();
+            _quizAdvanceTimer = setTimeout(() => {
+              _quizAdvanceTimer = null;
+              quizIndex++;
+              renderQuizQuestion();
+            }, 1100);
+          };
+        });
+      }
     }
 
-    renderQuizQuestion();
     modal.classList.add('active');
+    renderQuizQuestion();
   }
 
-  // Create / Edit Deck Modal
+  // ================================================================
+  // CREATE / EDIT DECK MODAL
+  // ================================================================
+  function renumberCardRows(container) {
+    if (!container) return;
+    container.querySelectorAll('.deck-card-row').forEach((row, idx) => {
+      const label = row.querySelector('.deck-card-row-label');
+      if (label) label.textContent = `Card ${idx + 1}`;
+    });
+  }
+
+  function addCardRow(container, front = '', back = '', hint = '', mastery = 0) {
+    if (!container) return;
+    const row = document.createElement('div');
+    row.className = 'deck-card-row';
+    row.dataset.mastery = String(Math.max(0, Math.min(3, Number(mastery) || 0)));
+    row.innerHTML = `
+      <div class="deck-card-row-header">
+        <span class="deck-card-row-label">Card</span>
+        <button type="button" class="btn-icon delete ef-remove-card-btn" title="Remove card" aria-label="Remove card">
+          <i class="fas fa-trash"></i>
+        </button>
+      </div>
+      <input type="text" class="card-front-input form-input" placeholder="Question / Front" value="${escapeHtml(front)}">
+      <textarea class="card-back-input form-input" placeholder="Answer / Back" rows="2">${escapeHtml(back)}</textarea>
+      <input type="text" class="card-hint-input form-input" placeholder="Optional Hint" value="${escapeHtml(hint)}" style="font-size:0.82rem;">
+    `;
+    row.querySelector('.ef-remove-card-btn')?.addEventListener('click', () => {
+      row.remove();
+      renumberCardRows(container);
+    });
+    container.appendChild(row);
+    renumberCardRows(container);
+  }
+
+  function setSelectValueNormalized(selectEl, value) {
+    if (!selectEl) return;
+    const normalized = normalizeSubject(value);
+    const matchingOpt = Array.from(selectEl.options).find(
+      opt => opt.value.toLowerCase() === normalized.toLowerCase()
+    );
+    if (matchingOpt) {
+      selectEl.value = matchingOpt.value;
+    } else {
+      selectEl.value = 'General';
+    }
+  }
+
+  function closeEditor() {
+    const modal = document.getElementById('flashcardModal');
+    if (modal) modal.classList.remove('active');
+  }
+
   function openEditor(deckId = null) {
     loadDecks();
     const modal = document.getElementById('flashcardModal');
     if (!modal) return;
 
-    let targetDeck = deckId ? decks.find(d => String(d.id) === String(deckId)) : null;
+    const targetDeck = deckId ? decks.find(d => String(d.id) === String(deckId)) : null;
 
     const modalTitle = document.getElementById('flashcardModalTitle');
     const nameInput = document.getElementById('deckName');
     const subjectSelect = document.getElementById('deckSubject');
     const cardsContainer = document.getElementById('cardsContainer');
 
-    if (modalTitle) modalTitle.innerHTML = targetDeck ? '<i class="fas fa-edit"></i> Edit Deck' : '<i class="fas fa-layer-group"></i> Create Flashcard Deck';
+    if (modalTitle) {
+      modalTitle.innerHTML = targetDeck
+        ? '<i class="fas fa-pen"></i> Edit Flashcard Deck'
+        : '<i class="fas fa-layer-group"></i> Create Flashcard Deck';
+    }
     if (nameInput) nameInput.value = targetDeck ? targetDeck.name : '';
-    if (subjectSelect) subjectSelect.value = targetDeck ? (targetDeck.subject || 'physics').toLowerCase() : 'physics';
+    setSelectValueNormalized(subjectSelect, targetDeck ? targetDeck.subject : 'General');
 
     if (cardsContainer) {
       cardsContainer.innerHTML = '';
       if (targetDeck && targetDeck.cards && targetDeck.cards.length > 0) {
-        targetDeck.cards.forEach(c => addCardRow(cardsContainer, c.front, c.back, c.hint));
+        targetDeck.cards.forEach(c => addCardRow(cardsContainer, c.front, c.back, c.hint, c.mastery));
       } else {
         addCardRow(cardsContainer);
       }
@@ -719,132 +899,174 @@
     const saveBtn = document.getElementById('saveDeckBtn');
     if (saveBtn) {
       saveBtn.onclick = () => {
-        const name = nameInput.value.trim();
-        const subject = subjectSelect ? subjectSelect.value : 'General';
+        const name = nameInput ? nameInput.value.trim() : '';
+        const subject = normalizeSubject(subjectSelect ? subjectSelect.value : 'General');
         if (!name) {
           if (window.showNotification) window.showNotification('Please provide a deck name.', 'warning');
+          nameInput?.focus();
           return;
         }
 
         const cards = [];
-        cardsContainer.querySelectorAll('.deck-card-row').forEach(row => {
-          const front = row.querySelector('.card-front-input')?.value.trim();
-          const back = row.querySelector('.card-back-input')?.value.trim();
-          const hint = row.querySelector('.card-hint-input')?.value.trim();
+        cardsContainer?.querySelectorAll('.deck-card-row').forEach(row => {
+          const front = row.querySelector('.card-front-input')?.value.trim() || '';
+          const back = row.querySelector('.card-back-input')?.value.trim() || '';
+          const hint = row.querySelector('.card-hint-input')?.value.trim() || '';
+          const mastery = Math.max(0, Math.min(3, Number(row.dataset.mastery) || 0));
           if (front && back) {
-            cards.push({ front, back, hint: hint || '', mastery: 0 });
+            cards.push({ front, back, hint, mastery });
           }
         });
 
         if (cards.length === 0) {
-          if (window.showNotification) window.showNotification('Please add at least one complete card (question and answer).', 'warning');
+          if (window.showNotification) window.showNotification('Please add at least one card with both a question and an answer.', 'warning');
           return;
         }
 
         if (targetDeck) {
           targetDeck.name = name;
-          targetDeck.subject = subject.charAt(0).toUpperCase() + subject.slice(1);
+          targetDeck.subject = subject;
           targetDeck.cards = cards;
         } else {
-          decks.push({
+          decks.unshift({
             id: 'deck_' + Date.now(),
             name,
-            subject: subject.charAt(0).toUpperCase() + subject.slice(1),
+            subject,
             cards,
-            lastStudied: null
+            lastStudied: null,
+            createdAt: Date.now()
           });
         }
 
         saveDecks();
         renderDecks();
-        modal.classList.remove('active');
-        if (window.showNotification) window.showNotification('Flashcard deck saved!', 'success');
+        closeEditor();
+        if (window.showNotification) {
+          window.showNotification(targetDeck ? 'Flashcard deck updated!' : 'Flashcard deck created!', 'success');
+        }
       };
     }
 
     modal.classList.add('active');
+    setTimeout(() => nameInput?.focus(), 60);
   }
 
-  function addCardRow(container, front = '', back = '', hint = '') {
-    const row = document.createElement('div');
-    row.className = 'deck-card-row';
-    row.style.cssText = 'background:var(--bg,#111113); border:1px solid var(--line,#2e3035); border-radius:10px; padding:10px; margin-bottom:10px; display:flex; flex-direction:column; gap:8px; position:relative;';
-    row.innerHTML = `
-      <div style="display:flex; justify-content:space-between; align-items:center;">
-        <span style="font-size:0.75rem; font-weight:700; color:var(--accent,#cf6215);">Card Item</span>
-        <button type="button" class="btn-icon delete" onclick="this.closest('.deck-card-row').remove()" title="Remove card">
-          <i class="fas fa-trash"></i>
-        </button>
-      </div>
-      <input type="text" class="card-front-input form-input" placeholder="Question / Front" value="${escapeHtml(front)}">
-      <textarea class="card-back-input form-input" placeholder="Answer / Back" rows="2">${escapeHtml(back)}</textarea>
-      <input type="text" class="card-hint-input form-input" placeholder="Optional Hint" value="${escapeHtml(hint)}" style="font-size:0.78rem;">
-    `;
-    container.appendChild(row);
-  }
-
-  function deleteDeck(deckId) {
+  async function deleteDeck(deckId) {
     loadDecks();
     const deck = decks.find(d => String(d.id) === String(deckId));
     if (!deck) return;
 
-    if (window.confirm(`Delete the deck "${deck.name}"?`)) {
-      decks = decks.filter(d => String(d.id) !== String(deckId));
-      saveDecks();
-      renderDecks();
-      if (window.showNotification) window.showNotification('Deck deleted', 'info');
-    }
+    const confirmed = await confirmAction(
+      `Are you sure you want to delete the deck "${deck.name}"?`,
+      'Delete Flashcard Deck'
+    );
+    if (!confirmed) return;
+
+    decks = decks.filter(d => String(d.id) !== String(deckId));
+    saveDecks();
+    renderDecks();
+    if (window.showNotification) window.showNotification('Deck deleted', 'info');
   }
 
   function exportDecks() {
     loadDecks();
-    const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(decks, null, 2));
+    if (decks.length === 0) {
+      if (window.showNotification) window.showNotification('No flashcard decks to export yet.', 'info');
+      return;
+    }
+    const blob = new Blob([JSON.stringify(decks, null, 2)], { type: 'application/json;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
     const dlAnchor = document.createElement('a');
-    dlAnchor.setAttribute('href', dataStr);
-    dlAnchor.setAttribute('download', `questionary-flashcard-decks-${new Date().toISOString().slice(0, 10)}.json`);
+    dlAnchor.href = url;
+    dlAnchor.download = `questionary-flashcard-decks-${new Date().toISOString().slice(0, 10)}.json`;
     document.body.appendChild(dlAnchor);
     dlAnchor.click();
     dlAnchor.remove();
+    URL.revokeObjectURL(url);
+    if (window.showNotification) window.showNotification('Flashcard decks exported!', 'success');
   }
 
-  // Keyboard navigation for Study Mode
+  // Keyboard navigation for Study Mode & Modals
   window.addEventListener('keydown', (e) => {
     const studyModal = document.getElementById('studyModal');
-    if (!studyModal || !studyModal.classList.contains('active') || !currentActiveDeck) return;
-    if (e.target && e.target.closest && e.target.closest('input, textarea, [contenteditable]')) return;
+    const isInput = Boolean(e.target && e.target.closest && e.target.closest('input, textarea, select, [contenteditable]'));
 
-    if (e.code === 'Space' || e.key === 'Enter') {
-      e.preventDefault();
-      flipCard();
-    } else if (e.key === 'ArrowRight') {
-      e.preventDefault();
-      nextCard();
-    } else if (e.key === 'ArrowLeft') {
-      e.preventDefault();
-      prevCard();
-    } else if (e.key === 's' || e.key === 'S') {
-      e.preventDefault();
-      shuffleDeck();
-    } else if (e.key === '1') {
-      rateCard(0);
-    } else if (e.key === '2') {
-      rateCard(1);
-    } else if (e.key === '3') {
-      rateCard(2);
-    } else if (e.key === '4') {
-      rateCard(3);
+    if (studyModal && studyModal.classList.contains('active') && currentActiveDeck) {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        closeStudy();
+        return;
+      }
+      if (isInput) return;
+
+      if (e.code === 'Space' || e.key === 'Enter') {
+        e.preventDefault();
+        flipCard();
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        nextCard();
+      } else if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        prevCard();
+      } else if (e.key === 's' || e.key === 'S') {
+        e.preventDefault();
+        shuffleDeck();
+      } else if (e.key === '1') {
+        rateCard(0);
+      } else if (e.key === '2') {
+        rateCard(1);
+      } else if (e.key === '3') {
+        rateCard(2);
+      } else if (e.key === '4') {
+        rateCard(3);
+      }
     }
   });
 
-  // Global exports & overrides for compatibility with app.js
+  function bindStaticControls() {
+    const createBtn = document.getElementById('createDeckBtn');
+    if (createBtn) createBtn.onclick = () => openEditor();
+
+    const exportBtn = document.getElementById('exportDecksBtn');
+    if (exportBtn) exportBtn.onclick = () => exportDecks();
+
+    const addCardBtn = document.getElementById('addCardBtn');
+    if (addCardBtn) {
+      addCardBtn.onclick = () => {
+        const container = document.getElementById('cardsContainer');
+        if (container) {
+          addCardRow(container);
+          const rows = container.querySelectorAll('.deck-card-row');
+          rows[rows.length - 1]?.querySelector('.card-front-input')?.focus();
+        }
+      };
+    }
+
+    const closeFlashcardBtn = document.getElementById('closeFlashcardModal');
+    if (closeFlashcardBtn) closeFlashcardBtn.onclick = closeEditor;
+
+    const cancelFlashcardBtn = document.getElementById('cancelFlashcardBtn');
+    if (cancelFlashcardBtn) cancelFlashcardBtn.onclick = closeEditor;
+
+    const closeStudyBtn = document.getElementById('closeStudyModal');
+    if (closeStudyBtn) closeStudyBtn.onclick = closeStudy;
+
+    const closeQuizBtn = document.getElementById('closeQuizModal');
+    if (closeQuizBtn) closeQuizBtn.onclick = closeQuiz;
+  }
+
+  // Global exports
   window.EnhancedFlashcards = {
     loadDecks,
     saveDecks,
+    getDecks,
     renderDecks,
     startStudy,
     shuffleDeck,
     startQuiz,
+    closeQuiz,
     openEditor,
+    closeEditor,
     deleteDeck,
     exportDecks,
     flipCard,
@@ -855,26 +1077,24 @@
     speakBack,
     closeStudy,
     filterSubject: (subj) => {
-      selectedSubjectFilter = subj;
+      selectedSubjectFilter = subj || 'all';
       renderDecks();
     }
   };
 
-  // Wire into app.js hooks
   window.renderFlashcardDecks = renderDecks;
   window.startStudyDeck = startStudy;
+  window.shuffleStudyDeck = shuffleDeck;
   window.startQuiz = startQuiz;
+  window.closeQuizModal = closeQuiz;
   window.openFlashcardModal = openEditor;
   window.deleteDeck = deleteDeck;
+  window.closeStudyModal = closeStudy;
 
-  // Add Card button in modal
-  document.getElementById('addCardBtn')?.addEventListener('click', () => {
-    const container = document.getElementById('cardsContainer');
-    if (container) addCardRow(container);
-  });
-  document.getElementById('createDeckBtn')?.addEventListener('click', () => openEditor());
-  document.getElementById('closeStudyModal')?.addEventListener('click', closeStudy);
-  document.getElementById('closeFlashcardModal')?.addEventListener('click', () => {
-    document.getElementById('flashcardModal')?.classList.remove('active');
-  });
+  loadDecks();
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bindStaticControls);
+  } else {
+    bindStaticControls();
+  }
 })();

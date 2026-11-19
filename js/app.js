@@ -1186,22 +1186,28 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
     const sqlResults = await DbService.search(query.toLowerCase());
     results.push(...sqlResults);
 
-    if (notes && notes.length > 0) {
-      notes.forEach(note => {
-        if (note.title.toLowerCase().includes(query.toLowerCase()) ||
-          note.content.toLowerCase().includes(query.toLowerCase())) {
+    const activeNotes = (window.EnhancedNotes && typeof window.EnhancedNotes.getNotes === 'function')
+      ? window.EnhancedNotes.getNotes()
+      : notes;
+    if (activeNotes && activeNotes.length > 0) {
+      activeNotes.forEach(note => {
+        if ((note.title || '').toLowerCase().includes(query.toLowerCase()) ||
+          (note.content || '').toLowerCase().includes(query.toLowerCase())) {
           results.push({ name: note.title, path: ['Notes'], isFolder: false, isNote: true, noteId: note.id, url: null });
         }
       });
     }
 
-    if (flashcardDecks && flashcardDecks.length > 0) {
-      flashcardDecks.forEach(deck => {
-        if (deck.name.toLowerCase().includes(query.toLowerCase())) {
+    const activeDecks = (window.EnhancedFlashcards && typeof window.EnhancedFlashcards.getDecks === 'function')
+      ? window.EnhancedFlashcards.getDecks()
+      : flashcardDecks;
+    if (activeDecks && activeDecks.length > 0) {
+      activeDecks.forEach(deck => {
+        if ((deck.name || '').toLowerCase().includes(query.toLowerCase())) {
           results.push({ name: deck.name, path: ['Flashcards'], isFolder: false, isFlashcard: true, deckId: deck.id, url: null });
         }
-        deck.cards.forEach(card => {
-          if (card.front.toLowerCase().includes(query.toLowerCase()) || card.back.toLowerCase().includes(query.toLowerCase())) {
+        (deck.cards || []).forEach(card => {
+          if ((card.front || '').toLowerCase().includes(query.toLowerCase()) || (card.back || '').toLowerCase().includes(query.toLowerCase())) {
             const alreadyAdded = results.some(r => r.deckId === deck.id);
             if (!alreadyAdded) {
               results.push({ name: `${deck.name} (card match)`, path: ['Flashcards'], isFolder: false, isFlashcard: true, deckId: deck.id, url: null });
@@ -1988,6 +1994,10 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
   }
 
   function renderNotes() {
+    if (window.EnhancedNotes && typeof window.EnhancedNotes.renderNotes === 'function') {
+      window.EnhancedNotes.renderNotes();
+      return;
+    }
     const container = document.getElementById('notesGrid');
     if (!container) return;
     if (notes.length === 0) {
@@ -2318,10 +2328,21 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
   // ================================================================
   // NOTES SYSTEM
   // ================================================================
-  function loadNotes() { notes = JSON.parse(localStorage.getItem('questionary-notes') || '[]'); }
+  function loadNotes() {
+    if (window.EnhancedNotes && typeof window.EnhancedNotes.loadNotes === 'function') {
+      notes = window.EnhancedNotes.loadNotes();
+      return notes;
+    }
+    notes = JSON.parse(localStorage.getItem('questionary-notes') || '[]');
+    return notes;
+  }
   function saveNotes() { localStorage.setItem('questionary-notes', JSON.stringify(notes)); }
 
   function openNoteModal(noteId = null) {
+    if (window.EnhancedNotes && typeof window.EnhancedNotes.openEditor === 'function') {
+      window.EnhancedNotes.openEditor(noteId);
+      return;
+    }
     const modal = document.getElementById('noteModal');
     const titleInput = document.getElementById('noteTitle');
     const contentInput = document.getElementById('noteContent');
@@ -2367,6 +2388,10 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
   function editNote(noteId) { openNoteModal(noteId); }
 
   function deleteNote(noteId) {
+    if (window.EnhancedNotes && typeof window.EnhancedNotes.deleteNote === 'function') {
+      window.EnhancedNotes.deleteNote(noteId);
+      return;
+    }
     const note = notes.find(n => n.id === noteId);
     showConfirmModal('Delete Note', `Are you sure you want to delete "${note ? note.title : ''}"?`, () => {
       notes = notes.filter(n => n.id !== noteId);
@@ -2380,6 +2405,10 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
   // FLASHCARD ENGINE
   // ================================================================
   function loadFlashcardDecks() {
+    if (window.EnhancedFlashcards && typeof window.EnhancedFlashcards.loadDecks === 'function') {
+      flashcardDecks = window.EnhancedFlashcards.loadDecks();
+      return flashcardDecks;
+    }
     try {
       const raw = localStorage.getItem('questionary-flashcards');
       flashcardDecks = raw ? JSON.parse(raw) : [];
@@ -2410,6 +2439,10 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
   }
 
   function renderFlashcardDecks() {
+    if (window.EnhancedFlashcards && typeof window.EnhancedFlashcards.renderDecks === 'function') {
+      window.EnhancedFlashcards.renderDecks();
+      return;
+    }
     loadFlashcardDecks();
     const container = document.getElementById('flashcardsGrid');
     if (!container) return;
@@ -2465,6 +2498,10 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
   }
 
   function openFlashcardModal(deckId = null) {
+    if (window.EnhancedFlashcards && typeof window.EnhancedFlashcards.openEditor === 'function') {
+      window.EnhancedFlashcards.openEditor(deckId);
+      return;
+    }
     const modal = document.getElementById('flashcardModal');
     const nameInput = document.getElementById('deckName');
     const cardsContainer = document.getElementById('cardsContainer');
@@ -2538,6 +2575,10 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
   }
 
   function deleteDeck(deckId) {
+    if (window.EnhancedFlashcards && typeof window.EnhancedFlashcards.deleteDeck === 'function') {
+      window.EnhancedFlashcards.deleteDeck(deckId);
+      return;
+    }
     loadFlashcardDecks();
     const targetId = String(deckId);
     const deck = flashcardDecks.find(d => String(d.id) === targetId);
@@ -2575,6 +2616,10 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
   }
 
   function startStudyDeck(deckId, options = {}) {
+    if (window.EnhancedFlashcards && typeof window.EnhancedFlashcards.startStudy === 'function') {
+      window.EnhancedFlashcards.startStudy(deckId, options);
+      return;
+    }
     loadFlashcardDecks();
     const targetId = String(deckId);
     const deck = flashcardDecks.find(d => String(d.id) === targetId);
@@ -2605,6 +2650,10 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
   }
 
   function shuffleStudyDeck() {
+    if (window.EnhancedFlashcards && typeof window.EnhancedFlashcards.shuffleDeck === 'function') {
+      window.EnhancedFlashcards.shuffleDeck();
+      return;
+    }
     if (!currentStudyDeck || !currentStudyCards || currentStudyCards.length === 0) return;
     if (currentStudyCards.length < 2) {
       showNotification('Add at least 2 cards to shuffle this deck.', 'info');
@@ -2684,6 +2733,10 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
   }
 
   function closeStudyModal() {
+    if (window.EnhancedFlashcards && typeof window.EnhancedFlashcards.closeStudy === 'function') {
+      window.EnhancedFlashcards.closeStudy();
+      return;
+    }
     const modal = document.getElementById('studyModal');
     if (modal) modal.classList.remove('active');
     const activeCard = document.getElementById('activeFlashcard');
@@ -2764,6 +2817,8 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
   function loadDocumentProgress() { documentProgress = JSON.parse(localStorage.getItem('questionary-doc-progress') || '{}'); }
 
   // Export to global scope
+  window.renderNotes = renderNotes;
+  window.renderFlashcardDecks = renderFlashcardDecks;
   window.openNoteModal = openNoteModal;
   window.saveNote = saveNote;
   window.deleteNote = deleteNote;
@@ -3525,8 +3580,29 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
           return;
         }
 
+        const noteModal = document.getElementById('noteModal');
+        if (noteModal && noteModal.classList.contains('active')) {
+          if (window.EnhancedNotes?.closeEditor) window.EnhancedNotes.closeEditor();
+          else noteModal.classList.remove('active');
+          return;
+        }
+
+        const flashcardModal = document.getElementById('flashcardModal');
+        if (flashcardModal && flashcardModal.classList.contains('active')) {
+          if (window.EnhancedFlashcards?.closeEditor) window.EnhancedFlashcards.closeEditor();
+          else flashcardModal.classList.remove('active');
+          return;
+        }
+
+        const quizModal = document.getElementById('quizModal');
+        if (quizModal && quizModal.classList.contains('active')) {
+          if (window.EnhancedFlashcards?.closeQuiz) window.EnhancedFlashcards.closeQuiz();
+          else quizModal.classList.remove('active');
+          return;
+        }
+
         const studyModal = document.getElementById('studyModal');
-        if (studyModal && studyModal.classList.contains('active') && currentStudyDeck) {
+        if (studyModal && studyModal.classList.contains('active')) {
           closeStudyModal();
           return;
         }
@@ -5489,44 +5565,47 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
     try { if (typeof loadQuickLinks === 'function') loadQuickLinks(); } catch(e){}
     try { if (typeof loadStudyStats === 'function') loadStudyStats(); } catch(e){}
 
-    const createNoteBtn = document.getElementById('createNoteBtn');
-    const closeNoteModal = document.getElementById('closeNoteModal');
-    const cancelNoteBtn = document.getElementById('cancelNoteBtn');
-    const saveNoteBtn = document.getElementById('saveNoteBtn');
-    const noteModal = document.getElementById('noteModal');
+    if (!window.EnhancedNotes) {
+      const createNoteBtn = document.getElementById('createNoteBtn');
+      const closeNoteModal = document.getElementById('closeNoteModal');
+      const cancelNoteBtn = document.getElementById('cancelNoteBtn');
+      const saveNoteBtn = document.getElementById('saveNoteBtn');
+      const noteModal = document.getElementById('noteModal');
 
-    if (createNoteBtn && typeof openNoteModal === 'function') createNoteBtn.onclick = () => openNoteModal();
-    if (closeNoteModal && noteModal) closeNoteModal.onclick = () => noteModal.classList.remove('active');
-    if (cancelNoteBtn && noteModal) cancelNoteBtn.onclick = () => noteModal.classList.remove('active');
-    if (saveNoteBtn && typeof saveNote === 'function') saveNoteBtn.onclick = saveNote;
+      if (createNoteBtn && typeof openNoteModal === 'function') createNoteBtn.onclick = () => openNoteModal();
+      if (closeNoteModal && noteModal) closeNoteModal.onclick = () => noteModal.classList.remove('active');
+      if (cancelNoteBtn && noteModal) cancelNoteBtn.onclick = () => noteModal.classList.remove('active');
+      if (saveNoteBtn && typeof saveNote === 'function') saveNoteBtn.onclick = saveNote;
+    }
 
-    const createDeckBtn = document.getElementById('createDeckBtn');
-    const closeFlashcardModal = document.getElementById('closeFlashcardModal');
-    const cancelFlashcardBtn = document.getElementById('cancelFlashcardBtn');
-    const saveDeckBtn = document.getElementById('saveDeckBtn');
-    const addCardBtn = document.getElementById('addCardBtn');
-    const flashcardModal = document.getElementById('flashcardModal');
+    if (!window.EnhancedFlashcards) {
+      const createDeckBtn = document.getElementById('createDeckBtn');
+      const closeFlashcardModal = document.getElementById('closeFlashcardModal');
+      const cancelFlashcardBtn = document.getElementById('cancelFlashcardBtn');
+      const saveDeckBtn = document.getElementById('saveDeckBtn');
+      const addCardBtn = document.getElementById('addCardBtn');
+      const flashcardModal = document.getElementById('flashcardModal');
 
-    if (createDeckBtn && typeof openFlashcardModal === 'function') createDeckBtn.onclick = () => openFlashcardModal();
-    if (closeFlashcardModal && flashcardModal) closeFlashcardModal.onclick = () => flashcardModal.classList.remove('active');
-    if (cancelFlashcardBtn && flashcardModal) cancelFlashcardBtn.onclick = () => flashcardModal.classList.remove('active');
-    if (saveDeckBtn && typeof saveDeck === 'function') saveDeckBtn.onclick = saveDeck;
-    if (addCardBtn && typeof addCardEditor === 'function') addCardBtn.onclick = () => addCardEditor();
+      if (createDeckBtn && typeof openFlashcardModal === 'function') createDeckBtn.onclick = () => openFlashcardModal();
+      if (closeFlashcardModal && flashcardModal) closeFlashcardModal.onclick = () => flashcardModal.classList.remove('active');
+      if (cancelFlashcardBtn && flashcardModal) cancelFlashcardBtn.onclick = () => flashcardModal.classList.remove('active');
+      if (saveDeckBtn && typeof saveDeck === 'function') saveDeckBtn.onclick = saveDeck;
+      if (addCardBtn && typeof addCardEditor === 'function') addCardBtn.onclick = () => addCardEditor();
 
-    const closeStudyModalBtn = document.getElementById('closeStudyModal');
-    const flipCardBtn = document.getElementById('flipCardBtn');
-    const shuffleDeckBtn = document.getElementById('shuffleDeckBtn');
-    const nextCardBtn = document.getElementById('nextCardBtn');
-    const prevCardBtn = document.getElementById('prevCardBtn');
-    const activeFlashcard = document.getElementById('activeFlashcard');
-    const studyModal = document.getElementById('studyModal');
+      const closeStudyModalBtn = document.getElementById('closeStudyModal');
+      const flipCardBtn = document.getElementById('flipCardBtn');
+      const shuffleDeckBtn = document.getElementById('shuffleDeckBtn');
+      const nextCardBtn = document.getElementById('nextCardBtn');
+      const prevCardBtn = document.getElementById('prevCardBtn');
+      const activeFlashcard = document.getElementById('activeFlashcard');
 
-    if (closeStudyModalBtn && typeof closeStudyModal === 'function') closeStudyModalBtn.onclick = closeStudyModal;
-    if (flipCardBtn && typeof flipCard === 'function') flipCardBtn.onclick = flipCard;
-    if (shuffleDeckBtn && typeof shuffleStudyDeck === 'function') shuffleDeckBtn.onclick = shuffleStudyDeck;
-    if (nextCardBtn && typeof nextCard === 'function') nextCardBtn.onclick = nextCard;
-    if (prevCardBtn && typeof prevCard === 'function') prevCardBtn.onclick = prevCard;
-    if (activeFlashcard && typeof flipCard === 'function') activeFlashcard.onclick = flipCard;
+      if (closeStudyModalBtn && typeof closeStudyModal === 'function') closeStudyModalBtn.onclick = closeStudyModal;
+      if (flipCardBtn && typeof flipCard === 'function') flipCardBtn.onclick = flipCard;
+      if (shuffleDeckBtn && typeof shuffleStudyDeck === 'function') shuffleDeckBtn.onclick = shuffleStudyDeck;
+      if (nextCardBtn && typeof nextCard === 'function') nextCardBtn.onclick = nextCard;
+      if (prevCardBtn && typeof prevCard === 'function') prevCardBtn.onclick = prevCard;
+      if (activeFlashcard && typeof flipCard === 'function') activeFlashcard.onclick = flipCard;
+    }
 
     const addStudySessionBtn = document.getElementById('addStudySessionBtn');
     const closeSessionModal = document.getElementById('closeSessionModal');

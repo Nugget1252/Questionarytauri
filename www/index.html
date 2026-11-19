@@ -17,9 +17,9 @@
     <link rel="stylesheet" href="css/vendor/fontawesome/css/all.min.css">
     
     <!-- Stylesheets -->
-    <link rel="stylesheet" href="css/styles.css?v=244">
-    <link rel="stylesheet" href="css/features.css?v=244">
-    <link rel="stylesheet" href="css/enhanced-features.css?v=244">
+    <link rel="stylesheet" href="css/styles.css?v=245">
+    <link rel="stylesheet" href="css/features.css?v=245">
+    <link rel="stylesheet" href="css/enhanced-features.css?v=245">
     
     <style>
         /* Mobile Safe Area & Android Touch Optimization */
@@ -590,7 +590,10 @@
         <section id="flashcardsSection" class="tiles-section">
             <div class="section-header">
                 <h2 class="section-title"><i class="fas fa-layer-group"></i> Flashcards</h2>
-                <button id="createDeckBtn" type="button" class="btn-sm"><i class="fas fa-plus"></i> New Deck</button>
+                <div style="display:flex; align-items:center; gap:8px;">
+                    <button id="exportDecksBtn" type="button" class="btn btn-secondary btn-sm" title="Export Decks Backup"><i class="fas fa-file-export"></i> Export</button>
+                    <button id="createDeckBtn" type="button" class="btn btn-primary btn-sm"><i class="fas fa-plus"></i> New Deck</button>
+                </div>
             </div>
             <div id="flashcardsGrid" class="flashcards-grid"></div>
         </section>
@@ -598,7 +601,7 @@
         <section id="notesSection" class="tiles-section">
             <div class="section-header">
                 <h2 class="section-title"><i class="fas fa-sticky-note"></i> Notes</h2>
-                <button id="createNoteBtn" type="button" class="btn-sm"><i class="fas fa-plus"></i> New Note</button>
+                <button id="createNoteBtn" type="button" class="btn btn-primary btn-sm"><i class="fas fa-plus"></i> New Note</button>
             </div>
             <div id="notesGrid" class="notes-grid"></div>
             
@@ -1185,12 +1188,16 @@
                 <div class="form-group">
                     <label class="form-label">Category</label>
                     <select class="form-input" id="noteCategory">
-                        <option value="general">General</option>
-                        <option value="physics">Physics</option>
-                        <option value="chemistry">Chemistry</option>
-                        <option value="biology">Biology</option>
-                        <option value="math">Math</option>
-                        <option value="other">Other</option>
+                        <option value="General">General</option>
+                        <option value="Physics">Physics</option>
+                        <option value="Chemistry">Chemistry</option>
+                        <option value="Biology">Biology</option>
+                        <option value="Mathematics">Mathematics</option>
+                        <option value="Computer Applications">Computer Applications</option>
+                        <option value="English">English</option>
+                        <option value="History">History</option>
+                        <option value="Geography">Geography</option>
+                        <option value="Other">Other</option>
                     </select>
                 </div>
                 <div class="form-group">
@@ -1220,17 +1227,22 @@
                 <div class="form-group">
                     <label class="form-label">Subject</label>
                     <select class="form-input" id="deckSubject">
-                        <option value="physics">Physics</option>
-                        <option value="chemistry">Chemistry</option>
-                        <option value="biology">Biology</option>
-                        <option value="math">Math</option>
-                        <option value="other">Other</option>
+                        <option value="General">General</option>
+                        <option value="Physics">Physics</option>
+                        <option value="Chemistry">Chemistry</option>
+                        <option value="Biology">Biology</option>
+                        <option value="Mathematics">Mathematics</option>
+                        <option value="Computer Applications">Computer Applications</option>
+                        <option value="English">English</option>
+                        <option value="History">History</option>
+                        <option value="Geography">Geography</option>
+                        <option value="Other">Other</option>
                     </select>
                 </div>
                 <div class="form-group">
                     <label class="form-label">Cards</label>
                     <div id="cardsContainer"></div>
-                    <button class="btn btn-secondary" id="addCardBtn" style="margin-top: 0.5rem;"><i class="fas fa-plus"></i> Add Card</button>
+                    <button type="button" class="btn btn-secondary" id="addCardBtn" style="margin-top: 0.5rem;"><i class="fas fa-plus"></i> Add Card</button>
                 </div>
             </div>
             <div class="modal-footer">
@@ -1241,7 +1253,7 @@
     </div>
 
     <div class="modal-overlay" id="studyModal">
-        <div class="modal">
+        <div class="modal modal-lg">
             <div class="modal-sheet-handle"></div>
             <div class="modal-header">
                 <h3 id="studyModalTitle"><i class="fas fa-graduation-cap"></i> Study Mode</h3>
@@ -1312,6 +1324,7 @@
                 <button class="modal-close" id="closeQuizModal" type="button" onclick="closeQuizModal()"><i class="fas fa-times"></i></button>
             </div>
             <div class="modal-body" id="quizContent"></div>
+            <div class="modal-footer" id="quizModalFooter" style="justify-content: center; display: none;"></div>
         </div>
     </div>
 
@@ -1674,19 +1687,19 @@
     });
 </script>
 
-<script src="js/sql-wasm.js?v=244"></script>
-<script src="js/offlineEngine.js?v=244"></script>
-<script src="js/hotUpdater.js?v=244"></script>
-<script src="js/contentUpdater.js?v=244"></script>
-<script src="js/downloadManager.js?v=244"></script>
-<script src="js/features.js?v=244"></script>
-<script src="js/accessibility.js?v=244"></script>
-<script src="js/enhancedFlashcards.js?v=244"></script>
-<script src="js/enhancedNotes.js?v=244"></script>
-<script src="js/studyRoom.js?v=244"></script>
-<script src="js/studyRoomEnhanced.js?v=244"></script>
-<script src="js/notifications.js?v=244"></script>
-<script src="js/app.js?v=244"></script>
+<script src="js/sql-wasm.js?v=245"></script>
+<script src="js/offlineEngine.js?v=245"></script>
+<script src="js/hotUpdater.js?v=245"></script>
+<script src="js/contentUpdater.js?v=245"></script>
+<script src="js/downloadManager.js?v=245"></script>
+<script src="js/features.js?v=245"></script>
+<script src="js/accessibility.js?v=245"></script>
+<script src="js/enhancedFlashcards.js?v=245"></script>
+<script src="js/enhancedNotes.js?v=245"></script>
+<script src="js/studyRoom.js?v=245"></script>
+<script src="js/studyRoomEnhanced.js?v=245"></script>
+<script src="js/notifications.js?v=245"></script>
+<script src="js/app.js?v=245"></script>
 
 </body>
 </html>
