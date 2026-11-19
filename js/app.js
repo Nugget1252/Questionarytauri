@@ -30,7 +30,11 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
   var currentEditingNote = window.currentEditingNote || null;
   var currentEditingDeck = window.currentEditingDeck || null;
   var currentStudyDeck = window.currentStudyDeck || null;
+  var currentStudyCards = [];
+  var isStudyShuffled = false;
   var currentCardIndex = window.currentCardIndex || 0;
+  var _flashcardResetRaf = null;
+  var _searchHistoryTimer = null;
   var accessibilitySettings = window.accessibilitySettings || {
     highContrast: localStorage.getItem('accessibility-high-contrast') === 'true',
     largeText: localStorage.getItem('accessibility-large-text') === 'true',
@@ -1152,15 +1156,31 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
   }
 
   async function performSearch(e) {
-    const query = typeof e === 'string' ? e : (e?.target?.value || '');
+    const query = (typeof e === 'string' ? e : (e?.target?.value || '')).trim();
     const searchResults = document.getElementById('searchResults');
+    const historyDropdown = document.getElementById('searchHistoryDropdown');
+
+    if (query.length > 0 && historyDropdown) {
+      historyDropdown.classList.remove('active');
+    }
 
     if (!query || query.length < 2) {
+      clearTimeout(_searchHistoryTimer);
       if (searchResults) searchResults.style.display = 'none';
       return;
     }
 
-    if (typeof addToSearchHistory === 'function') addToSearchHistory(query);
+    clearTimeout(_searchHistoryTimer);
+    if (typeof e === 'string') {
+      if (typeof addToSearchHistory === 'function') addToSearchHistory(query);
+    } else {
+      _searchHistoryTimer = setTimeout(() => {
+        const currentVal = document.getElementById('globalSearch')?.value.trim() || '';
+        if (currentVal.length >= 2 && typeof addToSearchHistory === 'function') {
+          addToSearchHistory(currentVal);
+        }
+      }, 800);
+    }
 
     const results = [];
     const sqlResults = await DbService.search(query.toLowerCase());
@@ -1223,6 +1243,8 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
 
         searchResults.querySelectorAll('.search-result-item').forEach((el) => {
           el.addEventListener('click', () => {
+            clearTimeout(_searchHistoryTimer);
+            if (query.length >= 2 && typeof addToSearchHistory === 'function') addToSearchHistory(query);
             const r = sliced[Number(el.dataset.resultIndex)];
             if (!r) return;
             if (r.isNote) navigateToNote(r.noteId);
@@ -2411,9 +2433,12 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
     </div>
     </div>
     <p style="font-size: 0.82rem; color: var(--fg3); margin: 6px 0 12px 0;">${deck.cards.length} ${deck.cards.length === 1 ? 'card' : 'cards'}</p>
-    <div style="display: flex; gap: 0.5rem; margin-top: auto;">
+    <div style="display: flex; gap: 0.45rem; flex-wrap: wrap; margin-top: auto;">
     <button type="button" class="btn btn-primary btn-sm deck-study-btn" style="flex: 1;">
     <i class="fas fa-play"></i> Study
+    </button>
+    <button type="button" class="btn btn-secondary btn-sm deck-shuffle-btn" title="Shuffle & Study in Random Order">
+    <i class="fas fa-random"></i> Shuffle
     </button>
     <button type="button" class="btn btn-secondary btn-sm deck-quiz-btn" style="flex: 1;">
     <i class="fas fa-question-circle"></i> Quiz
@@ -2434,6 +2459,7 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
         deleteDeck(did);
       });
       card.querySelector('.deck-study-btn')?.addEventListener('click', () => startStudyDeck(did));
+      card.querySelector('.deck-shuffle-btn')?.addEventListener('click', () => startStudyDeck(did, { shuffle: true }));
       card.querySelector('.deck-quiz-btn')?.addEventListener('click', () => startQuiz(did));
     });
   }
@@ -2535,7 +2561,20 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
     });
   }
 
-  function startStudyDeck(deckId) {
+  function shuffleCardList(cards) {
+    const arr = Array.isArray(cards) ? [...cards] : [];
+    if (arr.length <= 1) return arr;
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    if (arr.every((item, idx) => item === cards[idx])) {
+      [arr[0], arr[1]] = [arr[1], arr[0]];
+    }
+    return arr;
+  }
+
+  function startStudyDeck(deckId, options = {}) {
     loadFlashcardDecks();
     const targetId = String(deckId);
     const deck = flashcardDecks.find(d => String(d.id) === targetId);
@@ -2546,47 +2585,100 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
     }
 
     currentStudyDeck = deck;
+    isStudyShuffled = Boolean(options && options.shuffle && deck.cards.length > 1);
+    currentStudyCards = isStudyShuffled ? shuffleCardList(deck.cards) : [...deck.cards];
     currentCardIndex = 0;
+
+    const modalTitle = document.getElementById('studyModalTitle');
+    if (modalTitle) {
+      modalTitle.innerHTML = `<i class="fas fa-graduation-cap"></i> ${escapeHtml(deck.name)}`;
+    }
 
     const modal = document.getElementById('studyModal');
     if (modal) {
       modal.classList.add('active');
       showCurrentCard();
+      if (isStudyShuffled) {
+        showNotification('Deck shuffled for random practice!', 'info');
+      }
     }
   }
 
-  function showCurrentCard() {
-    if (!currentStudyDeck || !currentStudyDeck.cards || currentStudyDeck.cards.length === 0) return;
+  function shuffleStudyDeck() {
+    if (!currentStudyDeck || !currentStudyCards || currentStudyCards.length === 0) return;
+    if (currentStudyCards.length < 2) {
+      showNotification('Add at least 2 cards to shuffle this deck.', 'info');
+      return;
+    }
+    currentStudyCards = shuffleCardList(currentStudyCards);
+    isStudyShuffled = true;
+    currentCardIndex = 0;
+    showCurrentCard();
+    showNotification('Cards shuffled!', 'info');
+  }
 
-    const card = currentStudyDeck.cards[currentCardIndex];
+  function showCurrentCard() {
+    if (!currentStudyDeck || !currentStudyCards || currentStudyCards.length === 0) return;
+
+    const card = currentStudyCards[currentCardIndex];
     if (!card) return;
 
     const activeCard = document.getElementById('activeFlashcard');
     const cardFront = document.getElementById('cardFront');
     const cardBack = document.getElementById('cardBack');
     const cardProgress = document.getElementById('cardProgress');
+    const shuffleBtn = document.getElementById('shuffleDeckBtn');
 
-    if (activeCard) activeCard.classList.remove('flipped');
+    if (_flashcardResetRaf !== null) {
+      cancelAnimationFrame(_flashcardResetRaf);
+      _flashcardResetRaf = null;
+    }
+
+    // Snap card face-up with transitions disabled BEFORE swapping text so the next card's answer never flashes
+    if (activeCard) {
+      activeCard.classList.add('no-transition');
+      activeCard.classList.remove('flipped');
+    }
+
     if (cardFront) cardFront.textContent = card.front || 'Empty Question';
     if (cardBack) cardBack.textContent = card.back || 'Empty Answer';
-    if (cardProgress) cardProgress.textContent = `${currentCardIndex + 1} / ${currentStudyDeck.cards.length}`;
+    if (cardProgress) {
+      cardProgress.textContent = `${currentCardIndex + 1} / ${currentStudyCards.length}${isStudyShuffled ? ' · Shuffled' : ''}`;
+    }
+    if (shuffleBtn) {
+      shuffleBtn.disabled = currentStudyCards.length < 2;
+      shuffleBtn.classList.toggle('active', isStudyShuffled);
+    }
+
+    if (activeCard) {
+      void activeCard.offsetWidth;
+      _flashcardResetRaf = requestAnimationFrame(() => {
+        _flashcardResetRaf = requestAnimationFrame(() => {
+          activeCard.classList.remove('no-transition');
+          _flashcardResetRaf = null;
+        });
+      });
+    }
   }
 
   function flipCard() {
     const card = document.getElementById('activeFlashcard');
-    if (card) card.classList.toggle('flipped');
+    if (card) {
+      card.classList.remove('no-transition');
+      card.classList.toggle('flipped');
+    }
   }
 
   function nextCard() {
-    if (currentStudyDeck && currentStudyDeck.cards.length > 0) {
-      currentCardIndex = (currentCardIndex + 1) % currentStudyDeck.cards.length;
+    if (currentStudyDeck && currentStudyCards.length > 0) {
+      currentCardIndex = (currentCardIndex + 1) % currentStudyCards.length;
       showCurrentCard();
     }
   }
 
   function prevCard() {
-    if (currentStudyDeck && currentStudyDeck.cards.length > 0) {
-      currentCardIndex = (currentCardIndex - 1 + currentStudyDeck.cards.length) % currentStudyDeck.cards.length;
+    if (currentStudyDeck && currentStudyCards.length > 0) {
+      currentCardIndex = (currentCardIndex - 1 + currentStudyCards.length) % currentStudyCards.length;
       showCurrentCard();
     }
   }
@@ -2595,8 +2687,15 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
     const modal = document.getElementById('studyModal');
     if (modal) modal.classList.remove('active');
     const activeCard = document.getElementById('activeFlashcard');
-    if (activeCard) activeCard.classList.remove('flipped');
+    if (activeCard) {
+      activeCard.classList.add('no-transition');
+      activeCard.classList.remove('flipped');
+      void activeCard.offsetWidth;
+      activeCard.classList.remove('no-transition');
+    }
     currentStudyDeck = null;
+    currentStudyCards = [];
+    isStudyShuffled = false;
     currentCardIndex = 0;
   }
 
@@ -2674,6 +2773,7 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
   window.saveDeck = saveDeck;
   window.deleteDeck = deleteDeck;
   window.startStudyDeck = startStudyDeck;
+  window.shuffleStudyDeck = shuffleStudyDeck;
   window.flipCard = flipCard;
   window.nextCard = nextCard;
   window.prevCard = prevCard;
@@ -3273,11 +3373,13 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
     const mobileSearchToggle = document.getElementById('mobileSearchToggle');
     const mobileSearchClose = document.getElementById('mobileSearchClose');
 
+    initSearchHistory();
+
     const closeMobileSearch = () => {
       if (headerEl) headerEl.classList.remove('mobile-search-open');
       if (searchResults) searchResults.style.display = 'none';
       const historyDropdown = document.getElementById('searchHistoryDropdown');
-      if (historyDropdown) historyDropdown.style.display = 'none';
+      if (historyDropdown) historyDropdown.classList.remove('active');
     };
 
     if (mobileSearchToggle && !mobileSearchToggle.dataset.bound) {
@@ -3290,6 +3392,7 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
         if (searchInput) {
           requestAnimationFrame(() => searchInput.focus());
           if (searchInput.value.trim()) performSearch();
+          else showSearchHistory();
         }
       });
     }
@@ -3308,14 +3411,27 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
     }
 
     searchInput && searchInput.addEventListener('input', performSearch);
+    searchInput && searchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        const q = searchInput.value.trim();
+        if (q.length >= 2) {
+          clearTimeout(_searchHistoryTimer);
+          addToSearchHistory(q);
+          performSearch(q);
+        }
+      }
+    });
     searchInput && searchInput.addEventListener('focus', () => {
       if (window.innerWidth <= 768 && headerEl) headerEl.classList.add('mobile-search-open');
       if (searchInput.value.trim()) performSearch();
+      else showSearchHistory();
     });
 
     document.addEventListener('click', (e) => {
       if (!e.target.closest('.search-container') && !e.target.closest('#mobileSearchToggle')) {
         if (searchResults) searchResults.style.display = 'none';
+        const historyDropdown = document.getElementById('searchHistoryDropdown');
+        if (historyDropdown) historyDropdown.classList.remove('active');
         if (window.innerWidth <= 768 && headerEl?.classList.contains('mobile-search-open')) {
           if (!searchInput || !searchInput.value.trim()) {
             closeMobileSearch();
@@ -3391,6 +3507,12 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
           return;
         }
 
+        const historyDropdown = document.getElementById('searchHistoryDropdown');
+        if (historyDropdown && historyDropdown.classList.contains('active')) {
+          historyDropdown.classList.remove('active');
+          return;
+        }
+
         const searchResults = document.getElementById('searchResults');
         if (searchResults && searchResults.style.display !== 'none') {
           searchResults.style.display = 'none';
@@ -3400,6 +3522,12 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
         const accessibilityPanel = document.getElementById('accessibilityPanel');
         if (accessibilityPanel && accessibilityPanel.classList.contains('active')) {
           accessibilityPanel.classList.remove('active');
+          return;
+        }
+
+        const studyModal = document.getElementById('studyModal');
+        if (studyModal && studyModal.classList.contains('active') && currentStudyDeck) {
+          closeStudyModal();
           return;
         }
 
@@ -3419,6 +3547,30 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
           path = [];
           await navigateToPath([]);
           setActiveNav('homeNav');
+          return;
+        }
+      }
+
+      const activeStudyModal = document.getElementById('studyModal');
+      if (!isInputFocused && activeStudyModal && activeStudyModal.classList.contains('active') && currentStudyDeck) {
+        if (e.code === 'Space') {
+          e.preventDefault();
+          flipCard();
+          return;
+        }
+        if (e.key === 'ArrowRight') {
+          e.preventDefault();
+          nextCard();
+          return;
+        }
+        if (e.key === 'ArrowLeft') {
+          e.preventDefault();
+          prevCard();
+          return;
+        }
+        if (e.key === 's' || e.key === 'S') {
+          e.preventDefault();
+          shuffleStudyDeck();
           return;
         }
       }
@@ -5363,6 +5515,7 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
 
     const closeStudyModalBtn = document.getElementById('closeStudyModal');
     const flipCardBtn = document.getElementById('flipCardBtn');
+    const shuffleDeckBtn = document.getElementById('shuffleDeckBtn');
     const nextCardBtn = document.getElementById('nextCardBtn');
     const prevCardBtn = document.getElementById('prevCardBtn');
     const activeFlashcard = document.getElementById('activeFlashcard');
@@ -5370,6 +5523,7 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
 
     if (closeStudyModalBtn && typeof closeStudyModal === 'function') closeStudyModalBtn.onclick = closeStudyModal;
     if (flipCardBtn && typeof flipCard === 'function') flipCardBtn.onclick = flipCard;
+    if (shuffleDeckBtn && typeof shuffleStudyDeck === 'function') shuffleDeckBtn.onclick = shuffleStudyDeck;
     if (nextCardBtn && typeof nextCard === 'function') nextCardBtn.onclick = nextCard;
     if (prevCardBtn && typeof prevCard === 'function') prevCardBtn.onclick = prevCard;
     if (activeFlashcard && typeof flipCard === 'function') activeFlashcard.onclick = flipCard;
@@ -5460,18 +5614,42 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
     });
   }
 
-  var searchHistory = JSON.parse(localStorage.getItem('questionary-search-history') || '[]');
+  var searchHistory = (() => {
+    try {
+      const parsed = JSON.parse(localStorage.getItem('questionary-search-history') || '[]');
+      return Array.isArray(parsed) ? parsed.filter(q => typeof q === 'string' && q.trim().length > 0) : [];
+    } catch (err) {
+      return [];
+    }
+  })();
 
   function saveSearchHistory() {
-    localStorage.setItem('questionary-search-history', JSON.stringify(searchHistory));
+    try {
+      localStorage.setItem('questionary-search-history', JSON.stringify(searchHistory));
+    } catch (err) {}
   }
 
   function addToSearchHistory(query) {
-    if (!query || query.length < 2) return;
-    searchHistory = searchHistory.filter(q => q.toLowerCase() !== query.toLowerCase());
-    searchHistory.unshift(query);
+    const clean = String(query || '').trim();
+    if (clean.length < 2) return;
+    searchHistory = searchHistory.filter(q => q.toLowerCase() !== clean.toLowerCase());
+    searchHistory.unshift(clean);
     searchHistory = searchHistory.slice(0, 10);
     saveSearchHistory();
+  }
+
+  function removeFromSearchHistory(query) {
+    const clean = String(query || '').trim().toLowerCase();
+    searchHistory = searchHistory.filter(q => q.toLowerCase() !== clean);
+    saveSearchHistory();
+    const dropdown = document.getElementById('searchHistoryDropdown');
+    if (!dropdown) return;
+    if (searchHistory.length === 0) {
+      dropdown.innerHTML = '';
+      dropdown.classList.remove('active');
+    } else {
+      showSearchHistory();
+    }
   }
 
   function initSearchHistory() {
@@ -5487,9 +5665,16 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
       container.appendChild(dropdown);
     }
 
+    if (searchInput.dataset.historyBound) return;
+    searchInput.dataset.historyBound = 'true';
+
     searchInput.addEventListener('focus', showSearchHistory);
     searchInput.addEventListener('input', (e) => {
-      if (e.target.value === '') showSearchHistory();
+      if (e.target.value.trim() === '') {
+        showSearchHistory();
+      } else {
+        dropdown.classList.remove('active');
+      }
     });
 
     document.addEventListener('click', (e) => {
@@ -5502,29 +5687,53 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
   function showSearchHistory() {
     const dropdown = document.getElementById('searchHistoryDropdown');
     const searchInput = document.getElementById('globalSearch');
-    if (!dropdown || searchHistory.length === 0 || searchInput.value) return;
+    if (!dropdown || !searchInput) return;
+    if (searchHistory.length === 0 || searchInput.value.trim() !== '') {
+      dropdown.classList.remove('active');
+      return;
+    }
 
     dropdown.innerHTML = `
     <div class="search-history-header">
-    <span>Recent Searches</span>
-    <button type="button" class="clear-history-btn">Clear</button>
+      <span>Recent Searches</span>
+      <button type="button" class="clear-history-btn" title="Clear all search history">
+        <i class="fas fa-trash-alt"></i> Clear All
+      </button>
     </div>
     ${searchHistory.map(q => `
       <div class="search-history-item" data-query="${escapeHtml(q)}">
-      <i class="fas fa-history"></i>
-      <span>${escapeHtml(q)}</span>
+        <i class="fas fa-history"></i>
+        <span>${escapeHtml(q)}</span>
+        <button type="button" class="remove-history-item-btn" data-remove-query="${escapeHtml(q)}" title="Remove from history" aria-label="Remove search item">
+          <i class="fas fa-times"></i>
+        </button>
       </div>
-      `).join('')}
-      `;
-    dropdown.querySelector('.clear-history-btn')?.addEventListener('click', () => clearSearchHistory());
+    `).join('')}
+    `;
+    dropdown.querySelector('.clear-history-btn')?.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      clearSearchHistory();
+    });
+    dropdown.querySelectorAll('.remove-history-item-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        removeFromSearchHistory(btn.dataset.removeQuery || '');
+      });
+    });
     dropdown.querySelectorAll('.search-history-item').forEach(item => {
-      item.addEventListener('click', () => useSearchHistory(item.dataset.query || ''));
+      item.addEventListener('click', (e) => {
+        if (e.target.closest('.remove-history-item-btn')) return;
+        useSearchHistory(item.dataset.query || '');
+      });
     });
     dropdown.classList.add('active');
   }
 
   function useSearchHistory(query) {
     const searchInput = document.getElementById('globalSearch');
+    if (!searchInput) return;
     searchInput.value = query;
     document.getElementById('searchHistoryDropdown')?.classList.remove('active');
     performSearch(query);
@@ -5533,10 +5742,18 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
   function clearSearchHistory() {
     searchHistory = [];
     saveSearchHistory();
-    document.getElementById('searchHistoryDropdown')?.classList.remove('active');
+    const dropdown = document.getElementById('searchHistoryDropdown');
+    if (dropdown) {
+      dropdown.innerHTML = '';
+      dropdown.classList.remove('active');
+    }
+    if (typeof showNotification === 'function') {
+      showNotification('Search history cleared', 'info');
+    }
   }
 
   window.useSearchHistory = useSearchHistory;
+  window.removeFromSearchHistory = removeFromSearchHistory;
   window.clearSearchHistory = clearSearchHistory;
 
   // ================================================================

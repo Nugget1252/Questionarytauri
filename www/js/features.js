@@ -557,7 +557,7 @@ async function showTextFile(urlOrBlob, fileName) {
 
         document.body.classList.add('pdf-view-active');
         if (tilesSection) tilesSection.style.display = 'block';
-        if (container) container.style.display = 'block';
+        if (container) container.style.display = 'flex';
         if (tilesContainer) tilesContainer.style.display = 'none';
         if (sectionHeader) sectionHeader.style.display = 'none';
         if (dashboardHeader) dashboardHeader.style.display = 'none';
@@ -659,7 +659,7 @@ async function showDocxFile(urlOrBlob, fileName) {
 
         document.body.classList.add('pdf-view-active');
         if (tilesSection) tilesSection.style.display = 'block';
-        if (container) container.style.display = 'block';
+        if (container) container.style.display = 'flex';
         if (tilesContainer) tilesContainer.style.display = 'none';
         if (sectionHeader) sectionHeader.style.display = 'none';
         if (dashboardHeader) dashboardHeader.style.display = 'none';

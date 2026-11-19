@@ -166,9 +166,25 @@
 
   let decks = [];
   let currentActiveDeck = null;
+  let studyCards = [];
+  let isShuffled = false;
   let currentCardIndex = 0;
   let isCardFlipped = false;
   let selectedSubjectFilter = 'all';
+  let _cardResetRaf = null;
+
+  function shuffleCardList(cards) {
+    const arr = Array.isArray(cards) ? [...cards] : [];
+    if (arr.length <= 1) return arr;
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    if (arr.every((item, idx) => item === cards[idx])) {
+      [arr[0], arr[1]] = [arr[1], arr[0]];
+    }
+    return arr;
+  }
 
   function loadDecks() {
     try {
@@ -292,9 +308,12 @@
             </div>
           </div>
 
-          <div style="display: flex; gap: 8px; margin-top: auto; padding-top: 10px;">
+          <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-top: auto; padding-top: 10px;">
             <button type="button" class="btn btn-primary btn-sm ef-study-deck" style="flex: 1;">
               <i class="fas fa-play"></i> Study
+            </button>
+            <button type="button" class="btn btn-secondary btn-sm ef-shuffle-deck" title="Shuffle & Study in Random Order">
+              <i class="fas fa-random"></i> Shuffle
             </button>
             <button type="button" class="btn btn-secondary btn-sm ef-quiz-deck" style="flex: 1;">
               <i class="fas fa-question-circle"></i> Quiz
@@ -315,12 +334,13 @@
         deleteDeck(did);
       });
       card.querySelector('.ef-study-deck')?.addEventListener('click', () => startStudy(did));
+      card.querySelector('.ef-shuffle-deck')?.addEventListener('click', () => startStudy(did, { shuffle: true }));
       card.querySelector('.ef-quiz-deck')?.addEventListener('click', () => startQuiz(did));
     });
   }
 
   // Open 3D Study Session Modal
-  function startStudy(deckId) {
+  function startStudy(deckId, options = {}) {
     loadDecks();
     const deck = decks.find(d => String(d.id) === String(deckId));
     if (!deck || !deck.cards || deck.cards.length === 0) {
@@ -329,6 +349,8 @@
     }
 
     currentActiveDeck = deck;
+    isShuffled = Boolean(options && options.shuffle && deck.cards.length > 1);
+    studyCards = isShuffled ? shuffleCardList(deck.cards) : [...deck.cards];
     currentCardIndex = 0;
     isCardFlipped = false;
     deck.lastStudied = Date.now();
@@ -339,15 +361,38 @@
 
     renderActiveStudyCard();
     modal.classList.add('active');
+    if (isShuffled && window.showNotification) {
+      window.showNotification('Deck shuffled for random practice!', 'info');
+    }
+  }
+
+  function shuffleDeck() {
+    if (!currentActiveDeck || !studyCards || studyCards.length === 0) return;
+    if (studyCards.length < 2) {
+      if (window.showNotification) window.showNotification('Add at least 2 cards to shuffle this deck.', 'info');
+      return;
+    }
+    studyCards = shuffleCardList(studyCards);
+    isShuffled = true;
+    currentCardIndex = 0;
+    isCardFlipped = false;
+    renderActiveStudyCard();
+    if (window.showNotification) window.showNotification('Cards shuffled!', 'info');
   }
 
   function renderActiveStudyCard() {
     const modal = document.getElementById('studyModal');
     if (!modal || !currentActiveDeck) return;
 
-    const cards = currentActiveDeck.cards;
+    const cards = studyCards.length > 0 ? studyCards : currentActiveDeck.cards;
     const card = cards[currentCardIndex];
     const total = cards.length;
+    if (!card) return;
+
+    if (_cardResetRaf !== null) {
+      cancelAnimationFrame(_cardResetRaf);
+      _cardResetRaf = null;
+    }
 
     const modalBody = modal.querySelector('.modal-body');
     const modalHeader = modal.querySelector('.modal-header');
@@ -356,7 +401,7 @@
       modalHeader.innerHTML = `
         <h3><i class="fas fa-graduation-cap"></i> ${escapeHtml(currentActiveDeck.name)}</h3>
         <div style="display:flex; align-items:center; gap:12px;">
-          <span style="font-size:0.8rem; font-weight:700; color:var(--accent, #cf6215);">Card ${currentCardIndex + 1} of ${total}</span>
+          <span style="font-size:0.8rem; font-weight:700; color:var(--accent, #cf6215);">Card ${currentCardIndex + 1} of ${total}${isShuffled ? ' · Shuffled' : ''}</span>
           <button class="modal-close" onclick="window.EnhancedFlashcards.closeStudy()"><i class="fas fa-times"></i></button>
         </div>
       `;
@@ -371,7 +416,7 @@
 
         <!-- 3D Flip Card -->
         <div class="flashcard-3d-wrapper" onclick="window.EnhancedFlashcards.flipCard()">
-          <div class="flashcard-3d-card ${isCardFlipped ? 'flipped' : ''}" id="flashcard3dCard">
+          <div class="flashcard-3d-card no-transition ${isCardFlipped ? 'flipped' : ''}" id="flashcard3dCard">
             <!-- Front Face -->
             <div class="flashcard-face front">
               <span class="card-tag-pill">Question</span>
@@ -417,17 +462,33 @@
       </div>
     `;
 
+    const cardEl = document.getElementById('flashcard3dCard');
+    if (cardEl) {
+      void cardEl.offsetWidth;
+      _cardResetRaf = requestAnimationFrame(() => {
+        _cardResetRaf = requestAnimationFrame(() => {
+          cardEl.classList.remove('no-transition');
+          _cardResetRaf = null;
+        });
+      });
+    }
+
     // Modal Footer with navigation & shuffle
     const modalFooter = modal.querySelector('.modal-footer');
     if (modalFooter) {
       modalFooter.innerHTML = `
-        <div style="display:flex; justify-content:space-between; width:100%; align-items:center;">
+        <div style="display:flex; justify-content:space-between; width:100%; align-items:center; flex-wrap:wrap; gap:8px;">
           <button type="button" class="btn btn-secondary btn-sm" onclick="window.EnhancedFlashcards.prevCard()" ${currentCardIndex === 0 ? 'disabled' : ''}>
             <i class="fas fa-arrow-left"></i> Previous
           </button>
-          <button type="button" class="btn btn-primary btn-sm" onclick="window.EnhancedFlashcards.flipCard()">
-            <i class="fas fa-sync-alt"></i> Flip Card (Space)
-          </button>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <button type="button" class="btn btn-primary btn-sm" onclick="window.EnhancedFlashcards.flipCard()">
+              <i class="fas fa-sync-alt"></i> Flip Card (Space)
+            </button>
+            <button type="button" class="btn btn-secondary btn-sm ef-shuffle-btn ${isShuffled ? 'active' : ''}" onclick="window.EnhancedFlashcards.shuffleDeck()" ${total < 2 ? 'disabled' : ''} title="Shuffle cards in this deck (S)">
+              <i class="fas fa-random"></i> Shuffle
+            </button>
+          </div>
           <button type="button" class="btn btn-secondary btn-sm" onclick="window.EnhancedFlashcards.nextCard()">
             Next <i class="fas fa-arrow-right"></i>
           </button>
@@ -439,12 +500,15 @@
   function flipCard() {
     isCardFlipped = !isCardFlipped;
     const cardEl = document.getElementById('flashcard3dCard');
-    if (cardEl) cardEl.classList.toggle('flipped', isCardFlipped);
+    if (cardEl) {
+      cardEl.classList.remove('no-transition');
+      cardEl.classList.toggle('flipped', isCardFlipped);
+    }
   }
 
   function nextCard() {
     if (!currentActiveDeck) return;
-    if (currentCardIndex < currentActiveDeck.cards.length - 1) {
+    if (currentCardIndex < studyCards.length - 1) {
       currentCardIndex++;
       isCardFlipped = false;
       renderActiveStudyCard();
@@ -463,21 +527,21 @@
   }
 
   function rateCard(ratingLevel) {
-    if (!currentActiveDeck || !currentActiveDeck.cards[currentCardIndex]) return;
-    currentActiveDeck.cards[currentCardIndex].mastery = ratingLevel;
+    if (!currentActiveDeck || !studyCards[currentCardIndex]) return;
+    studyCards[currentCardIndex].mastery = ratingLevel;
     saveDecks();
     nextCard();
   }
 
   function speakFront() {
     if (!currentActiveDeck) return;
-    const text = currentActiveDeck.cards[currentCardIndex]?.front;
+    const text = studyCards[currentCardIndex]?.front;
     if (text && window.AccessibilityManager) window.AccessibilityManager.speak(text);
   }
 
   function speakBack() {
     if (!currentActiveDeck) return;
-    const text = currentActiveDeck.cards[currentCardIndex]?.back;
+    const text = studyCards[currentCardIndex]?.back;
     if (text && window.AccessibilityManager) window.AccessibilityManager.speak(text);
   }
 
@@ -513,14 +577,18 @@
     if (modalFooter) {
       const finishedDeckId = currentActiveDeck.id;
       modalFooter.innerHTML = `
-        <div style="display:flex; gap:10px; width:100%; justify-content:center;">
+        <div style="display:flex; gap:10px; width:100%; justify-content:center; flex-wrap:wrap;">
           <button type="button" class="btn btn-secondary ef-finish-close">Close</button>
+          <button type="button" class="btn btn-secondary ef-finish-shuffle">
+            <i class="fas fa-random"></i> Shuffle & Review
+          </button>
           <button type="button" class="btn btn-primary ef-finish-retry">
             <i class="fas fa-redo"></i> Review Again
           </button>
         </div>
       `;
       modalFooter.querySelector('.ef-finish-close')?.addEventListener('click', closeStudy);
+      modalFooter.querySelector('.ef-finish-shuffle')?.addEventListener('click', () => startStudy(finishedDeckId, { shuffle: true }));
       modalFooter.querySelector('.ef-finish-retry')?.addEventListener('click', () => startStudy(finishedDeckId));
     }
 
@@ -531,6 +599,8 @@
     const modal = document.getElementById('studyModal');
     if (modal) modal.classList.remove('active');
     currentActiveDeck = null;
+    studyCards = [];
+    isShuffled = false;
     renderDecks();
   }
 
@@ -740,7 +810,8 @@
   // Keyboard navigation for Study Mode
   window.addEventListener('keydown', (e) => {
     const studyModal = document.getElementById('studyModal');
-    if (!studyModal || !studyModal.classList.contains('active')) return;
+    if (!studyModal || !studyModal.classList.contains('active') || !currentActiveDeck) return;
+    if (e.target && e.target.closest && e.target.closest('input, textarea, [contenteditable]')) return;
 
     if (e.code === 'Space' || e.key === 'Enter') {
       e.preventDefault();
@@ -751,6 +822,9 @@
     } else if (e.key === 'ArrowLeft') {
       e.preventDefault();
       prevCard();
+    } else if (e.key === 's' || e.key === 'S') {
+      e.preventDefault();
+      shuffleDeck();
     } else if (e.key === '1') {
       rateCard(0);
     } else if (e.key === '2') {
@@ -768,6 +842,7 @@
     saveDecks,
     renderDecks,
     startStudy,
+    shuffleDeck,
     startQuiz,
     openEditor,
     deleteDeck,

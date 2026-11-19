@@ -4,7 +4,7 @@
  * Caches accessed PDFs and supports offline fallback on Web / PWA.
  * ========================================================================= */
 
-const CACHE_SHELL = 'questionary-shell-v243';
+const CACHE_SHELL = 'questionary-shell-v244';
 const CACHE_DOCS = 'questionary-docs-v1';
 
 const PRECACHE_URLS = [

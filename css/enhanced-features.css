@@ -242,14 +242,43 @@ body.dyslexic-font, body.dyslexic-font * {
 
 .flashcard-face.front {
     background: linear-gradient(135deg, var(--surface, #1e1f22) 0%, rgba(30, 31, 34, 0.95) 100%);
+    transform: rotateY(0deg);
+    -webkit-transform: rotateY(0deg);
     color: var(--fg, #f4f4f5);
+    visibility: visible;
+    transition: visibility 0s 0.25s;
 }
 
 .flashcard-face.back {
     background: linear-gradient(135deg, #18191c 0%, rgba(207, 98, 21, 0.12) 100%);
     transform: rotateY(180deg);
+    -webkit-transform: rotateY(180deg);
     color: var(--fg, #f4f4f5);
     border-color: rgba(207, 98, 21, 0.4);
+    visibility: hidden;
+    transition: visibility 0s 0.25s;
+}
+
+.flashcard-3d-card.flipped .flashcard-face.front {
+    visibility: hidden;
+    transition: visibility 0s 0.25s;
+}
+
+.flashcard-3d-card.flipped .flashcard-face.back {
+    visibility: visible;
+    transition: visibility 0s 0.25s;
+}
+
+.flashcard-3d-card.no-transition,
+.flashcard-3d-card.no-transition .flashcard-face {
+    transition: none !important;
+    -webkit-transition: none !important;
+}
+
+.ef-shuffle-btn.active {
+    border-color: var(--accent, #cf6215) !important;
+    color: var(--accent, #cf6215) !important;
+    background: rgba(207, 98, 21, 0.14) !important;
 }
 
 .card-tag-pill {
