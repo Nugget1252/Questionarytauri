@@ -162,27 +162,33 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
       return nodes.filter(n => n.parent_id === currentParentId);
     },
 
-    search(keyword) {
-      const nodes = this.getNodes();
-      const cleanKw = keyword.toLowerCase();
-      const matches = nodes.filter(n => n.name.toLowerCase().includes(cleanKw));
-
-      return matches.map(m => {
+    getAllNodesWithPaths() {
+      let nodes = this.getNodes();
+      if (nodes.length === 0) {
+        nodes = this.seedDefaultLibrary();
+      }
+      const byId = new Map(nodes.map(n => [n.id, n]));
+      return nodes.map(m => {
         const pathArray = [];
         let cur = m;
-        while (cur && cur.parent_id !== null) {
-          const parent = nodes.find(n => n.id === cur.parent_id);
-          if (parent) { pathArray.unshift(parent.name); cur = parent; }
-          else break;
+        let guard = 0;
+        while (cur && guard < 16) {
+          pathArray.unshift(cur.name);
+          cur = cur.parent_id !== null && cur.parent_id !== undefined ? byId.get(cur.parent_id) : null;
+          guard++;
         }
-        pathArray.push(m.name);
         return {
+          id: m.id,
           name: m.name,
           path: pathArray,
           isFolder: m.is_folder === 1,
           url: m.file_path
         };
       });
+    },
+
+    search(keyword) {
+      return filterDocumentCatalogByQuery(this.getAllNodesWithPaths(), keyword);
     },
 
     countDocuments() {
@@ -838,26 +844,55 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
       return Array.isArray(res) ? res : [];
     },
 
-    async search(keyword) {
+    _catalogCache: null,
+
+    invalidateCatalogCache() {
+      this._catalogCache = null;
+    },
+
+    async getAllNodesWithPaths() {
       if (!this.db && !this.isFallback && !this._isInternalInit) {
         await this.init();
       }
-      if (this.isFallback || !this.db) {
-        return LocalNodeStore.search(keyword);
+      if (this._catalogCache && this._catalogCache.length > 0) {
+        return this._catalogCache;
       }
-      const res = await this.query("SELECT * FROM nodes WHERE name LIKE ?", [`%${keyword}%`]);
-      const results = [];
-      for (const item of res) {
-        const pathArray = await this.buildPath(item.parent_id);
-        pathArray.push(item.name);
-        results.push({
+      if (this.isFallback || !this.db) {
+        const list = LocalNodeStore.getAllNodesWithPaths().map(enrichDocumentNode);
+        this._catalogCache = list;
+        return list;
+      }
+      const rows = await this.query("SELECT id, parent_id, name, is_folder, file_path FROM nodes");
+      const byId = new Map((rows || []).map(r => [r.id, r]));
+      const list = (rows || []).map(item => {
+        const pathArray = [];
+        let cur = item;
+        let guard = 0;
+        while (cur && guard < 16) {
+          pathArray.unshift(cur.name);
+          cur = cur.parent_id !== null && cur.parent_id !== undefined ? byId.get(cur.parent_id) : null;
+          guard++;
+        }
+        return enrichDocumentNode({
+          id: item.id,
           name: item.name,
           path: pathArray,
           isFolder: item.is_folder === 1,
           url: item.file_path
         });
-      }
-      return results;
+      });
+      this._catalogCache = list;
+      return list;
+    },
+
+    async getAllDocuments() {
+      const all = await this.getAllNodesWithPaths();
+      return all.filter(item => !item.isFolder && item.url && item.url !== '#');
+    },
+
+    async search(keyword) {
+      const all = await this.getAllNodesWithPaths();
+      return filterDocumentCatalogByQuery(all, keyword);
     },
 
     async buildPath(parentId) {
@@ -1149,14 +1184,362 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
     renderTilesFromDb(nodes);
     updateBreadcrumb();
     await updateDashboardStats();
+    if (typeof initPdfTagFilterSystem === 'function') {
+      initPdfTagFilterSystem().catch(() => {});
+    }
   }
 
   function showAutoLoginNotification(username) {
     showNotification(`Welcome back, ${username}!`, 'success');
   }
 
+  // ================================================================
+  // DOCUMENT METADATA EXTRACTION, SEARCH SORTING & PDF TAG FILTERING
+  // ================================================================
+  const DOC_SUBJECT_PATTERNS = [
+    ['English Language', /english[_\s-]*language|eng[_\s-]*lang/i],
+    ['English Literature', /english[_\s-]*literature|eng[_\s-]*lit|literature/i],
+    ['Computer Applications', /computer[_\s-]*app|computer|\bca\b|_ca_/i],
+    ['Commercial Studies', /commercial[_\s-]*studies|comm[_\s-]*std|commerce/i],
+    ['Environmental Applications', /environmental[_\s-]*app|10eva|\beva\b|_eva_/i],
+    ['Environmental Science', /environmental[_\s-]*sci|\bevs\b|_evs_/i],
+    ['History & Civics', /history/i],
+    ['Physical Education', /physical[_\s-]*ed|\bpe\b|_pe_/i],
+    ['Home Science', /home[_\s-]*sci/i],
+    ['Robotics & AI', /robotics/i],
+    ['Mathematics', /mathematics|\bmaths?\b|_math/i],
+    ['Bengali', /bengali/i],
+    ['Hindi', /hindi/i],
+    ['French', /french/i],
+    ['German', /german/i],
+    ['Physics', /physics|current electricity|magnetism|sound waves/i],
+    ['Chemistry', /chemistry/i],
+    ['Biology', /biology/i],
+    ['Economics', /economics|eco[_\s-]*app/i],
+    ['Geography', /geop?graphy/i],
+    ['Science', /\bscience\b/i]
+  ];
+
+  const EXAM_TERM_ORDER = {
+    'Pre-Board': 1,
+    'Final Term': 2,
+    'Half Yearly': 3,
+    'Mid Term 2': 4,
+    'Mid Term 1': 5,
+    'Notes & Reference': 6
+  };
+
+  const EXAM_TERM_DISPLAY = {
+    'Pre-Board': 'Pre-Board',
+    'Final Term': 'Final / Full Term',
+    'Half Yearly': 'Half Yearly',
+    'Mid Term 1': 'Mid Term 1',
+    'Mid Term 2': 'Mid Term 2',
+    'Notes & Reference': 'Notes & Reference'
+  };
+
+  const EXAM_TERM_MONTH = {
+    'Mid Term 1': 4,
+    'Half Yearly': 7,
+    'Mid Term 2': 10,
+    'Pre-Board': 12,
+    'Final Term': 13,
+    'Notes & Reference': 6
+  };
+
+  function normalizeSearchAliases(raw) {
+    return String(raw || '')
+      .toLowerCase()
+      .replace(/\bpre[\s-]*boards?\b/g, 'pre-board')
+      .replace(/\bfull[\s-]*term\b/g, 'final term')
+      .replace(/\bfinal[\s-]*term\b/g, 'final term')
+      .replace(/\bhalf[\s-]*yearly\b/g, 'half yearly')
+      .replace(/\bmid[\s-]*term[\s-]*1\b/g, 'mid term 1')
+      .replace(/\bmid[\s-]*term[\s-]*2\b/g, 'mid term 2')
+      .replace(/\bmaths\b/g, 'mathematics')
+      .replace(/\bmath\b/g, 'mathematics')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function enrichDocumentNode(rawItem) {
+    if (!rawItem) return rawItem;
+    const pathArr = Array.isArray(rawItem.path) ? rawItem.path : [];
+    const fp = String(rawItem.url || '');
+    const name = String(rawItem.name || '');
+    const combined = `${name} ${fp} ${pathArr.join(' ')}`;
+
+    let subject = '';
+    if (!rawItem.isFolder) {
+      for (const [label, rx] of DOC_SUBJECT_PATTERNS) {
+        if (rx.test(`${name} ${fp}`)) {
+          subject = label;
+          break;
+        }
+      }
+      if (!subject) {
+        for (const [label, rx] of DOC_SUBJECT_PATTERNS) {
+          if (rx.test(combined)) {
+            subject = label;
+            break;
+          }
+        }
+      }
+    }
+
+    const yearMatch = pathArr.find(s => /^20\d{2}-\d{2}$/.test(s)) || (fp.match(/20\d{2}-\d{2}/) || [null])[0];
+    const academicYear = yearMatch || (pathArr[0] === 'Study Material' ? 'Study Material' : '');
+    const yearStart = yearMatch ? parseInt(yearMatch.slice(0, 4), 10) : 0;
+
+    const classSeg = pathArr.find(s => /^Class\s+\d+$/i.test(s));
+    const classFromFp = !classSeg ? fp.match(/CL[_\s]*(\d+)/i) : null;
+    const classLevel = classSeg || (classFromFp ? `Class ${classFromFp[1]}` : '');
+
+    let examTerm = '';
+    for (const seg of pathArr) {
+      if (Object.prototype.hasOwnProperty.call(EXAM_TERM_ORDER, seg)) {
+        examTerm = seg;
+        break;
+      }
+    }
+    if (!examTerm && !rawItem.isFolder) {
+      if (/pre[\s_-]*board|_pb_/i.test(combined)) examTerm = 'Pre-Board';
+      else if (/_ft_|final[\s_-]*term|full[\s_-]*term/i.test(combined)) examTerm = 'Final Term';
+      else if (/_hy_|half[\s_-]*yearly/i.test(combined)) examTerm = 'Half Yearly';
+      else if (/mt[_\s]*1|mid[\s_-]*term[\s_-]*1/i.test(combined)) examTerm = 'Mid Term 1';
+      else if (/mt[_\s]*2|mid[\s_-]*term[\s_-]*2/i.test(combined)) examTerm = 'Mid Term 2';
+      else if (pathArr[0] === 'Study Material') examTerm = 'Notes & Reference';
+    }
+
+    const monthRank = EXAM_TERM_MONTH[examTerm] || 1;
+    const sortDate = yearStart > 0 ? (yearStart * 100 + monthRank) : (pathArr[0] === 'Study Material' ? 199900 : 0);
+
+    let displayName = name;
+    if (!rawItem.isFolder && subject) {
+      if (/^(I|II|III)$/i.test(name.trim())) {
+        displayName = `${subject} — Paper ${name.trim().toUpperCase()}`;
+      } else if (/^(20\d{2}|SET\s*[A-Z]|CLASS.*HY)$/i.test(name.trim())) {
+        displayName = `${subject} (${name.trim()})`;
+      }
+    }
+
+    let category = rawItem.isFolder ? 'Folder' : 'PDF Document';
+    if (pathArr[0] === 'Study Material') category = 'Study Material';
+
+    return {
+      ...rawItem,
+      displayName,
+      subject,
+      examTerm,
+      classLevel,
+      academicYear,
+      yearStart,
+      sortDate,
+      category,
+      docItemId: rawItem.isFolder ? `folder_${pathArr.join('/')}` : `doc_${pathArr.join('/')}`
+    };
+  }
+
+  function getUserItemTagsMap() {
+    try {
+      return window.itemTags || JSON.parse(localStorage.getItem('questionary-item-tags') || '{}');
+    } catch (e) {
+      return {};
+    }
+  }
+
+  function getUserTagsList() {
+    try {
+      return window.tags || JSON.parse(localStorage.getItem('questionary-tags') || '[]');
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function computeRelevanceScore(item, normalizedQuery, tokens) {
+    const title = normalizeSearchAliases(item.displayName || item.name || '');
+    const rawName = normalizeSearchAliases(item.name || '');
+    const subject = normalizeSearchAliases(item.subject || '');
+    const exam = normalizeSearchAliases(item.examTerm || '');
+    const pathText = normalizeSearchAliases((item.path || []).join(' '));
+    const extraText = normalizeSearchAliases(item._extraSearchText || '');
+
+    let score = 0;
+    if (title === normalizedQuery || rawName === normalizedQuery || subject === normalizedQuery) score += 140;
+    else if (title.startsWith(normalizedQuery) || subject.startsWith(normalizedQuery)) score += 95;
+    else if (title.includes(normalizedQuery)) score += 65;
+
+    tokens.forEach(tok => {
+      if (!tok) return;
+      if (title === tok || subject === tok) score += 45;
+      else if (title.includes(tok) || subject.includes(tok)) score += 28;
+      if (exam.includes(tok)) score += 22;
+      if (pathText.includes(tok)) score += 12;
+      if (extraText && extraText.includes(tok)) score += 10;
+    });
+
+    if (!item.isFolder && tokens.length > 1) score += 10;
+    if (item.yearStart) score += Math.max(0, item.yearStart - 2019);
+    return score;
+  }
+
+  function filterDocumentCatalogByQuery(catalog, keyword) {
+    const normQuery = normalizeSearchAliases(keyword);
+    if (!normQuery) return [];
+    const tokens = normQuery.split(' ').filter(Boolean);
+    const itemTagsMap = getUserItemTagsMap();
+    const userTagsById = new Map(getUserTagsList().map(t => [String(t.id), t.name || '']));
+
+    const matched = [];
+    for (const raw of catalog) {
+      const item = raw.displayName ? raw : enrichDocumentNode(raw);
+      const assignedTagIds = itemTagsMap[item.docItemId] || [];
+      const customTagNames = assignedTagIds.map(tid => userTagsById.get(String(tid)) || '').filter(Boolean);
+
+      const haystack = normalizeSearchAliases([
+        item.name,
+        item.displayName,
+        item.subject,
+        item.examTerm,
+        item.examTerm === 'Final Term' ? 'full term' : '',
+        item.classLevel,
+        item.academicYear,
+        (item.path || []).join(' '),
+        item.url || '',
+        customTagNames.join(' ')
+      ].join(' '));
+
+      const allMatch = tokens.every(tok => haystack.includes(tok));
+      if (allMatch) {
+        matched.push({
+          ...item,
+          customTagNames,
+          relevance: computeRelevanceScore(item, normQuery, tokens)
+        });
+      }
+    }
+    return matched;
+  }
+
+  let _lastSearchResults = [];
+  let _lastSearchQuery = '';
+  let _currentSearchSort = localStorage.getItem('questionary-search-sort') || 'relevance';
+
+  function getSearchCategoryRank(cat) {
+    const order = {
+      'PDF Document': 1,
+      'Study Material': 2,
+      'Folder': 3,
+      'Note': 4,
+      'Flashcard': 5,
+      'Study Planner': 6
+    };
+    return order[cat] || 99;
+  }
+
+  function sortSearchFindings(list, sortMode) {
+    const arr = [...list];
+    switch (sortMode) {
+      case 'date-desc':
+        return arr.sort((a, b) => (b.sortDate || 0) - (a.sortDate || 0) || (b.relevance || 0) - (a.relevance || 0) || (a.displayName || a.name).localeCompare(b.displayName || b.name));
+      case 'date-asc':
+        return arr.sort((a, b) => {
+          const da = a.sortDate || Number.MAX_SAFE_INTEGER;
+          const db = b.sortDate || Number.MAX_SAFE_INTEGER;
+          return da - db || (b.relevance || 0) - (a.relevance || 0);
+        });
+      case 'category':
+        return arr.sort((a, b) => {
+          const catDiff = getSearchCategoryRank(a.category) - getSearchCategoryRank(b.category);
+          if (catDiff !== 0) return catDiff;
+          return (b.relevance || 0) - (a.relevance || 0) || (a.displayName || a.name).localeCompare(b.displayName || b.name);
+        });
+      case 'name-asc':
+        return arr.sort((a, b) => (a.displayName || a.name).localeCompare(b.displayName || b.name));
+      case 'relevance':
+      default:
+        return arr.sort((a, b) => (b.relevance || 0) - (a.relevance || 0) || (b.sortDate || 0) - (a.sortDate || 0) || (a.displayName || a.name).localeCompare(b.displayName || b.name));
+    }
+  }
+
+  function renderSearchResults() {
+    const searchResults = document.getElementById('searchResults');
+    const resultsContainer = document.getElementById('searchResultsContainer');
+    const countEl = document.getElementById('searchResultsCount');
+    const sortSelect = document.getElementById('searchResultsSort');
+    if (!searchResults || !resultsContainer) return;
+
+    if (sortSelect && sortSelect.value !== _currentSearchSort) {
+      sortSelect.value = _currentSearchSort;
+    }
+
+    const total = _lastSearchResults.length;
+    if (countEl) {
+      countEl.textContent = `${total} ${total === 1 ? 'result' : 'results'}`;
+    }
+
+    if (total === 0) {
+      resultsContainer.innerHTML = '<div style="padding: 1.25rem; text-align: center; color: var(--fg3); font-size: 0.84rem;">No results found for your search.</div>';
+      searchResults.style.display = 'block';
+      return;
+    }
+
+    const sorted = sortSearchFindings(_lastSearchResults, _currentSearchSort);
+    const sliced = sorted.slice(0, 40);
+    let lastCategory = null;
+
+    resultsContainer.innerHTML = sliced.map((r, idx) => {
+      let icon = r.isFolder ? 'fa-folder' : 'fa-file-pdf';
+      if (r.isNote) icon = 'fa-sticky-note';
+      if (r.isFlashcard) icon = 'fa-layer-group';
+      if (r.isSession) icon = 'fa-calendar-alt';
+
+      let groupHeader = '';
+      if (_currentSearchSort === 'category' && r.category !== lastCategory) {
+        lastCategory = r.category;
+        groupHeader = `<div class="search-results-group-label">${escapeHtml(r.category)}</div>`;
+      }
+
+      const badges = [];
+      if (r.examTerm) badges.push(`<span class="search-result-badge">${escapeHtml(EXAM_TERM_DISPLAY[r.examTerm] || r.examTerm)}</span>`);
+      if (r.academicYear && r.academicYear !== 'Study Material') badges.push(`<span class="search-result-badge">${escapeHtml(r.academicYear)}</span>`);
+      else if (r.dateLabel) badges.push(`<span class="search-result-badge">${escapeHtml(r.dateLabel)}</span>`);
+      badges.push(`<span class="search-result-badge category">${escapeHtml(r.category || 'Document')}</span>`);
+
+      return `
+        ${groupHeader}
+        <div class="search-result-item" data-result-index="${idx}">
+          <i class="fas ${icon}"></i>
+          <div class="search-result-info">
+            <span class="search-result-name">${escapeHtml(r.displayName || r.name)}</span>
+            <span class="search-result-path">${escapeHtml((r.path || []).join(' › '))}</span>
+          </div>
+          <div class="search-result-badges">${badges.join('')}</div>
+        </div>
+      `;
+    }).join('');
+
+    resultsContainer.querySelectorAll('.search-result-item').forEach((el) => {
+      el.addEventListener('click', () => {
+        clearTimeout(_searchHistoryTimer);
+        if (_lastSearchQuery.length >= 2 && typeof addToSearchHistory === 'function') addToSearchHistory(_lastSearchQuery);
+        const r = sliced[Number(el.dataset.resultIndex)];
+        if (!r) return;
+        if (r.isNote) navigateToNote(r.noteId);
+        else if (r.isFlashcard) navigateToFlashcard(r.deckId);
+        else if (r.isSession) navigateToSession(r.sessionId);
+        else navigateToSearchResult(r.path, r.url || '');
+      });
+    });
+
+    searchResults.style.display = 'block';
+  }
+
   async function performSearch(e) {
-    const query = (typeof e === 'string' ? e : (e?.target?.value || '')).trim();
+    const rawVal = typeof e === 'string'
+      ? e
+      : (e?.target?.value ?? document.getElementById('globalSearch')?.value ?? '');
+    const query = String(rawVal).trim();
     const searchResults = document.getElementById('searchResults');
     const historyDropdown = document.getElementById('searchHistoryDropdown');
 
@@ -1166,6 +1549,8 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
 
     if (!query || query.length < 2) {
       clearTimeout(_searchHistoryTimer);
+      _lastSearchResults = [];
+      _lastSearchQuery = '';
       if (searchResults) searchResults.style.display = 'none';
       return;
     }
@@ -1182,8 +1567,11 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
       }, 800);
     }
 
+    const normQuery = normalizeSearchAliases(query);
+    const tokens = normQuery.split(' ').filter(Boolean);
     const results = [];
-    const sqlResults = await DbService.search(query.toLowerCase());
+
+    const sqlResults = await DbService.search(query);
     results.push(...sqlResults);
 
     const activeNotes = (window.EnhancedNotes && typeof window.EnhancedNotes.getNotes === 'function')
@@ -1191,9 +1579,25 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
       : notes;
     if (activeNotes && activeNotes.length > 0) {
       activeNotes.forEach(note => {
-        if ((note.title || '').toLowerCase().includes(query.toLowerCase()) ||
-          (note.content || '').toLowerCase().includes(query.toLowerCase())) {
-          results.push({ name: note.title, path: ['Notes'], isFolder: false, isNote: true, noteId: note.id, url: null });
+        const hay = normalizeSearchAliases(`${note.title || ''} ${note.category || ''} ${note.content || ''}`);
+        if (tokens.every(t => hay.includes(t))) {
+          const ts = Number(note.updatedAt) || Date.now();
+          const d = new Date(ts);
+          const item = {
+            name: note.title,
+            displayName: note.title,
+            path: ['Notes', note.category || 'General'],
+            isFolder: false,
+            isNote: true,
+            noteId: note.id,
+            url: null,
+            category: 'Note',
+            sortDate: d.getFullYear() * 100 + (d.getMonth() + 1),
+            dateLabel: d.toLocaleDateString(),
+            _extraSearchText: note.content || ''
+          };
+          item.relevance = computeRelevanceScore(item, normQuery, tokens);
+          results.push(item);
         }
       });
     }
@@ -1203,66 +1607,693 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
       : flashcardDecks;
     if (activeDecks && activeDecks.length > 0) {
       activeDecks.forEach(deck => {
-        if ((deck.name || '').toLowerCase().includes(query.toLowerCase())) {
-          results.push({ name: deck.name, path: ['Flashcards'], isFolder: false, isFlashcard: true, deckId: deck.id, url: null });
+        const cardText = (deck.cards || []).map(c => `${c.front || ''} ${c.back || ''}`).join(' ');
+        const hay = normalizeSearchAliases(`${deck.name || ''} ${deck.subject || ''} ${cardText}`);
+        if (tokens.every(t => hay.includes(t))) {
+          const titleMatches = tokens.every(t => normalizeSearchAliases(`${deck.name || ''} ${deck.subject || ''}`).includes(t));
+          const ts = Number(deck.lastStudied || deck.createdAt) || Date.now();
+          const d = new Date(ts);
+          const item = {
+            name: titleMatches ? deck.name : `${deck.name} (card match)`,
+            displayName: titleMatches ? deck.name : `${deck.name} (card match)`,
+            path: ['Flashcards', deck.subject || 'General'],
+            isFolder: false,
+            isFlashcard: true,
+            deckId: deck.id,
+            url: null,
+            category: 'Flashcard',
+            sortDate: d.getFullYear() * 100 + (d.getMonth() + 1),
+            dateLabel: `${(deck.cards || []).length} cards`,
+            _extraSearchText: cardText
+          };
+          item.relevance = computeRelevanceScore(item, normQuery, tokens);
+          results.push(item);
         }
-        (deck.cards || []).forEach(card => {
-          if ((card.front || '').toLowerCase().includes(query.toLowerCase()) || (card.back || '').toLowerCase().includes(query.toLowerCase())) {
-            const alreadyAdded = results.some(r => r.deckId === deck.id);
-            if (!alreadyAdded) {
-              results.push({ name: `${deck.name} (card match)`, path: ['Flashcards'], isFolder: false, isFlashcard: true, deckId: deck.id, url: null });
-            }
-          }
-        });
       });
     }
 
     if (studySessions && studySessions.length > 0) {
       studySessions.forEach(session => {
-        if (session.subject.toLowerCase().includes(query.toLowerCase())) {
-          results.push({ name: session.subject, path: ['Study Planner', session.date], isFolder: false, isSession: true, sessionId: session.id, url: null });
+        const hay = normalizeSearchAliases(`${session.subject || ''} ${session.date || ''}`);
+        if (tokens.every(t => hay.includes(t))) {
+          const parsedDate = session.date ? new Date(session.date) : new Date();
+          const item = {
+            name: session.subject,
+            displayName: session.subject,
+            path: ['Study Planner', session.date || ''],
+            isFolder: false,
+            isSession: true,
+            sessionId: session.id,
+            url: null,
+            category: 'Study Planner',
+            sortDate: parsedDate.getFullYear() * 100 + (parsedDate.getMonth() + 1),
+            dateLabel: session.date || ''
+          };
+          item.relevance = computeRelevanceScore(item, normQuery, tokens);
+          results.push(item);
         }
       });
     }
 
-    if (searchResults) {
-      if (results.length === 0) {
-        searchResults.innerHTML = '<div style="padding: 1rem; text-align: center; color: var(--text-secondary);">No results found</div>';
-      } else {
-        const sliced = results.slice(0, 15);
-        searchResults.innerHTML = sliced.map((r, idx) => {
-          let icon = r.isFolder ? 'fa-folder' : 'fa-file-pdf';
-          if (r.isNote) icon = 'fa-sticky-note';
-          if (r.isFlashcard) icon = 'fa-layer-group';
-          if (r.isSession) icon = 'fa-calendar-alt';
+    _lastSearchResults = results;
+    _lastSearchQuery = query;
+    renderSearchResults();
+  }
 
-          return `
-          <div class="search-result-item" data-result-index="${idx}">
-          <i class="fas ${icon}"></i>
-          <div class="search-result-info">
-          <span class="search-result-name">${escapeHtml(r.name)}</span>
-          <span class="search-result-path">${escapeHtml((r.path || []).join(' > '))}</span>
-          </div>
-          </div>
-          `;
-        }).join('');
+  // ================================================================
+  // COMBINABLE MULTI-TAG PDF FILTERING & SORTING SYSTEM
+  // (e.g. Subject: Bengali + Exam Term: Pre-Board / Final Term)
+  // ================================================================
+  const PDF_RECENT_TAGS_KEY = 'questionary-pdf-recent-tags';
+  const PDF_TAG_GROUP_SHORT_LABEL = {
+    term: 'Exam',
+    subject: 'Subject',
+    classLevel: 'Class',
+    year: 'Year',
+    custom: 'Tag'
+  };
+  const PDF_TAG_SEARCH_SYNONYMS = {
+    'Pre-Board': 'pb preboard pre board',
+    'Final Term': 'ft full term final term annual',
+    'Half Yearly': 'hy half yearly',
+    'Mid Term 1': 'mt1 mt 1 mid term 1',
+    'Mid Term 2': 'mt2 mt 2 mid term 2',
+    'Notes & Reference': 'notes reference study material',
+    'Environmental Applications': 'eva env app',
+    'Environmental Science': 'evs env sci',
+    'Computer Applications': 'ca comp computer cs',
+    'Commercial Studies': 'comm commerce cs',
+    'Physical Education': 'pe ped sports',
+    'English Language': 'eng lang grammar',
+    'English Literature': 'eng lit literature',
+    'History & Civics': 'hist civics sst',
+    'Home Science': 'home sci',
+    'Mathematics': 'math maths',
+    'Physics': 'phy',
+    'Chemistry': 'chem',
+    'Biology': 'bio',
+    'Economics': 'eco econ',
+    'Geography': 'geo',
+    'Robotics & AI': 'ai robotics'
+  };
 
-        searchResults.querySelectorAll('.search-result-item').forEach((el) => {
-          el.addEventListener('click', () => {
-            clearTimeout(_searchHistoryTimer);
-            if (query.length >= 2 && typeof addToSearchHistory === 'function') addToSearchHistory(query);
-            const r = sliced[Number(el.dataset.resultIndex)];
-            if (!r) return;
-            if (r.isNote) navigateToNote(r.noteId);
-            else if (r.isFlashcard) navigateToFlashcard(r.deckId);
-            else if (r.isSession) navigateToSession(r.sessionId);
-            else navigateToSearchResult(r.path, r.url || '');
-          });
-        });
-      }
-      searchResults.style.display = 'block';
+  function loadRecentPdfTags() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(PDF_RECENT_TAGS_KEY) || '[]');
+      if (!Array.isArray(raw)) return [];
+      return raw.filter(item => item && typeof item.group === 'string' && typeof item.value === 'string');
+    } catch (e) {
+      return [];
     }
   }
+
+  function saveRecentPdfTags(list) {
+    try {
+      localStorage.setItem(PDF_RECENT_TAGS_KEY, JSON.stringify(list.slice(0, 16)));
+    } catch (e) {}
+  }
+
+  function recordRecentPdfTag(group, value) {
+    if (!group || !value) return;
+    const list = loadRecentPdfTags();
+    const existing = list.find(item => item.group === group && item.value === value);
+    if (existing) {
+      existing.count = (Number(existing.count) || 1) + 1;
+      existing.lastUsed = Date.now();
+    } else {
+      list.unshift({ group, value, count: 1, lastUsed: Date.now() });
+    }
+    list.sort((a, b) => {
+      const scoreA = (Number(a.lastUsed) || 0) + (Number(a.count) || 1) * 3600000 * 6;
+      const scoreB = (Number(b.lastUsed) || 0) + (Number(b.count) || 1) * 3600000 * 6;
+      return scoreB - scoreA;
+    });
+    saveRecentPdfTags(list);
+  }
+
+  function clearRecentPdfTags() {
+    try {
+      localStorage.removeItem(PDF_RECENT_TAGS_KEY);
+    } catch (e) {}
+    renderPdfTagFilterUI();
+  }
+
+  function highlightTagText(displayLabel, rawQuery) {
+    const safeLabel = escapeHtml(displayLabel);
+    const q = String(rawQuery || '').trim();
+    if (!q) return safeLabel;
+    const escapedQuery = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    try {
+      const rx = new RegExp(`(${escapedQuery})`, 'ig');
+      return safeLabel.replace(rx, '<mark class="pdf-tag-highlight">$1</mark>');
+    } catch (e) {
+      return safeLabel;
+    }
+  }
+
+  function togglePdfTagSelection(group, val) {
+    if (!group || !pdfTagFilterState[group]) return;
+    if (pdfTagFilterState[group].has(val)) {
+      pdfTagFilterState[group].delete(val);
+    } else {
+      pdfTagFilterState[group].add(val);
+      recordRecentPdfTag(group, val);
+    }
+    applyPdfTagFilters();
+  }
+
+  const pdfTagFilterState = {
+    subject: new Set(),
+    term: new Set(),
+    classLevel: new Set(),
+    year: new Set(),
+    custom: new Set(),
+    sortBy: localStorage.getItem('questionary-pdf-tag-sort') || 'date-desc',
+    tagSearch: '',
+    initialized: false,
+    allDocs: []
+  };
+
+  function hasActivePdfTagFilters() {
+    return (
+      pdfTagFilterState.subject.size > 0 ||
+      pdfTagFilterState.term.size > 0 ||
+      pdfTagFilterState.classLevel.size > 0 ||
+      pdfTagFilterState.year.size > 0 ||
+      pdfTagFilterState.custom.size > 0
+    );
+  }
+
+  function getActivePdfTagCount() {
+    return (
+      pdfTagFilterState.subject.size +
+      pdfTagFilterState.term.size +
+      pdfTagFilterState.classLevel.size +
+      pdfTagFilterState.year.size +
+      pdfTagFilterState.custom.size
+    );
+  }
+
+  function docMatchesTagFilters(doc, ignoreGroup = null) {
+    if (ignoreGroup !== 'subject' && pdfTagFilterState.subject.size > 0) {
+      if (!doc.subject || !pdfTagFilterState.subject.has(doc.subject)) return false;
+    }
+    if (ignoreGroup !== 'term' && pdfTagFilterState.term.size > 0) {
+      if (!doc.examTerm || !pdfTagFilterState.term.has(doc.examTerm)) return false;
+    }
+    if (ignoreGroup !== 'classLevel' && pdfTagFilterState.classLevel.size > 0) {
+      if (!doc.classLevel || !pdfTagFilterState.classLevel.has(doc.classLevel)) return false;
+    }
+    if (ignoreGroup !== 'year' && pdfTagFilterState.year.size > 0) {
+      if (!doc.academicYear || !pdfTagFilterState.year.has(doc.academicYear)) return false;
+    }
+    if (ignoreGroup !== 'custom' && pdfTagFilterState.custom.size > 0) {
+      const itemTagsMap = getUserItemTagsMap();
+      const docTagIds = (itemTagsMap[doc.docItemId] || []).map(String);
+      let anyMatch = false;
+      for (const tid of pdfTagFilterState.custom) {
+        if (docTagIds.includes(String(tid))) { anyMatch = true; break; }
+      }
+      if (!anyMatch) return false;
+    }
+    return true;
+  }
+
+  function sortFilteredPdfDocs(docs, sortBy) {
+    const arr = [...docs];
+    switch (sortBy) {
+      case 'date-asc':
+        return arr.sort((a, b) => (a.sortDate || 0) - (b.sortDate || 0) || (a.subject || '').localeCompare(b.subject || ''));
+      case 'subject':
+        return arr.sort((a, b) => (a.subject || 'zzz').localeCompare(b.subject || 'zzz') || (b.sortDate || 0) - (a.sortDate || 0));
+      case 'term':
+        return arr.sort((a, b) => (EXAM_TERM_ORDER[a.examTerm] || 99) - (EXAM_TERM_ORDER[b.examTerm] || 99) || (b.sortDate || 0) - (a.sortDate || 0));
+      case 'name-asc':
+        return arr.sort((a, b) => (a.displayName || a.name).localeCompare(b.displayName || b.name));
+      case 'date-desc':
+      default:
+        return arr.sort((a, b) => (b.sortDate || 0) - (a.sortDate || 0) || (a.subject || '').localeCompare(b.subject || ''));
+    }
+  }
+
+  function renderPdfTagFilterUI() {
+    const groupsEl = document.getElementById('pdfTagGroupsContainer');
+    const recentSection = document.getElementById('pdfTagRecentSection');
+    const recentRow = document.getElementById('pdfTagRecentRow');
+    const clearRecentBtn = document.getElementById('pdfTagClearRecentBtn');
+    const searchClearBtn = document.getElementById('pdfTagSearchClearBtn');
+    const searchCountEl = document.getElementById('pdfTagSearchCount');
+    const clearBtn = document.getElementById('pdfTagClearAllBtn');
+    const badgeEl = document.getElementById('pdfTagFilterBadge');
+    const toggleBtn = document.getElementById('pdfTagFilterToggleBtn');
+    const activeBar = document.getElementById('pdfTagActiveBar');
+    const activePills = document.getElementById('pdfTagActivePills');
+    const matchCountEl = document.getElementById('pdfTagMatchCount');
+    const sortSelect = document.getElementById('pdfTagSortSelect');
+    if (!groupsEl) return;
+
+    const docs = pdfTagFilterState.allDocs || [];
+    const activeCount = getActivePdfTagCount();
+    const rawSearch = String(pdfTagFilterState.tagSearch || '').trim();
+    const searchFilter = normalizeSearchAliases(rawSearch);
+
+    if (searchClearBtn) searchClearBtn.style.display = rawSearch.length > 0 ? 'inline-flex' : 'none';
+    if (clearBtn) clearBtn.style.display = activeCount > 0 ? 'inline-flex' : 'none';
+    if (badgeEl) {
+      badgeEl.textContent = String(activeCount);
+      badgeEl.style.display = activeCount > 0 ? 'inline-flex' : 'none';
+    }
+    if (toggleBtn) toggleBtn.classList.toggle('active', activeCount > 0 || !document.getElementById('pdfTagFilterPanel')?.classList.contains('collapsed'));
+    if (sortSelect && sortSelect.value !== pdfTagFilterState.sortBy) {
+      sortSelect.value = pdfTagFilterState.sortBy;
+    }
+
+    // Build distinct tag lists from actual PDF library
+    const termSet = new Set();
+    const subjectSet = new Set();
+    const classSet = new Set();
+    const yearSet = new Set();
+    docs.forEach(d => {
+      if (d.examTerm) termSet.add(d.examTerm);
+      if (d.subject) subjectSet.add(d.subject);
+      if (d.classLevel) classSet.add(d.classLevel);
+      if (d.academicYear) yearSet.add(d.academicYear);
+    });
+
+    const termList = Array.from(termSet).sort((a, b) => (EXAM_TERM_ORDER[a] || 99) - (EXAM_TERM_ORDER[b] || 99));
+    const subjectList = Array.from(subjectSet).sort((a, b) => a.localeCompare(b));
+    const classList = Array.from(classSet).sort((a, b) => {
+      const na = parseInt(a.replace(/\D+/g, ''), 10) || 0;
+      const nb = parseInt(b.replace(/\D+/g, ''), 10) || 0;
+      return na - nb;
+    });
+    const yearList = Array.from(yearSet).sort((a, b) => {
+      if (a === 'Study Material') return 1;
+      if (b === 'Study Material') return -1;
+      return b.localeCompare(a);
+    });
+
+    const userTags = getUserTagsList();
+    const itemTagsMap = getUserItemTagsMap();
+
+    const groups = [
+      {
+        key: 'term',
+        label: 'Exam / Term',
+        items: termList.map(val => {
+          const display = EXAM_TERM_DISPLAY[val] || val;
+          const count = docs.filter(d => d.examTerm === val && docMatchesTagFilters(d, 'term')).length;
+          const extra = PDF_TAG_SEARCH_SYNONYMS[val] || '';
+          return { val, display, count, searchText: normalizeSearchAliases(`${val} ${display} ${extra} exam term`) };
+        })
+      },
+      {
+        key: 'subject',
+        label: 'Subject',
+        items: subjectList.map(val => {
+          const count = docs.filter(d => d.subject === val && docMatchesTagFilters(d, 'subject')).length;
+          const extra = PDF_TAG_SEARCH_SYNONYMS[val] || '';
+          return { val, display: val, count, searchText: normalizeSearchAliases(`${val} ${extra} subject`) };
+        })
+      },
+      {
+        key: 'classLevel',
+        label: 'Class',
+        items: classList.map(val => {
+          const count = docs.filter(d => d.classLevel === val && docMatchesTagFilters(d, 'classLevel')).length;
+          return { val, display: val, count, searchText: normalizeSearchAliases(`${val} class`) };
+        })
+      },
+      {
+        key: 'year',
+        label: 'Year',
+        items: yearList.map(val => {
+          const count = docs.filter(d => d.academicYear === val && docMatchesTagFilters(d, 'year')).length;
+          return { val, display: val, count, searchText: normalizeSearchAliases(`${val} year`) };
+        })
+      }
+    ];
+
+    if (userTags.length > 0) {
+      const customItems = userTags.map(t => {
+        const tid = String(t.id);
+        const count = docs.filter(d => {
+          const ids = (itemTagsMap[d.docItemId] || []).map(String);
+          return ids.includes(tid) && docMatchesTagFilters(d, 'custom');
+        }).length;
+        return { val: tid, display: t.name, count, searchText: normalizeSearchAliases(`${t.name} custom tag`) };
+      });
+      groups.push({ key: 'custom', label: 'My Tags', items: customItems });
+    }
+
+    // Build lookup map of all valid tags for Recently Used resolution
+    const tagLookup = new Map();
+    groups.forEach(g => {
+      g.items.forEach(it => {
+        tagLookup.set(`${g.key}::${it.val}`, { ...it, group: g.key });
+      });
+    });
+
+    // Render Recently Used section at the top of the tag filter panel
+    if (recentSection && recentRow) {
+      const storedRecent = loadRecentPdfTags();
+      const resolvedRecent = storedRecent
+        .map(entry => {
+          const info = tagLookup.get(`${entry.group}::${entry.value}`);
+          if (!info) return null;
+          return { ...info, usageCount: Number(entry.count) || 1 };
+        })
+        .filter(Boolean)
+        .slice(0, 8);
+
+      const visibleRecent = searchFilter
+        ? resolvedRecent.filter(it => it.searchText.includes(searchFilter) || pdfTagFilterState[it.group].has(it.val))
+        : resolvedRecent;
+
+      if (clearRecentBtn) {
+        clearRecentBtn.style.display = resolvedRecent.length > 0 ? 'inline-block' : 'none';
+      }
+
+      if (searchFilter && visibleRecent.length === 0) {
+        recentSection.style.display = 'none';
+      } else {
+        recentSection.style.display = 'flex';
+        if (visibleRecent.length === 0) {
+          recentRow.innerHTML = '<p class="pdf-tag-recent-empty">Select any subject or exam tag below — your frequently used tags will appear here for quick access.</p>';
+        } else {
+          recentRow.innerHTML = visibleRecent.map(it => {
+            const isSelected = pdfTagFilterState[it.group].has(it.val);
+            const isDimmed = !isSelected && it.count === 0;
+            const kind = PDF_TAG_GROUP_SHORT_LABEL[it.group] || '';
+            return `
+              <button type="button" class="pdf-tag-chip ${isSelected ? 'selected' : ''} ${isDimmed ? 'dimmed' : ''}"
+                      data-tag-group="${escapeHtml(it.group)}" data-tag-value="${escapeHtml(it.val)}"
+                      title="Used ${it.usageCount} ${it.usageCount === 1 ? 'time' : 'times'}">
+                <span class="pdf-tag-chip-kind">${escapeHtml(kind)}</span>
+                <span>${highlightTagText(it.display, rawSearch)}</span>
+                <span class="chip-count">${it.count}</span>
+              </button>
+            `;
+          }).join('');
+
+          recentRow.querySelectorAll('.pdf-tag-chip').forEach(btn => {
+            btn.addEventListener('click', () => {
+              togglePdfTagSelection(btn.dataset.tagGroup, btn.dataset.tagValue);
+            });
+          });
+        }
+      }
+    }
+
+    // Filter and render all tag groups
+    let matchedTagCount = 0;
+    groupsEl.innerHTML = groups.map(group => {
+      const visibleItems = searchFilter
+        ? group.items.filter(it => it.searchText.includes(searchFilter))
+        : group.items;
+      if (visibleItems.length === 0) return '';
+      matchedTagCount += visibleItems.length;
+
+      return `
+        <div class="pdf-tag-group">
+          <span class="pdf-tag-group-label">${escapeHtml(group.label)}</span>
+          <div class="pdf-tag-chips-row">
+            ${visibleItems.map(it => {
+              const isSelected = pdfTagFilterState[group.key].has(it.val);
+              const isDimmed = !isSelected && it.count === 0;
+              return `
+                <button type="button" class="pdf-tag-chip ${isSelected ? 'selected' : ''} ${isDimmed ? 'dimmed' : ''}"
+                        data-tag-group="${escapeHtml(group.key)}" data-tag-value="${escapeHtml(it.val)}">
+                  <span>${highlightTagText(it.display, rawSearch)}</span>
+                  <span class="chip-count">${it.count}</span>
+                </button>
+              `;
+            }).join('')}
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    if (searchCountEl) {
+      if (rawSearch.length > 0) {
+        searchCountEl.textContent = `${matchedTagCount} ${matchedTagCount === 1 ? 'tag' : 'tags'}`;
+        searchCountEl.style.display = 'inline';
+      } else {
+        searchCountEl.style.display = 'none';
+      }
+    }
+
+    if (!groupsEl.innerHTML.trim()) {
+      groupsEl.innerHTML = `
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap; font-size:0.78rem; color:var(--fg3); padding:4px 0;">
+          <span>No tags match "${escapeHtml(rawSearch)}".</span>
+          <button type="button" class="btn btn-secondary btn-sm" id="pdfTagClearSearchInlineBtn">Clear search</button>
+        </div>
+      `;
+      document.getElementById('pdfTagClearSearchInlineBtn')?.addEventListener('click', () => {
+        pdfTagFilterState.tagSearch = '';
+        const input = document.getElementById('pdfTagSearchInput');
+        if (input) { input.value = ''; input.focus(); }
+        renderPdfTagFilterUI();
+      });
+    }
+
+    groupsEl.querySelectorAll('.pdf-tag-chip').forEach(btn => {
+      btn.addEventListener('click', () => {
+        togglePdfTagSelection(btn.dataset.tagGroup, btn.dataset.tagValue);
+      });
+    });
+
+    // Update Active Bar
+    if (activeBar && activePills && matchCountEl) {
+      if (activeCount === 0) {
+        activeBar.style.display = 'none';
+      } else {
+        const matchingDocs = docs.filter(d => docMatchesTagFilters(d));
+        matchCountEl.textContent = `${matchingDocs.length} ${matchingDocs.length === 1 ? 'PDF' : 'PDFs'}`;
+
+        const pills = [];
+        const addPills = (groupKey, labelFn) => {
+          pdfTagFilterState[groupKey].forEach(val => {
+            pills.push(`
+              <span class="pdf-tag-active-pill">
+                <span>${escapeHtml(labelFn(val))}</span>
+                <button type="button" data-remove-group="${escapeHtml(groupKey)}" data-remove-val="${escapeHtml(val)}" aria-label="Remove tag">
+                  <i class="fas fa-times"></i>
+                </button>
+              </span>
+            `);
+          });
+        };
+        addPills('subject', v => v);
+        addPills('term', v => EXAM_TERM_DISPLAY[v] || v);
+        addPills('classLevel', v => v);
+        addPills('year', v => v);
+        addPills('custom', v => {
+          const found = userTags.find(t => String(t.id) === String(v));
+          return found ? found.name : v;
+        });
+
+        activePills.innerHTML = pills.join('');
+        activePills.querySelectorAll('button[data-remove-group]').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const g = btn.dataset.removeGroup;
+            const v = btn.dataset.removeVal;
+            if (g && pdfTagFilterState[g]) {
+              pdfTagFilterState[g].delete(v);
+              applyPdfTagFilters();
+            }
+          });
+        });
+        activeBar.style.display = 'flex';
+      }
+    }
+  }
+
+  function renderFilteredPdfTiles(matchingDocs) {
+    const container = document.getElementById('tilesContainer');
+    if (!container) return;
+
+    const importedSection = document.getElementById('importedSection');
+    if (importedSection) importedSection.style.display = 'none';
+    if (typeof hideHomeTagsPanels === 'function') hideHomeTagsPanels();
+
+    container.innerHTML = '';
+
+    if (!matchingDocs || matchingDocs.length === 0) {
+      container.innerHTML = `
+        <div class="study-empty-state" style="grid-column: 1 / -1;">
+          <div class="study-empty-icon"><i class="fas fa-file-pdf"></i></div>
+          <h4>No PDFs match these tags</h4>
+          <p>Try removing one of the active tags or selecting a different combination.</p>
+          <button type="button" class="btn btn-primary btn-sm" id="emptyClearPdfTagsBtn">
+            <i class="fas fa-times"></i> Clear Tag Filters
+          </button>
+        </div>
+      `;
+      document.getElementById('emptyClearPdfTagsBtn')?.addEventListener('click', clearAllPdfTagFilters);
+      return;
+    }
+
+    const sorted = sortFilteredPdfDocs(matchingDocs, pdfTagFilterState.sortBy);
+
+    sorted.forEach(doc => {
+      const tile = document.createElement('div');
+      tile.className = 'tile';
+      const title = doc.displayName || doc.name;
+      const itemPath = doc.path || [doc.name];
+      const itemId = doc.docItemId || `doc_${itemPath.join('/')}`;
+      const metaBadges = [];
+      if (doc.academicYear) metaBadges.push(`<span class="tile-meta-tag">${escapeHtml(doc.academicYear)}</span>`);
+      if (doc.classLevel) metaBadges.push(`<span class="tile-meta-tag">${escapeHtml(doc.classLevel)}</span>`);
+      if (doc.examTerm) metaBadges.push(`<span class="tile-meta-tag accent">${escapeHtml(EXAM_TERM_DISPLAY[doc.examTerm] || doc.examTerm)}</span>`);
+
+      tile.innerHTML = `
+        <div class="tile-top-bar">
+          <button type="button" class="tile-tag-btn" title="Tags"><i class="fas fa-tag"></i></button>
+          <button type="button" class="tile-fav-btn" title="Favorite"><i class="fas fa-star"></i></button>
+        </div>
+        <div class="tile-icon">
+          <i class="fas fa-file-pdf"></i>
+        </div>
+        <div class="tile-text">${escapeHtml(title)}</div>
+        <div class="tile-meta-tags">${metaBadges.join('')}</div>
+      `;
+
+      tile.querySelector('.tile-tag-btn')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openTagItemModal(itemId, title, 'document');
+      });
+      tile.querySelector('.tile-fav-btn')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleFavorite(title, itemPath, doc.url);
+      });
+
+      tile.onclick = () => {
+        addToRecent(title, itemPath, doc.url);
+        if (typeof window.openAnyDocument === 'function') {
+          window.openAnyDocument(doc.url, title);
+        } else {
+          showPDF(doc.url, title);
+        }
+      };
+
+      container.appendChild(tile);
+    });
+  }
+
+  async function applyPdfTagFilters() {
+    if (!pdfTagFilterState.allDocs || pdfTagFilterState.allDocs.length === 0) {
+      pdfTagFilterState.allDocs = await DbService.getAllDocuments();
+    }
+    renderPdfTagFilterUI();
+
+    if (hasActivePdfTagFilters()) {
+      const matchingDocs = pdfTagFilterState.allDocs.filter(d => docMatchesTagFilters(d));
+      renderFilteredPdfTiles(matchingDocs);
+    } else {
+      const nodes = await DbService.getChildren(path);
+      renderTilesFromDb(nodes);
+    }
+  }
+
+  async function clearAllPdfTagFilters(skipRender = false) {
+    pdfTagFilterState.subject.clear();
+    pdfTagFilterState.term.clear();
+    pdfTagFilterState.classLevel.clear();
+    pdfTagFilterState.year.clear();
+    pdfTagFilterState.custom.clear();
+    pdfTagFilterState.tagSearch = '';
+    const searchInput = document.getElementById('pdfTagSearchInput');
+    if (searchInput) searchInput.value = '';
+    renderPdfTagFilterUI();
+    if (!skipRender) {
+      const nodes = await DbService.getChildren(path);
+      renderTilesFromDb(nodes);
+    }
+  }
+
+  async function initPdfTagFilterSystem() {
+    pdfTagFilterState.allDocs = await DbService.getAllDocuments();
+
+    const toggleBtn = document.getElementById('pdfTagFilterToggleBtn');
+    const panel = document.getElementById('pdfTagFilterPanel');
+    const clearBtn = document.getElementById('pdfTagClearAllBtn');
+    const resetViewBtn = document.getElementById('pdfTagResetViewBtn');
+    const tagSearchInput = document.getElementById('pdfTagSearchInput');
+    const tagSearchClearBtn = document.getElementById('pdfTagSearchClearBtn');
+    const clearRecentBtn = document.getElementById('pdfTagClearRecentBtn');
+    const sortSelect = document.getElementById('pdfTagSortSelect');
+
+    if (!pdfTagFilterState.initialized) {
+      pdfTagFilterState.initialized = true;
+
+      if (toggleBtn && panel) {
+        toggleBtn.addEventListener('click', () => {
+          panel.classList.toggle('collapsed');
+          toggleBtn.classList.toggle('active', !panel.classList.contains('collapsed') || hasActivePdfTagFilters());
+        });
+      }
+
+      if (clearBtn) clearBtn.addEventListener('click', () => clearAllPdfTagFilters());
+      if (resetViewBtn) resetViewBtn.addEventListener('click', () => clearAllPdfTagFilters());
+      if (clearRecentBtn) clearRecentBtn.addEventListener('click', () => clearRecentPdfTags());
+
+      if (tagSearchInput) {
+        tagSearchInput.addEventListener('input', (e) => {
+          pdfTagFilterState.tagSearch = e.target.value || '';
+          renderPdfTagFilterUI();
+        });
+        tagSearchInput.addEventListener('keydown', (e) => {
+          if (e.key === 'Escape' && tagSearchInput.value) {
+            e.preventDefault();
+            e.stopPropagation();
+            tagSearchInput.value = '';
+            pdfTagFilterState.tagSearch = '';
+            renderPdfTagFilterUI();
+          } else if (e.key === 'Enter' && tagSearchInput.value.trim()) {
+            e.preventDefault();
+            const firstChip = document.querySelector('#pdfTagGroupsContainer .pdf-tag-chip');
+            if (firstChip) {
+              togglePdfTagSelection(firstChip.dataset.tagGroup, firstChip.dataset.tagValue);
+            }
+          }
+        });
+      }
+
+      if (tagSearchClearBtn && tagSearchInput) {
+        tagSearchClearBtn.addEventListener('click', () => {
+          tagSearchInput.value = '';
+          pdfTagFilterState.tagSearch = '';
+          renderPdfTagFilterUI();
+          tagSearchInput.focus();
+        });
+      }
+
+      if (sortSelect) {
+        sortSelect.value = pdfTagFilterState.sortBy;
+        sortSelect.addEventListener('change', (e) => {
+          pdfTagFilterState.sortBy = e.target.value || 'date-desc';
+          localStorage.setItem('questionary-pdf-tag-sort', pdfTagFilterState.sortBy);
+          if (hasActivePdfTagFilters()) {
+            const matchingDocs = pdfTagFilterState.allDocs.filter(d => docMatchesTagFilters(d));
+            renderFilteredPdfTiles(matchingDocs);
+          }
+        });
+      }
+    }
+
+    renderPdfTagFilterUI();
+  }
+
+  window.clearAllPdfTagFilters = clearAllPdfTagFilters;
+  window.refreshPdfTagFilterSystem = async function () {
+    DbService.invalidateCatalogCache();
+    await initPdfTagFilterSystem();
+    if (hasActivePdfTagFilters()) {
+      await applyPdfTagFilters();
+    }
+  };
 
   async function navigateToSearchResult(pathArray, url) {
     const searchResults = document.getElementById('searchResults');
@@ -1583,6 +2614,10 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
 
     if (typeof hideTimerCompletely === 'function') hideTimerCompletely();
 
+    if (typeof hasActivePdfTagFilters === 'function' && hasActivePdfTagFilters()) {
+      await clearAllPdfTagFilters(true);
+    }
+
     path = newPath;
     const nodes = await DbService.getChildren(path);
     renderTilesFromDb(nodes);
@@ -1794,18 +2829,20 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
     if (sectionHeader) sectionHeader.style.display = 'flex';
 
     const isRoot = !Array.isArray(path) || path.length === 0;
+    const tagFiltered = typeof hasActivePdfTagFilters === 'function' && hasActivePdfTagFilters();
     if (dashboardHeader) {
       dashboardHeader.style.display = isRoot ? (window.innerWidth <= 768 ? 'grid' : 'flex') : 'none';
     }
     if (importedSection) {
-      importedSection.style.display = isRoot ? 'block' : 'none';
+      importedSection.style.display = (isRoot && !tagFiltered) ? 'block' : 'none';
     }
-    if (isRoot) {
+    if (isRoot && !tagFiltered) {
       if (typeof showHomeTagsPanels === 'function') showHomeTagsPanels();
       if (typeof window.renderLibrary === 'function') window.renderLibrary();
       if (typeof updateDashboardStats === 'function') updateDashboardStats();
     } else {
       if (typeof hideHomeTagsPanels === 'function') hideHomeTagsPanels();
+      if (isRoot && typeof updateDashboardStats === 'function') updateDashboardStats();
     }
     updateBreadcrumb();
   }
@@ -3465,6 +4502,27 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
       });
     }
 
+    const searchSortSelect = document.getElementById('searchResultsSort');
+    if (searchSortSelect && !searchSortSelect.dataset.bound) {
+      searchSortSelect.dataset.bound = 'true';
+      searchSortSelect.value = _currentSearchSort;
+      searchSortSelect.addEventListener('change', (e) => {
+        _currentSearchSort = e.target.value || 'relevance';
+        localStorage.setItem('questionary-search-sort', _currentSearchSort);
+        if (_lastSearchQuery.length >= 2) {
+          renderSearchResults();
+        }
+      });
+    }
+
+    const closeSearchResultsBtn = document.getElementById('closeSearchResultsBtn');
+    if (closeSearchResultsBtn && !closeSearchResultsBtn.dataset.bound) {
+      closeSearchResultsBtn.dataset.bound = 'true';
+      closeSearchResultsBtn.addEventListener('click', () => {
+        if (searchResults) searchResults.style.display = 'none';
+      });
+    }
+
     searchInput && searchInput.addEventListener('input', performSearch);
     searchInput && searchInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
@@ -3478,12 +4536,12 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
     });
     searchInput && searchInput.addEventListener('focus', () => {
       if (window.innerWidth <= 768 && headerEl) headerEl.classList.add('mobile-search-open');
-      if (searchInput.value.trim()) performSearch();
+      if (searchInput.value.trim()) performSearch(searchInput.value);
       else showSearchHistory();
     });
 
     document.addEventListener('click', (e) => {
-      if (!e.target.closest('.search-container') && !e.target.closest('#mobileSearchToggle')) {
+      if (!e.target.closest('.search-container') && !e.target.closest('#mobileSearchToggle') && !e.target.closest('#searchResults')) {
         if (searchResults) searchResults.style.display = 'none';
         const historyDropdown = document.getElementById('searchHistoryDropdown');
         if (historyDropdown) historyDropdown.classList.remove('active');
@@ -4065,6 +5123,12 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
     });
 
     sortToggleBtn && sortToggleBtn.addEventListener('click', async () => {
+      if (typeof hasActivePdfTagFilters === 'function' && hasActivePdfTagFilters()) {
+        pdfTagFilterState.sortBy = pdfTagFilterState.sortBy === 'date-desc' ? 'date-asc' : 'date-desc';
+        localStorage.setItem('questionary-pdf-tag-sort', pdfTagFilterState.sortBy);
+        await applyPdfTagFilters();
+        return;
+      }
       currentSortOrder = currentSortOrder === 'asc' ? 'desc' : 'asc';
       localStorage.setItem('questionary-sort-order', currentSortOrder);
       const nodes = await DbService.getChildren(path);
