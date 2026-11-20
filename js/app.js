@@ -1863,7 +1863,11 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
       badgeEl.textContent = String(activeCount);
       badgeEl.style.display = activeCount > 0 ? 'inline-flex' : 'none';
     }
-    if (toggleBtn) toggleBtn.classList.toggle('active', activeCount > 0 || !document.getElementById('pdfTagFilterPanel')?.classList.contains('collapsed'));
+    if (toggleBtn) {
+      const isPanelOpen = !document.getElementById('pdfTagFilterPanel')?.classList.contains('collapsed');
+      toggleBtn.classList.toggle('active', activeCount > 0 || isPanelOpen);
+      toggleBtn.setAttribute('aria-expanded', String(isPanelOpen));
+    }
     if (sortSelect && sortSelect.value !== pdfTagFilterState.sortBy) {
       sortSelect.value = pdfTagFilterState.sortBy;
     }
@@ -2229,9 +2233,12 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
       pdfTagFilterState.initialized = true;
 
       if (toggleBtn && panel) {
+        toggleBtn.setAttribute('aria-expanded', String(!panel.classList.contains('collapsed')));
         toggleBtn.addEventListener('click', () => {
           panel.classList.toggle('collapsed');
-          toggleBtn.classList.toggle('active', !panel.classList.contains('collapsed') || hasActivePdfTagFilters());
+          const isOpen = !panel.classList.contains('collapsed');
+          toggleBtn.setAttribute('aria-expanded', String(isOpen));
+          toggleBtn.classList.toggle('active', isOpen || hasActivePdfTagFilters());
         });
       }
 
