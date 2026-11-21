@@ -534,6 +534,7 @@ body {
 .user-badge.active .user-dropdown-arrow { transform: rotate(180deg); }
 
 .user-dropdown-backdrop {
+    display: none;
     position: fixed;
     inset: 0;
     background: rgba(0, 0, 0, 0.5);
@@ -559,12 +560,13 @@ body {
     width: 280px; max-height: 75vh; overflow-y: auto;
     background: var(--surface); border: 1px solid var(--line);
     border-radius: 12px; opacity: 0; visibility: hidden;
-    transform: translateY(-4px); transition: all 0.12s ease; z-index: 1000;
+    pointer-events: none;
+    transform: translateY(-4px); transition: all 0.12s ease; z-index: 1005;
     box-shadow: var(--shadow-lg);
     padding: 6px;
 }
 .user-badge.active .user-dropdown-menu,
-.user-dropdown-menu.active { opacity: 1; visibility: visible; transform: translateY(0); }
+.user-dropdown-menu.active { opacity: 1; visibility: visible; pointer-events: auto; transform: translateY(0); }
 
 .user-dropdown-header {
     display: flex; align-items: center; gap: 11.25px;
@@ -2896,6 +2898,9 @@ body.focus-mode::after {
     }
 
     /* Quick-Settings Bottom Sheet (#userDropdownMenu) */
+    .user-dropdown-backdrop {
+        display: block;
+    }
     #userDropdownMenu,
     .user-dropdown-menu {
         position: fixed !important;

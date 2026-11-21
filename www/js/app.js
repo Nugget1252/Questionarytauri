@@ -6302,10 +6302,12 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
     const userDropdown = document.getElementById('userDropdownMenu');
     const backdrop = document.getElementById('userDropdownBackdrop');
 
+    const isMobile = window.matchMedia('(max-width: 768px)').matches;
+
     if (userBadge) userBadge.classList.toggle('active', Boolean(isOpen));
     if (userDropdown) userDropdown.classList.toggle('active', Boolean(isOpen));
-    if (backdrop) backdrop.classList.toggle('active', Boolean(isOpen));
-    document.body.classList.toggle('mobile-sheet-open', Boolean(isOpen) && window.innerWidth <= 768);
+    if (backdrop) backdrop.classList.toggle('active', Boolean(isOpen) && isMobile);
+    document.body.classList.toggle('mobile-sheet-open', Boolean(isOpen) && isMobile);
 
     if (isOpen) {
       const usernameDisplay = document.getElementById('username-display');
@@ -6354,7 +6356,7 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
 
     // Move #userDropdownMenu out of sticky <header> on mobile so it renders as a true viewport bottom sheet above #userDropdownBackdrop
     const mq = window.matchMedia('(max-width: 768px)');
-    const syncDropdownPlacement = () => {
+    const syncDropdownPlacement = (closeOnBreakpointChange = false) => {
       if (mq.matches) {
         if (appRoot && userDropdown.parentElement !== appRoot) {
           if (backdrop && backdrop.parentElement === appRoot) {
@@ -6364,19 +6366,24 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
           }
         }
       } else {
-        setUserDropdownOpen(false);
+        if (closeOnBreakpointChange) {
+          setUserDropdownOpen(false);
+        } else if (backdrop) {
+          backdrop.classList.remove('active');
+        }
         if (userBadge && userDropdown.parentElement !== userBadge) {
           userBadge.appendChild(userDropdown);
         }
       }
     };
-    syncDropdownPlacement();
+    syncDropdownPlacement(false);
     if (!userDropdown.dataset.placementBound) {
       userDropdown.dataset.placementBound = 'true';
+      const handleBreakpointChange = () => syncDropdownPlacement(true);
       if (typeof mq.addEventListener === 'function') {
-        mq.addEventListener('change', syncDropdownPlacement);
+        mq.addEventListener('change', handleBreakpointChange);
       } else if (typeof mq.addListener === 'function') {
-        mq.addListener(syncDropdownPlacement);
+        mq.addListener(handleBreakpointChange);
       }
     }
 
@@ -6392,8 +6399,8 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
       if (e.target.closest('#userDropdownMenu')) return;
       e.preventDefault();
       e.stopPropagation();
-      syncDropdownPlacement();
       const willOpen = !(userBadge.classList.contains('active') || userDropdown.classList.contains('active'));
+      syncDropdownPlacement(false);
       setUserDropdownOpen(willOpen);
     };
 
