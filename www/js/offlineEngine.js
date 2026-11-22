@@ -1004,28 +1004,39 @@
       } catch (e) {}
     }
 
-    if (isDesktopElectron() && window.electronAPI && typeof window.electronAPI.getStorageStats === 'function') {
-      try {
-        const dir = window.DownloadManager ? window.DownloadManager.storagePath : '';
-        const st = await window.electronAPI.getStorageStats(dir);
-        docsOk = st.fileCount > 0;
-        const mb = (st.totalBytes / (1024 * 1024)).toFixed(1);
-        docsDetail = docsOk ? `${st.fileCount} files (${mb} MB) on disk` : 'No local pack downloaded';
-      } catch (e) {}
-    } else {
-      const idbStats = await getStats();
-      docsOk = idbStats.fileCount > 0;
-      const mb = (idbStats.totalBytes / (1024 * 1024)).toFixed(1);
-      const backendLabel = (idbStats.backends && idbStats.backends.length > 0) ? idbStats.backends.join('+') : 'IndexedDB/OPFS';
-      docsDetail = `${idbStats.fileCount} PDFs (${mb} MB) in ${backendLabel}${persisted ? ' · Persistent' : ''}${quotaText}`;
-    }
+    const isWebsiteDirectMode = !isDesktopElectron() && !isCapacitorNative() && !(window.location && window.location.protocol === 'file:');
 
-    checks.push({
-      id: 'offlineDocs',
-      label: 'Offline Study Documents',
-      ok: docsOk,
-      detail: docsDetail
-    });
+    if (isWebsiteDirectMode) {
+      checks.push({
+        id: 'offlineDocs',
+        label: 'Question Paper Source',
+        ok: true,
+        detail: 'Live repository source (streamed directly · no local PC download)'
+      });
+    } else {
+      if (isDesktopElectron() && window.electronAPI && typeof window.electronAPI.getStorageStats === 'function') {
+        try {
+          const dir = window.DownloadManager ? window.DownloadManager.storagePath : '';
+          const st = await window.electronAPI.getStorageStats(dir);
+          docsOk = st.fileCount > 0;
+          const mb = (st.totalBytes / (1024 * 1024)).toFixed(1);
+          docsDetail = docsOk ? `${st.fileCount} files (${mb} MB) on disk` : 'No local pack downloaded';
+        } catch (e) {}
+      } else {
+        const idbStats = await getStats();
+        docsOk = idbStats.fileCount > 0;
+        const mb = (idbStats.totalBytes / (1024 * 1024)).toFixed(1);
+        const backendLabel = (idbStats.backends && idbStats.backends.length > 0) ? idbStats.backends.join('+') : 'IndexedDB/OPFS';
+        docsDetail = `${idbStats.fileCount} PDFs (${mb} MB) in ${backendLabel}${persisted ? ' · Persistent' : ''}${quotaText}`;
+      }
+
+      checks.push({
+        id: 'offlineDocs',
+        label: 'Offline Study Documents',
+        ok: docsOk,
+        detail: docsDetail
+      });
+    }
 
     return checks;
   }
@@ -1038,10 +1049,12 @@
     detectPwaEnvironment();
     registerServiceWorker();
 
-    // Pre-open IndexedDB document cache and pre-resolve the SQLite database binary
-    openDocsDb().catch((err) => {
-      console.warn('[OfflineEngine] IndexedDB openDocsDb skipped:', err && err.message ? err.message : err);
-    });
+    // Only pre-open IndexedDB offline PDF store in Native App runtimes (Website streams PDFs directly from repo)
+    if (ctx.isElectron || ctx.isCapacitor || ctx.isFileProtocol) {
+      openDocsDb().catch((err) => {
+        console.warn('[OfflineEngine] IndexedDB openDocsDb skipped:', err && err.message ? err.message : err);
+      });
+    }
     loadDatabaseBinary().catch((err) => {
       console.warn('[OfflineEngine] Background database preload warning:', err && err.message ? err.message : err);
     });

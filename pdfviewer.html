@@ -1317,7 +1317,23 @@ import * as pdfjsLib from './js/vendor/pdf.min.mjs';
         return key;
     }
 
+    function isWebsiteDirectSourceMode() {
+        try {
+            if (window.parent && window.parent !== window && window.parent.DownloadManager && typeof window.parent.DownloadManager.isWebsiteMode === 'function') {
+                return window.parent.DownloadManager.isWebsiteMode();
+            }
+            if (window.electronAPI || window.Capacitor) return false;
+            if (window.parent && window.parent !== window && (window.parent.electronAPI || window.parent.Capacitor)) return false;
+            return window.location.protocol !== 'file:';
+        } catch (e) {
+            return window.location.protocol !== 'file:';
+        }
+    }
+
     async function lookupOfflinePdfBlobUrl(rawUrl) {
+        // Website mode streams directly from the repository source without reading or storing local PC PDF caches
+        if (isWebsiteDirectSourceMode()) return null;
+
         const relKey = docKeyParam || extractDocRelPath(rawUrl);
         if (!relKey && (!rawUrl || /^(blob:|data:|local-pdf:)/i.test(rawUrl))) return null;
         const lookupKey = relKey || rawUrl;
@@ -1406,36 +1422,44 @@ import * as pdfjsLib from './js/vendor/pdf.min.mjs';
         if (!relPath) return null;
         if (typeof navigator !== 'undefined' && navigator.onLine === false) return null;
 
-        try {
-            if (window.parent && window.parent !== window && window.parent.OfflineEngine && window.parent.DownloadManager) {
-                const candidates = typeof window.parent.DownloadManager.getRemoteCandidateUrls === 'function'
-                    ? window.parent.DownloadManager.getRemoteCandidateUrls(relPath)
-                    : [];
-                if (candidates.length > 0) {
-                    const { blob } = await window.parent.OfflineEngine.fetchAndCachePdf(candidates, {
-                        relPath,
-                        filename: relPath.split('/').pop(),
-                        quality: window.parent.DownloadManager.qualityProfile || 'sd'
-                    });
-                    if (blob) {
-                        return URL.createObjectURL(blob);
+        // Native App Mode (Capacitor / file://): fetch & cache in offline app storage
+        if (!isWebsiteDirectSourceMode()) {
+            try {
+                if (window.parent && window.parent !== window && window.parent.OfflineEngine && window.parent.DownloadManager) {
+                    const candidates = typeof window.parent.DownloadManager.getRemoteCandidateUrls === 'function'
+                        ? window.parent.DownloadManager.getRemoteCandidateUrls(relPath)
+                        : [];
+                    if (candidates.length > 0) {
+                        const { blob } = await window.parent.OfflineEngine.fetchAndCachePdf(candidates, {
+                            relPath,
+                            filename: relPath.split('/').pop(),
+                            quality: window.parent.DownloadManager.qualityProfile || 'sd'
+                        });
+                        if (blob) {
+                            return URL.createObjectURL(blob);
+                        }
                     }
                 }
-            }
-        } catch (e) {}
+            } catch (e) {}
+        }
 
         const encodedRel = relPath.split('/').map(seg => encodeURIComponent(seg)).join('/');
         const quality = (localStorage.getItem('questionary-quality-profile') || 'sd').toLowerCase();
         const remoteUrls = quality === 'hd'
             ? [
                 `https://raw.githubusercontent.com/Nugget1252/Questionarytauri/Electron/documentshd/${encodedRel}`,
+                `documents/${encodedRel}`,
                 `https://raw.githubusercontent.com/Nugget1252/Questionarytauri/Electron/documents/${encodedRel}`
             ]
-            : [`https://raw.githubusercontent.com/Nugget1252/Questionarytauri/Electron/documents/${encodedRel}`];
+            : [
+                `documents/${encodedRel}`,
+                `https://raw.githubusercontent.com/Nugget1252/Questionarytauri/Electron/documents/${encodedRel}`
+            ];
 
         for (const rUrl of remoteUrls) {
             try {
-                const res = await fetch(rUrl, { cache: 'no-cache', credentials: 'omit' });
+                const isCrossOrigin = /^https?:\/\//i.test(rUrl);
+                const res = await fetch(rUrl, { cache: 'no-cache', credentials: isCrossOrigin ? 'omit' : 'same-origin' });
                 if (!res || !res.ok) continue;
                 const ab = await res.arrayBuffer();
                 const bytes = new Uint8Array(ab);

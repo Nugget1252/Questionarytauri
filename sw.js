@@ -4,7 +4,7 @@
  * Caches accessed PDFs and supports offline fallback on Web / PWA.
  * ========================================================================= */
 
-const CACHE_SHELL = 'questionary-shell-v249';
+const CACHE_SHELL = 'questionary-shell-v250';
 const CACHE_DOCS = 'questionary-docs-v1';
 
 const PRECACHE_URLS = [
@@ -89,7 +89,7 @@ self.addEventListener('activate', (event) => {
     caches.keys().then((keys) => {
       return Promise.all(
         keys
-          .filter((k) => k !== CACHE_SHELL && k !== CACHE_DOCS)
+          .filter((k) => k !== CACHE_SHELL)
           .map((k) => caches.delete(k))
       );
     }).then(() => self.clients.claim())
@@ -186,53 +186,8 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Document PDFs: Range-aware Cache-first + background cache write (safe for mobile streams)
+  // Document PDFs on Website: stream directly from the repo source without writing PDFs to browser cache
   if (url.pathname.includes('/documents/') || url.pathname.includes('/documentshd/')) {
-    event.respondWith((async () => {
-      const cache = await caches.open(CACHE_DOCS);
-      const cacheKeyUrl = url.origin + url.pathname;
-      const rangeHeader = req.headers.get('range');
-      const cached =
-        await cache.match(cacheKeyUrl, { ignoreSearch: true }) ||
-        await cache.match(req.url, { ignoreSearch: true });
-
-      if (cached) {
-        const cachedCt = (cached.headers.get('content-type') || '').toLowerCase();
-        if (!cachedCt.includes('text/html')) {
-          if (rangeHeader) {
-            return await buildRangeResponse(cached.clone(), rangeHeader);
-          }
-          return cached;
-        }
-      }
-
-      if (rangeHeader) {
-        try {
-          return await fetch(req);
-        } catch (err) {
-          return new Response('Offline: Range request unavailable offline.', { status: 503 });
-        }
-      }
-
-      try {
-        const networkRes = await fetch(req);
-        if (networkRes && networkRes.ok && networkRes.status === 200) {
-          const ct = (networkRes.headers.get('content-type') || '').toLowerCase();
-          if (!ct.includes('text/html')) {
-            const cloneForCache = networkRes.clone();
-            event.waitUntil(
-              cache.put(cacheKeyUrl, cloneForCache).catch(() => {})
-            );
-          }
-        }
-        return networkRes;
-      } catch (err) {
-        return new Response('Offline: Document has not been cached yet.', {
-          status: 503,
-          statusText: 'Service Unavailable'
-        });
-      }
-    })());
     return;
   }
 

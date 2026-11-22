@@ -35,6 +35,18 @@
     releaseTag: 'documents',
     githubBranch: 'Electron',
 
+    isNativeApp() {
+      return Boolean(
+        window.electronAPI ||
+        window.Capacitor ||
+        (window.location && window.location.protocol === 'file:')
+      );
+    },
+
+    isWebsiteMode() {
+      return !this.isNativeApp();
+    },
+
     async init() {
       this.qualityProfile = localStorage.getItem('questionary-quality-profile') || 'sd';
 
@@ -47,10 +59,12 @@
       } else if (window.Capacitor) {
         this.storagePath = localStorage.getItem('questionary-storage-path') || 'App Internal Storage (IndexedDB / OPFS)';
       } else {
-        this.storagePath = localStorage.getItem('questionary-storage-path') || 'Offline Cache (IndexedDB / OPFS)';
+        this.storagePath = 'Repository Source (Live Stream · No Local Download)';
       }
 
-      localStorage.setItem('questionary-storage-path', this.storagePath);
+      if (this.isNativeApp()) {
+        localStorage.setItem('questionary-storage-path', this.storagePath);
+      }
 
       await this.refreshHasDocumentsState();
 
@@ -62,8 +76,8 @@
         this.renderOfflineDiagnosticsPanel();
       });
 
-      // Automatically offer Setup Wizard in Electron or Capacitor when no documents exist locally and setup isn't marked complete
-      if ((window.electronAPI || window.Capacitor) && !this.hasDocuments && !localStorage.getItem('questionary-setup-complete')) {
+      // Automatically offer Setup Wizard ONLY in Native Apps (Electron or Capacitor) when no documents exist locally
+      if (this.isNativeApp() && !this.hasDocuments && !localStorage.getItem('questionary-setup-complete')) {
         setTimeout(() => this.openSetupWizard(), 400);
       }
     },
@@ -79,6 +93,12 @@
         }
       }
 
+      // Website mode accesses papers directly from the repo source (never downloads to user's PC)
+      if (this.isWebsiteMode()) {
+        this.hasDocuments = true;
+        return true;
+      }
+
       if (window.OfflineEngine) {
         const stats = await window.OfflineEngine.getStats();
         if (stats.fileCount > 0) {
@@ -86,19 +106,6 @@
           localStorage.setItem('questionary-docs-installed', 'true');
           return true;
         }
-      }
-
-      if (typeof fetch === 'function' && window.location && window.location.protocol !== 'file:' && !window.Capacitor) {
-        try {
-          const res = await fetch('/api/stats', { cache: 'no-cache' });
-          if (res && res.ok) {
-            const st = await res.json();
-            if (st && st.totalPapers > 0) {
-              this.hasDocuments = true;
-              return true;
-            }
-          }
-        } catch (e) {}
       }
 
       this.hasDocuments = false;
@@ -412,6 +419,13 @@
     },
 
     async startFullPackDownload(subjectFilter = null) {
+      if (this.isWebsiteMode()) {
+        if (typeof window.showNotification === 'function') {
+          window.showNotification('Website mode streams question papers directly from the repository without downloading them to your PC. Use the Questionary Desktop or Android App for offline packs.', 'info');
+        }
+        return;
+      }
+
       if (this.isDownloading) {
         if (typeof window.showNotification === 'function') {
           window.showNotification('Download already in progress...', 'info');
@@ -630,14 +644,16 @@
         if (remoteUrls.length > 0) return remoteUrls[0];
       }
 
-      // Browser WebView standard local URL resolution
+      // Browser WebView standard local repo src URL resolution
+      const encodedRel = relDoc.split('/').map((seg) => encodeURIComponent(seg)).join('/');
+      if (this.isWebsiteMode() && this.qualityProfile === 'hd') {
+        const remoteHd = this.getRemoteCandidateUrls(relDoc, 'hd');
+        if (remoteHd.length > 0) return remoteHd[0];
+      }
       try {
-        if (cleanPath.startsWith('documents/') || cleanPath.startsWith('documentshd/')) {
-          return new URL(cleanPath, window.location.href).href;
-        }
-        return new URL(`documents/${cleanPath}`, window.location.href).href;
+        return new URL(`documents/${encodedRel}`, window.location.href).href;
       } catch (e) {
-        return `documents/${cleanPath}`;
+        return `documents/${encodedRel}`;
       }
     },
 
@@ -654,6 +670,26 @@
         .replace(/^\/+/, '')
         .replace(/^(documentshd|documents)\//i, '');
 
+      // Website Mode: stream directly from the repository source as a src URL — NEVER download or cache PDFs to the user's PC
+      if (this.isWebsiteMode()) {
+        if (this.qualityProfile === 'hd') {
+          const remoteHd = this.getRemoteCandidateUrls(cleanRel, 'hd');
+          if (remoteHd.length > 0) return remoteHd[0];
+        }
+        const hasLocal = await this._probeLocalDocumentsAvailable(cleanRel);
+        if (hasLocal) {
+          const encodedRel = cleanRel.split('/').map((seg) => encodeURIComponent(seg)).join('/');
+          try {
+            return new URL(`documents/${encodedRel}`, window.location.href).href;
+          } catch (e) {
+            return `documents/${encodedRel}`;
+          }
+        }
+        const remoteUrls = this.getRemoteCandidateUrls(cleanRel);
+        return remoteUrls[0] || this.resolveDocumentUrl(dbFilePath);
+      }
+
+      // Native App Mode (Capacitor Android / file://): check offline cache first and cache on demand
       if (window.OfflineEngine) {
         const cachedObjectUrl = await window.OfflineEngine.getPdfObjectUrl(cleanRel);
         if (cachedObjectUrl) {
@@ -758,6 +794,62 @@
 
       const isElectron = Boolean(window.electronAPI);
 
+      if (this.isWebsiteMode()) {
+        container.innerHTML = `
+          <div class="storage-stats-card" style="background: var(--hover); border: 1px solid var(--line); border-radius: 10px; padding: 1rem; margin-top: 0.5rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; gap: 12px; flex-wrap: wrap;">
+              <div>
+                <div style="font-size: 1.05rem; font-weight: 700; color: var(--fg);">Live Repository Source</div>
+                <div style="font-size: 0.78rem; color: var(--fg3);">Question papers open directly from the repository source — nothing is downloaded to your PC.</div>
+              </div>
+              <span class="pack-status-badge downloaded" style="padding: 4px 10px; border-radius: 6px; font-size: 0.75rem; font-weight: 600; background: rgba(34,197,94,0.12); color: #22c55e; white-space: nowrap;">
+                <i class="fas fa-cloud"></i> Direct Stream
+              </span>
+            </div>
+
+            <div style="margin-bottom: 1rem;">
+              <label class="form-label" style="margin-bottom: 0.4rem;">Source Paper Quality</label>
+              <div class="quality-grid">
+                <label class="quality-card ${this.qualityProfile === 'sd' ? 'active' : ''}" onclick="window.DownloadManager.switchQuality('sd')">
+                  <input type="radio" name="settingsQuality" value="sd" ${this.qualityProfile === 'sd' ? 'checked' : ''} style="display:none;">
+                  <div class="quality-card-header">
+                    <div class="quality-card-icon sd"><i class="fas fa-bolt"></i></div>
+                    <div class="quality-radio-circle"><i class="fas fa-check"></i></div>
+                  </div>
+                  <strong class="quality-title">Standard (SD)</strong>
+                  <span class="quality-desc">Fast streaming directly from repo documents/</span>
+                  <div class="quality-badge">0 MB Local Storage</div>
+                </label>
+
+                <label class="quality-card ${this.qualityProfile === 'hd' ? 'active' : ''}" onclick="window.DownloadManager.switchQuality('hd')">
+                  <input type="radio" name="settingsQuality" value="hd" ${this.qualityProfile === 'hd' ? 'checked' : ''} style="display:none;">
+                  <div class="quality-card-header">
+                    <div class="quality-card-icon hd"><i class="fas fa-gem"></i></div>
+                    <div class="quality-radio-circle"><i class="fas fa-check"></i></div>
+                  </div>
+                  <strong class="quality-title">High-Definition (HD)</strong>
+                  <span class="quality-desc">High-res repo source from documentshd/</span>
+                  <div class="quality-badge hd">0 MB Local Storage</div>
+                </label>
+              </div>
+            </div>
+
+            <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding-top: 0.65rem; border-top: 1px solid var(--line);">
+              <span style="font-size: 0.76rem; color: var(--fg3);">
+                <i class="fas fa-desktop" style="margin-right: 4px; color: var(--accent);"></i>
+                Want full offline question paper packs stored locally? Use the Questionary Desktop or Android App.
+              </span>
+              ${fileCount > 0 ? `
+                <button class="btn btn-secondary btn-sm" type="button" onclick="window.DownloadManager.clearOfflineCache()">
+                  <i class="fas fa-trash-alt"></i> Clear Old Browser Cache (${escapeHtml(usedMB)} MB)
+                </button>
+              ` : ''}
+            </div>
+          </div>
+        `;
+        return;
+      }
+
       container.innerHTML = `
         <div class="storage-stats-card" style="background: var(--hover); border: 1px solid var(--line); border-radius: 10px; padding: 1rem; margin-top: 0.5rem;">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; gap: 12px; flex-wrap: wrap;">
@@ -860,7 +952,7 @@
           <span class="diag-summary-meta">
             ${online ? '<i class="fas fa-wifi"></i> Connected' : '<i class="fas fa-wifi-slash"></i> Offline Mode'}
             <span aria-hidden="true">·</span>
-            <span class="tabular-nums">${passedCount}/${checks.length} offline checks ready</span>
+            <span class="tabular-nums">${passedCount}/${checks.length} checks ready</span>
           </span>
           <div class="diag-summary-actions">
             ${showPwaInstall ? `
@@ -868,7 +960,7 @@
                 <i class="fas fa-download"></i> <span class="pwa-install-label">${pwaState.isIOS ? 'Install on iOS' : 'Install App'}</span>
               </button>
             ` : ''}
-            ${!window.electronAPI ? `
+            ${this.isNativeApp() && !window.electronAPI ? `
               <button type="button" class="btn btn-secondary btn-sm" onclick="window.DownloadManager.requestPersistentStorageNow()">
                 <i class="fas fa-lock"></i> Lock Storage
               </button>
@@ -889,7 +981,12 @@
       localStorage.setItem('questionary-quality-profile', newQuality);
       this.renderSettingsStorageTab();
       if (typeof window.showNotification === 'function') {
-        window.showNotification(`Quality set to ${newQuality.toUpperCase()}. Click "Sync / Cache All Offline PDFs" to apply.`, 'info');
+        window.showNotification(
+          this.isWebsiteMode()
+            ? `Source quality set to ${newQuality.toUpperCase()}. Papers will stream directly from the repo.`
+            : `Quality set to ${newQuality.toUpperCase()}. Click "Sync / Cache All Offline PDFs" to apply.`,
+          'info'
+        );
       }
     },
 
