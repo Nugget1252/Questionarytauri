@@ -852,22 +852,128 @@ body {
     letter-spacing: 0.4px; font-weight: 500; margin-top: 1px;
 }
 
-/* ── BREADCRUMB ── */
+/* ── DYNAMIC BREADCRUMB NAVIGATION BAR ── */
 .breadcrumb-container {
-    display: flex; align-items: center; gap: 6px;
-    margin-bottom: 18.75px; padding: 6px 0; flex-wrap: wrap;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 14px;
+    padding: 4px 0;
+    min-height: 36px;
+    transition: background-color 0.16s ease, border-color 0.16s ease, padding 0.16s ease;
 }
-.breadcrumb { display: flex; align-items: center; gap: 0; flex-wrap: wrap; font-size: clamp(0.75rem, 0.72rem + 0.12vw, 0.92rem); flex: 1; min-width: 0; }
-.breadcrumb .breadcrumb-item:first-child { font-size: clamp(0.9rem, 0.84rem + 0.18vw, 1.16rem); font-weight: 600; }
+.breadcrumb-container.is-nested {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 6px 10px;
+    margin-bottom: 16px;
+}
+.breadcrumb-up-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 28px;
+    padding: 0 10px;
+    border-radius: 6px;
+    border: 1px solid var(--line);
+    background: var(--bg);
+    color: var(--fg2);
+    font-family: inherit;
+    font-size: 0.76rem;
+    font-weight: 600;
+    cursor: pointer;
+    flex-shrink: 0;
+    white-space: nowrap;
+    transition: background-color 0.14s ease, border-color 0.14s ease, color 0.14s ease;
+}
+.breadcrumb-up-btn:hover {
+    background: var(--hover);
+    border-color: var(--accent);
+    color: var(--accent);
+}
+.breadcrumb-up-btn:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+.breadcrumb-up-btn i { font-size: 0.68rem; }
+
+.breadcrumb {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    font-size: clamp(0.76rem, 0.73rem + 0.12vw, 0.9rem);
+    flex: 1;
+    min-width: 0;
+}
+.breadcrumb::-webkit-scrollbar { display: none; }
+.breadcrumb-segment {
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
+}
 .breadcrumb-item {
-    color: var(--fg3); cursor: pointer; padding: 3px 5.25px;
-    display: inline-flex; align-items: center; gap: 3.75px;
-    font-weight: 500; text-decoration: none; white-space: nowrap; transition: color 0.1s;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    color: var(--fg2);
+    cursor: pointer;
+    padding: 4px 8px;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-family: inherit;
+    font-size: inherit;
+    font-weight: 500;
+    text-decoration: none;
+    white-space: nowrap;
+    line-height: 1.25;
+    transition: background-color 0.14s ease, color 0.14s ease, border-color 0.14s ease;
 }
-.breadcrumb-item:hover { color: var(--fg); }
-.breadcrumb-item i { font-size: 0.65rem; }
-.breadcrumb-item:last-child { color: var(--fg); font-weight: 600; cursor: default; }
-.breadcrumb-separator { color: var(--fg3); opacity: 0.4; font-size: 0.6rem; display: flex; align-items: center; padding: 0 1.5px; }
+.breadcrumb-item:hover:not(.active) {
+    color: var(--fg);
+    background: var(--hover);
+}
+.breadcrumb-item:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+}
+.breadcrumb-item i {
+    font-size: 0.72rem;
+    opacity: 0.85;
+}
+.breadcrumb-item.active {
+    color: var(--fg);
+    font-weight: 600;
+    cursor: default;
+}
+.breadcrumb-container.is-nested .breadcrumb-item.active {
+    color: var(--accent);
+    background: var(--accent-light);
+    border-color: rgba(207, 98, 21, 0.25);
+}
+.breadcrumb-container:not(.is-nested) .breadcrumb-item.breadcrumb-root {
+    font-size: clamp(0.9rem, 0.84rem + 0.18vw, 1.12rem);
+    font-weight: 600;
+    padding-left: 2px;
+}
+.breadcrumb-separator {
+    color: var(--fg3);
+    opacity: 0.5;
+    font-size: 0.62rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 3px;
+    flex-shrink: 0;
+    user-select: none;
+}
 
 /* ── SECTION HEADERS ── */
 .tiles-section { padding: 0; }
@@ -2351,16 +2457,22 @@ body.enhanced-focus .tile:focus {
 
 /* Remove width constraint on container when a document is open */
 .container:has(#pdfViewerContainer[style*="display: block"]),
+.container:has(#pdfViewerContainer[style*="display: flex"]),
 .container:has(#imageViewerContainer[style*="display: block"]),
 .container:has(#textViewerContainer[style*="display: block"]),
 .container:has(#docxViewerContainer[style*="display: block"]),
 body.pdf-view-active .container {
     max-width: 100% !important;
     width: 100% !important;
-    padding-left: 12px !important;
-    padding-right: 12px !important;
-    padding-top: 8px !important;
-    padding-bottom: 8px !important;
+    padding: 0 !important;
+}
+
+body.pdf-view-active #main-content {
+    padding: 0 !important;
+}
+
+body.pdf-view-active {
+    overflow: hidden;
 }
 
 body.pdf-view-active .dashboard-header,
@@ -2384,20 +2496,30 @@ body.pdf-view-active #settingsSection {
     display: none !important;
 }
 
-/* Container for PDF Viewer */
-#pdfViewerContainer,
-#imageViewerContainer,
-#textViewerContainer,
-#docxViewerContainer {
+/* Container for PDF Viewer — edge-to-edge height below 52px header */
+#pdfViewerContainer {
     position: relative;
     width: 100% !important;
-    height: calc(100vh - 72px) !important;
+    height: calc(100dvh - 52px) !important;
     display: flex;
     flex-direction: column;
     margin: 0 !important;
 }
 
-/* Compact Toolbar */
+#imageViewerContainer,
+#textViewerContainer,
+#docxViewerContainer {
+    position: relative;
+    width: 100% !important;
+    height: calc(100dvh - 52px) !important;
+    display: flex;
+    flex-direction: column;
+    margin: 0 !important;
+    padding: 6px 10px !important;
+    box-sizing: border-box;
+}
+
+/* Compact Toolbar (used by Image, Text & Docx viewers) */
 .pdf-toolbar {
     display: flex;
     align-items: center;
@@ -2431,7 +2553,7 @@ body.pdf-view-active #settingsSection {
 .pdf-content-wrapper {
     display: flex;
     flex: 1;
-    height: calc(100% - 44px) !important;
+    height: 100% !important;
     min-height: 0;
     gap: 10px;
     width: 100%;
@@ -3095,16 +3217,16 @@ body.focus-mode::after {
         min-height: 44px !important;
     }
 
-    /* Document & PDF Viewers (Clear Top Bar + Bottom Nav) */
+    /* Document & PDF Viewers (Clear Top Bar + Bottom Nav with maximum vertical PDF space) */
     body.pdf-view-active #main-content,
     body.pdf-view-active .container {
-        padding: 6px 8px calc(62px + var(--safe-bottom, 0px)) 8px !important;
+        padding: 0 0 calc(58px + var(--safe-bottom, 0px)) 0 !important;
     }
     #pdfViewerContainer,
     #imageViewerContainer,
     #textViewerContainer,
     #docxViewerContainer {
-        height: calc(100dvh - 54px - 58px - 12px - var(--safe-top, 0px) - var(--safe-bottom, 0px)) !important;
+        height: calc(100dvh - 52px - 58px - var(--safe-top, 0px) - var(--safe-bottom, 0px)) !important;
     }
     #imageViewerContainer[style*="display: block"],
     #textViewerContainer[style*="display: block"],
@@ -3130,7 +3252,7 @@ body.focus-mode::after {
     }
     .pdf-content-wrapper {
         position: relative;
-        height: auto !important;
+        height: 100% !important;
         flex: 1;
         min-height: 0;
     }

@@ -409,6 +409,16 @@ window.addEventListener('message', async (e) => {
 
     if (e.data.type === 'pdfPageChanged' && e.data.page) {
         window.currentPdfPage = parseInt(e.data.page, 10) || 1;
+    } else if (e.data.type === 'closePdfViewer') {
+        closePdfViewer();
+    } else if (e.data.type === 'bookmarksUpdated') {
+        try {
+            const fresh = JSON.parse(localStorage.getItem('questionary-pdf-bookmarks') || '{}');
+            if (fresh && typeof fresh === 'object') {
+                pdfBookmarks = fresh;
+                window.pdfBookmarks = pdfBookmarks;
+            }
+        } catch (err) {}
     } else if (e.data.type === 'requestPdfBytes' && typeof e.data.url === 'string' && iframe && iframe.contentWindow) {
         const reqUrl = e.data.url;
         let bytes = typeof window.getLoadedPdfBytes === 'function' ? window.getLoadedPdfBytes(reqUrl) : null;
@@ -438,6 +448,12 @@ window.addEventListener('message', async (e) => {
 });
 
 function openBookmarkModal() {
+    const pdfContainer = document.getElementById('pdfViewerContainer');
+    const iframe = document.getElementById('pdfViewer');
+    if (pdfContainer && pdfContainer.style.display !== 'none' && iframe && iframe.contentWindow) {
+        iframe.contentWindow.postMessage({ type: 'openAddBookmark' }, getTargetOrigin());
+        return;
+    }
     const modal = document.getElementById('bookmarkModal');
     if (modal) {
         modal.classList.add('active');
@@ -466,12 +482,22 @@ function saveBookmarkFromModal() {
     if (pdfUrl) {
         addPdfBookmark(pdfUrl, page, title);
         closeBookmarkModal();
+        const iframe = document.getElementById('pdfViewer');
+        if (iframe && iframe.contentWindow) {
+            iframe.contentWindow.postMessage({ type: 'syncBookmarks' }, getTargetOrigin());
+        }
     } else {
         showNotification('No PDF currently open', 'error');
     }
 }
 
 function toggleBookmarksPanel() {
+    const pdfContainer = document.getElementById('pdfViewerContainer');
+    const iframe = document.getElementById('pdfViewer');
+    if (pdfContainer && pdfContainer.style.display !== 'none' && iframe && iframe.contentWindow) {
+        iframe.contentWindow.postMessage({ type: 'openBookmarks' }, getTargetOrigin());
+        return;
+    }
     const panel = document.getElementById('pdfBookmarksPanel');
     if (panel) {
         const isHidden = panel.style.display === 'none' || !panel.style.display;
@@ -3170,7 +3196,8 @@ function renderLibraryBreadcrumb() {
     const breadcrumb = document.getElementById('libraryBreadcrumb');
     if (!breadcrumb) return;
 
-    if (UserLibraryDbService.pathStack.length === 0) {
+    const stack = Array.isArray(UserLibraryDbService.pathStack) ? UserLibraryDbService.pathStack : [];
+    if (stack.length === 0) {
         breadcrumb.style.display = 'none';
         return;
     }
@@ -3178,32 +3205,82 @@ function renderLibraryBreadcrumb() {
     breadcrumb.style.display = 'flex';
     breadcrumb.textContent = '';
 
+    const parentName = stack.length > 1 ? stack[stack.length - 2].name : 'Library';
+    const upBtn = document.createElement('button');
+    upBtn.type = 'button';
+    upBtn.className = 'breadcrumb-up-btn';
+    upBtn.title = `Back to ${parentName}`;
+    upBtn.setAttribute('aria-label', `Back to ${parentName}`);
+    upBtn.innerHTML = sanitizeUiHtml('<i class="fas fa-arrow-left" aria-hidden="true"></i><span>Back</span>');
+    upBtn.addEventListener('click', () => {
+        UserLibraryDbService.pathStack = stack.slice(0, -1);
+        const parent = UserLibraryDbService.pathStack[UserLibraryDbService.pathStack.length - 1];
+        UserLibraryDbService.currentFolderId = parent ? parent.id : null;
+        renderLibrary();
+    });
+    breadcrumb.appendChild(upBtn);
+
+    const list = document.createElement('ol');
+    list.className = 'library-breadcrumb-list';
+
+    const rootLi = document.createElement('li');
+    rootLi.className = 'breadcrumb-segment';
     const rootBtn = document.createElement('button');
+    rootBtn.type = 'button';
     rootBtn.className = 'breadcrumb-item';
-    rootBtn.innerHTML = sanitizeUiHtml('<i class="fas fa-home"></i> Library');
-    rootBtn.onclick = () => {
+    rootBtn.title = 'Return to Document Library root';
+    rootBtn.innerHTML = sanitizeUiHtml('<i class="fas fa-home" aria-hidden="true"></i><span>Library</span>');
+    rootBtn.addEventListener('click', () => {
         UserLibraryDbService.currentFolderId = null;
         UserLibraryDbService.pathStack = [];
         renderLibrary();
-    };
-    breadcrumb.appendChild(rootBtn);
+    });
+    rootLi.appendChild(rootBtn);
+    list.appendChild(rootLi);
 
-    UserLibraryDbService.pathStack.forEach((crumb, index) => {
-        const sep = document.createElement('span');
-        sep.className = 'breadcrumb-separator';
-        sep.innerHTML = sanitizeUiHtml('<i class="fas fa-chevron-right"></i>');
-        breadcrumb.appendChild(sep);
+    stack.forEach((crumb, index) => {
+        const isLast = index === stack.length - 1;
 
+        const sepLi = document.createElement('li');
+        sepLi.className = 'breadcrumb-separator';
+        sepLi.setAttribute('aria-hidden', 'true');
+        sepLi.innerHTML = sanitizeUiHtml('<i class="fas fa-chevron-right"></i>');
+        list.appendChild(sepLi);
+
+        const segLi = document.createElement('li');
+        segLi.className = 'breadcrumb-segment';
         const crumbBtn = document.createElement('button');
-        crumbBtn.className = `breadcrumb-item ${index === UserLibraryDbService.pathStack.length - 1 ? 'active' : ''}`;
-        crumbBtn.textContent = crumb.name;
-        crumbBtn.onclick = () => {
-            UserLibraryDbService.pathStack = UserLibraryDbService.pathStack.slice(0, index + 1);
-            const current = UserLibraryDbService.pathStack[UserLibraryDbService.pathStack.length - 1];
-            UserLibraryDbService.currentFolderId = current ? current.id : null;
-            renderLibrary();
-        };
-        breadcrumb.appendChild(crumbBtn);
+        crumbBtn.type = 'button';
+        crumbBtn.className = `breadcrumb-item${isLast ? ' active' : ''}`;
+        if (isLast) {
+            crumbBtn.setAttribute('aria-current', 'page');
+            const folderIcon = document.createElement('i');
+            folderIcon.className = 'fas fa-folder-open';
+            folderIcon.setAttribute('aria-hidden', 'true');
+            crumbBtn.appendChild(folderIcon);
+        }
+        const label = document.createElement('span');
+        label.textContent = crumb.name;
+        crumbBtn.appendChild(label);
+        crumbBtn.title = isLast ? crumb.name : `Return to ${crumb.name}`;
+        if (!isLast) {
+            crumbBtn.addEventListener('click', () => {
+                UserLibraryDbService.pathStack = stack.slice(0, index + 1);
+                const current = UserLibraryDbService.pathStack[UserLibraryDbService.pathStack.length - 1];
+                UserLibraryDbService.currentFolderId = current ? current.id : null;
+                renderLibrary();
+            });
+        }
+        segLi.appendChild(crumbBtn);
+        list.appendChild(segLi);
+    });
+
+    breadcrumb.appendChild(list);
+
+    requestAnimationFrame(() => {
+        if (list.scrollWidth > list.clientWidth) {
+            list.scrollLeft = list.scrollWidth;
+        }
     });
 }
 

@@ -322,6 +322,12 @@
     const container = document.getElementById('notesGrid');
     if (!container) return;
 
+    const exportNotesBtn = document.getElementById('exportNotesBtn');
+    if (exportNotesBtn) {
+      exportNotesBtn.disabled = notes.length === 0;
+      exportNotesBtn.style.opacity = notes.length === 0 ? '0.5' : '';
+    }
+
     let headerBar = document.getElementById('notesHeaderBar');
     if (!headerBar && container.parentElement) {
       headerBar = document.createElement('div');
@@ -341,13 +347,27 @@
         <div class="study-empty-state">
           <div class="study-empty-icon"><i class="fas fa-sticky-note"></i></div>
           <h4>No study notes yet</h4>
-          <p>Capture formulas, summaries, and revision checklists with Markdown formatting and instant preview.</p>
-          <button type="button" id="enhancedEmptyCreateNoteBtn" class="btn btn-primary btn-sm">
-            <i class="fas fa-plus"></i> Create Your First Note
-          </button>
+          <p>Capture formulas, summaries, and revision checklists with Markdown formatting, or import notes from a file or AI prompt.</p>
+          <div style="display:flex; gap:8px; justify-content:center; flex-wrap:wrap;">
+            <button type="button" id="enhancedEmptyImportNotesBtn" class="btn btn-secondary btn-sm">
+              <i class="fas fa-file-import"></i> Import Notes
+            </button>
+            <button type="button" id="enhancedEmptyAiGuideNotesBtn" class="btn btn-secondary btn-sm">
+              <i class="fas fa-magic"></i> AI Prompt &amp; Guide
+            </button>
+            <button type="button" id="enhancedEmptyCreateNoteBtn" class="btn btn-primary btn-sm">
+              <i class="fas fa-plus"></i> Create Your First Note
+            </button>
+          </div>
         </div>
       `);
       document.getElementById('enhancedEmptyCreateNoteBtn')?.addEventListener('click', () => openEditor());
+      document.getElementById('enhancedEmptyImportNotesBtn')?.addEventListener('click', () => {
+        if (window.StudyImportExport) window.StudyImportExport.openNotesImport('notes-import-paste');
+      });
+      document.getElementById('enhancedEmptyAiGuideNotesBtn')?.addEventListener('click', () => {
+        if (window.StudyImportExport) window.StudyImportExport.openNotesImport('notes-import-ai');
+      });
       return;
     }
 
@@ -465,6 +485,9 @@
               <button type="button" class="btn-icon note-pin-btn ${note.pinned ? 'active' : ''}" title="${note.pinned ? 'Unpin note' : 'Pin note'}" aria-label="${note.pinned ? 'Unpin note' : 'Pin note'}">
                 <i class="fas fa-thumbtack" style="${note.pinned ? 'color:var(--accent); transform:rotate(-35deg);' : ''}"></i>
               </button>
+              <button type="button" class="btn-icon note-export-btn" title="Export note" aria-label="Export note">
+                <i class="fas fa-download"></i>
+              </button>
               <button type="button" class="btn-icon note-edit-btn" title="Edit note" aria-label="Edit note">
                 <i class="fas fa-pen"></i>
               </button>
@@ -491,6 +514,12 @@
       card.querySelector('.note-pin-btn')?.addEventListener('click', (e) => {
         e.stopPropagation();
         togglePin(noteId);
+      });
+      card.querySelector('.note-export-btn')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (window.StudyImportExport) {
+          window.StudyImportExport.openNotesExport(noteId);
+        }
       });
       card.querySelector('.note-edit-btn')?.addEventListener('click', (e) => {
         e.stopPropagation();

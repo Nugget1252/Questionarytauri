@@ -17,9 +17,9 @@
     <link rel="stylesheet" href="css/vendor/fontawesome/css/all.min.css">
     
     <!-- Stylesheets -->
-    <link rel="stylesheet" href="css/styles.css?v=250">
-    <link rel="stylesheet" href="css/features.css?v=250">
-    <link rel="stylesheet" href="css/enhanced-features.css?v=250">
+    <link rel="stylesheet" href="css/styles.css?v=253">
+    <link rel="stylesheet" href="css/features.css?v=253">
+    <link rel="stylesheet" href="css/enhanced-features.css?v=251">
     
     <style>
         /* Mobile Safe Area & Android Touch Optimization */
@@ -415,13 +415,13 @@
             </div>
         </div>
 
-        <div class="breadcrumb-container">
-            <button id="backBtn" class="btn-sm" style="display:none;" type="button">
-                <i class="fas fa-arrow-left"></i>
+        <nav id="breadcrumbBar" class="breadcrumb-container" aria-label="Library path">
+            <button id="backBtn" class="breadcrumb-up-btn btn-sm" style="display:none;" type="button" title="Go up one folder" aria-label="Go up one folder">
+                <i class="fas fa-arrow-left" aria-hidden="true"></i>
                 <span>Back</span>
             </button>
-            <div id="breadcrumb" class="breadcrumb"></div>
-        </div>
+            <ol id="breadcrumb" class="breadcrumb"></ol>
+        </nav>
 
         <div class="search-results" id="searchResults" style="display:none;">
             <div class="search-results-header">
@@ -528,25 +528,9 @@
             
             <!-- PDF Viewer -->
             <div id="pdfViewerContainer" style="display:none;">
-                <div class="pdf-toolbar">
-                    <button id="backToDocumentsBtn" class="btn btn-secondary" onclick="closePDF()"><i class="fas fa-arrow-left"></i> Back</button>
-                    <span id="currentPdfName" class="pdf-name"></span>
-                    <div class="pdf-toolbar-actions">
-                        <button id="addBookmarkBtn" type="button" class="btn btn-primary" onclick="openBookmarkModal()"><i class="fas fa-bookmark"></i> Add Bookmark</button>
-                        <button id="toggleBookmarksBtn" type="button" class="btn btn-secondary" onclick="toggleBookmarksPanel()"><i class="fas fa-list"></i> Bookmarks</button>
-                    </div>
-                </div>
+                <span id="currentPdfName" style="display:none;"></span>
                 <div class="pdf-content-wrapper">
                     <iframe id="pdfViewer" src="pdfviewer.html"></iframe>
-                    <div id="pdfBookmarksPanel" class="bookmarks-panel" style="display:none;">
-                        <div class="bookmarks-panel-header">
-                            <h4><i class="fas fa-bookmark"></i> Bookmarks</h4>
-                            <button class="bookmarks-close-btn" onclick="toggleBookmarksPanel()" title="Close"><i class="fas fa-times"></i></button>
-                        </div>
-                        <div id="pdfBookmarksList" class="bookmarks-list">
-                            <p class="empty-state">No bookmarks yet. Click "Add Bookmark" while viewing a PDF.</p>
-                        </div>
-                    </div>
                 </div>
             </div>
 
@@ -677,8 +661,9 @@
         <section id="flashcardsSection" class="tiles-section">
             <div class="section-header">
                 <h2 class="section-title"><i class="fas fa-layer-group"></i> Flashcards</h2>
-                <div style="display:flex; align-items:center; gap:8px;">
-                    <button id="exportDecksBtn" type="button" class="btn btn-secondary btn-sm" title="Export Decks Backup"><i class="fas fa-file-export"></i> Export</button>
+                <div class="sie-section-actions">
+                    <button id="importDecksBtn" type="button" class="btn btn-secondary btn-sm" title="Import Flashcards or Generate with AI Prompt"><i class="fas fa-file-import"></i> Import</button>
+                    <button id="exportDecksBtn" type="button" class="btn btn-secondary btn-sm" title="Export Flashcard Decks"><i class="fas fa-file-export"></i> Export</button>
                     <button id="createDeckBtn" type="button" class="btn btn-primary btn-sm"><i class="fas fa-plus"></i> New Deck</button>
                 </div>
             </div>
@@ -688,7 +673,11 @@
         <section id="notesSection" class="tiles-section">
             <div class="section-header">
                 <h2 class="section-title"><i class="fas fa-sticky-note"></i> Notes</h2>
-                <button id="createNoteBtn" type="button" class="btn btn-primary btn-sm"><i class="fas fa-plus"></i> New Note</button>
+                <div class="sie-section-actions">
+                    <button id="importNotesBtn" type="button" class="btn btn-secondary btn-sm" title="Import Notes or Generate with AI Prompt"><i class="fas fa-file-import"></i> Import</button>
+                    <button id="exportNotesBtn" type="button" class="btn btn-secondary btn-sm" title="Export Study Notes"><i class="fas fa-file-export"></i> Export</button>
+                    <button id="createNoteBtn" type="button" class="btn btn-primary btn-sm"><i class="fas fa-plus"></i> New Note</button>
+                </div>
             </div>
             <div id="notesGrid" class="notes-grid"></div>
             
@@ -759,11 +748,11 @@
                 </div>
             </div>
             
-            <div id="libraryBreadcrumb" class="library-breadcrumb" style="display:none;">
-                <button class="breadcrumb-item" onclick="navigateToLibraryRoot()">
-                    <i class="fas fa-home"></i> Library
+            <nav id="libraryBreadcrumb" class="library-breadcrumb" aria-label="Document library path" style="display:none;">
+                <button type="button" class="breadcrumb-item" onclick="navigateToLibraryRoot()">
+                    <i class="fas fa-home" aria-hidden="true"></i> Library
                 </button>
-            </div>
+            </nav>
             
             <div id="libraryContents" class="library-grid"></div>
             
@@ -1779,14 +1768,15 @@
 <script src="js/hotUpdater.js?v=250"></script>
 <script src="js/contentUpdater.js?v=250"></script>
 <script src="js/downloadManager.js?v=250"></script>
-<script src="js/features.js?v=250"></script>
+<script src="js/features.js?v=253"></script>
 <script src="js/accessibility.js?v=250"></script>
-<script src="js/enhancedFlashcards.js?v=250"></script>
-<script src="js/enhancedNotes.js?v=250"></script>
+<script src="js/enhancedFlashcards.js?v=253"></script>
+<script src="js/enhancedNotes.js?v=253"></script>
+<script src="js/studyImportExport.js?v=251"></script>
 <script src="js/studyRoom.js?v=250"></script>
 <script src="js/studyRoomEnhanced.js?v=250"></script>
 <script src="js/notifications.js?v=250"></script>
-<script src="js/app.js?v=250"></script>
+<script src="js/app.js?v=253"></script>
 
 </body>
 </html>

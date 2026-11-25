@@ -77,7 +77,7 @@ html, body {
     background: var(--surface); color: var(--fg); padding: 0 10px;
     display: flex; align-items: center; gap: 4px;
     font-size: 13px; border-bottom: 1px solid var(--line);
-    height: 44px; overflow-x: auto; scrollbar-width: none;
+    height: 40px; overflow-x: auto; scrollbar-width: none;
 }
 #toolbar::-webkit-scrollbar { display: none; }
 
@@ -102,9 +102,53 @@ html, body {
 .tb-btn.subtle-active {
     background: var(--accent-light); color: var(--accent); border-color: rgba(207, 98, 21, 0.35);
 }
+.tb-btn.has-bookmark {
+    color: var(--accent);
+    background: var(--accent-light);
+    border-color: rgba(207, 98, 21, 0.32);
+}
 
 .toolbar-sep { width: 1px; height: 20px; background: var(--line); margin: 0 3px; flex-shrink: 0; }
-.toolbar-spacer { flex: 1; min-width: 8px; }
+.toolbar-spacer {
+    flex: 1;
+    min-width: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    padding: 0 6px;
+}
+.toolbar-doc-name {
+    font-size: 11.5px;
+    font-weight: 500;
+    color: var(--fg3);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 240px;
+    pointer-events: auto;
+    user-select: text;
+    display: none;
+}
+@media (min-width: 1180px) {
+    .toolbar-doc-name.has-name { display: inline-block; }
+}
+.tb-bm-plus {
+    font-size: 10px;
+    font-weight: 800;
+    line-height: 1;
+    margin-left: -2px;
+}
+.bm-toolbar-count {
+    font-size: 10px;
+    font-weight: 700;
+    font-family: 'JetBrains Mono', monospace;
+    line-height: 1;
+    padding: 2px 4px;
+    border-radius: 4px;
+    background: var(--accent-light);
+    color: var(--accent);
+}
 .toolbar-label {
     font-size: 12px; color: var(--fg3); white-space: nowrap;
     font-variant-numeric: tabular-nums;
@@ -183,12 +227,12 @@ html, body {
 .shape-sub-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 
 /* Loading Bar */
-#loadingBar { position: fixed; top: 44px; left: 0; right: 0; height: 3px; background: transparent; z-index: 101; }
+#loadingBar { position: fixed; top: 40px; left: 0; right: 0; height: 3px; background: transparent; z-index: 101; }
 #loadingProgress { height: 100%; width: 0%; background: var(--accent); transition: width 0.2s ease; }
 
 /* ── MAIN STUDIO LAYOUT (SIDEBAR + VIEWPORT) ── */
 #studioLayout {
-    position: absolute; top: 44px; bottom: 0; left: 0; right: 0;
+    position: absolute; top: 40px; bottom: 0; left: 0; right: 0;
     display: flex; overflow: hidden;
 }
 
@@ -209,31 +253,70 @@ html, body {
     border-right-color: transparent;
 }
 
-.sidebar-tabs {
+.sidebar-doc-header {
     display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--line);
+    background: var(--bg);
+    flex-shrink: 0;
+    min-width: 0;
+}
+.sidebar-doc-header i {
+    color: var(--accent);
+    font-size: 12px;
+    flex-shrink: 0;
+}
+.sidebar-doc-name {
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--fg);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+    flex: 1;
+    user-select: text;
+}
+
+.sidebar-tabs {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 4px;
-    padding: 8px;
+    padding: 7px 8px;
     border-bottom: 1px solid var(--line);
     background: var(--surface);
     flex-shrink: 0;
 }
 .sidebar-tab-btn {
-    flex: 1;
     display: inline-flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 5px;
-    padding: 6px 8px;
+    gap: 3px;
+    padding: 6px 3px;
     border-radius: 6px;
     border: 1px solid transparent;
     background: transparent;
     color: var(--fg2);
-    font-size: 12px;
+    font-size: 10.5px;
     font-weight: 600;
     cursor: pointer;
     font-family: inherit;
     white-space: nowrap;
     transition: all 0.15s;
+    position: relative;
+    min-width: 0;
+}
+.sidebar-tab-btn i { font-size: 12px; }
+.sidebar-tab-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 .sidebar-tab-btn:hover { background: var(--surface-2); color: var(--fg); }
 .sidebar-tab-btn.active {
@@ -242,9 +325,9 @@ html, body {
     border-color: rgba(207, 98, 21, 0.3);
 }
 .sidebar-tab-count {
-    font-size: 10px;
+    font-size: 9.5px;
     font-family: 'JetBrains Mono', monospace;
-    opacity: 0.85;
+    opacity: 0.9;
 }
 
 .sidebar-panel {
@@ -486,12 +569,297 @@ html, body {
 }
 .sidebar-empty i { font-size: 22px; margin-bottom: 8px; display: block; opacity: 0.7; }
 
-/* ── VIEWPORT WORKSPACE ── */
+/* ── BOOKMARK POPOVER & SIDEBAR CARDS ── */
+#popoverBookmark {
+    width: 268px;
+    gap: 9px;
+    padding: 12px;
+}
+.bm-popover-input {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    padding: 7px 9px;
+    font-size: 12.5px;
+    color: var(--fg);
+    font-family: inherit;
+    outline: none;
+    user-select: text;
+    transition: border-color 0.15s;
+}
+.bm-popover-input:focus { border-color: var(--accent); }
+.bm-popover-footer {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.bm-page-field {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    flex-shrink: 0;
+}
+.bm-page-field label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--fg2);
+}
+#bmPageInput {
+    width: 58px;
+    padding: 6px 6px;
+    text-align: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-variant-numeric: tabular-nums;
+}
+.bm-save-btn {
+    flex: 1;
+    height: 32px;
+    border-radius: 7px;
+    border: 1px solid var(--accent);
+    background: var(--accent);
+    color: #ffffff;
+    font-size: 12px;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    transition: background 0.15s;
+    white-space: nowrap;
+}
+.bm-save-btn:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+
+.bm-card {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--line);
+    background: var(--bg);
+    margin-bottom: 7px;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+.bm-card:hover {
+    border-color: var(--btn-border);
+    background: var(--surface-2);
+}
+.bm-card.current-page {
+    border-color: rgba(207, 98, 21, 0.45);
+    background: var(--accent-light);
+}
+.bm-card-icon {
+    color: var(--accent);
+    font-size: 12px;
+    flex-shrink: 0;
+}
+.bm-card-body {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.bm-card-title {
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--fg);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.bm-card-page {
+    font-size: 11px;
+    color: var(--fg2);
+    font-family: 'JetBrains Mono', monospace;
+    font-variant-numeric: tabular-nums;
+}
+
+.bm-card-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    flex-shrink: 0;
+}
+.bm-inline-input {
+    width: 100%;
+    background: var(--surface);
+    border: 1px solid var(--accent);
+    border-radius: 5px;
+    padding: 3px 6px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--fg);
+    font-family: inherit;
+    outline: none;
+    user-select: text;
+}
+
+/* ── VIEWPORT WORKSPACE & FLOATING BACK + STASHED FILENAME ── */
+#viewerPane {
+    position: relative;
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.floating-viewer-bar {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    z-index: 45;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    max-width: calc(100% - 24px);
+    pointer-events: none;
+}
+.floating-viewer-bar > * {
+    pointer-events: auto;
+}
+
+.floating-back-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 32px;
+    padding: 0 11px;
+    border-radius: 8px;
+    border: 1px solid var(--btn-border);
+    background: rgba(24, 24, 27, 0.8);
+    color: var(--fg);
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    box-shadow: var(--shadow-sm);
+    opacity: 0.88;
+    transition: opacity 0.16s ease, background 0.16s ease, border-color 0.16s ease, transform 0.16s ease;
+    white-space: nowrap;
+}
+html[data-theme="light"] .floating-back-btn {
+    background: rgba(255, 255, 255, 0.88);
+    color: var(--fg);
+}
+.floating-back-btn:hover {
+    opacity: 1;
+    border-color: var(--accent);
+    background: var(--surface);
+    transform: translateY(-1px);
+}
+.floating-back-btn:active {
+    transform: translateY(0);
+}
+.floating-back-btn i {
+    font-size: 11.5px;
+}
+.floating-back-btn.hidden-standalone {
+    display: none;
+}
+
+.floating-doc-stash {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+}
+.floating-doc-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border-radius: 8px;
+    border: 1px solid var(--btn-border);
+    background: rgba(24, 24, 27, 0.78);
+    color: var(--fg2);
+    font-size: 12px;
+    cursor: pointer;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    box-shadow: var(--shadow-sm);
+    opacity: 0.82;
+    transition: opacity 0.16s ease, background 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+}
+html[data-theme="light"] .floating-doc-btn {
+    background: rgba(255, 255, 255, 0.86);
+}
+.floating-doc-btn:hover,
+.floating-doc-btn.open {
+    opacity: 1;
+    color: var(--accent);
+    border-color: var(--accent);
+    background: var(--surface);
+}
+.floating-doc-popover {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    min-width: 220px;
+    max-width: min(360px, calc(100vw - 28px));
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 10px 12px;
+    box-shadow: var(--shadow-lg);
+    display: none;
+    flex-direction: column;
+    gap: 6px;
+    z-index: 60;
+    animation: popIn 0.14s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.floating-doc-popover.open {
+    display: flex;
+}
+.floating-doc-popover-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+.floating-doc-popover-label {
+    font-size: 10.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--fg3);
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+.floating-doc-popover-label i {
+    color: var(--accent);
+}
+.floating-doc-popover-name {
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--fg);
+    line-height: 1.35;
+    word-break: break-word;
+    user-select: text;
+}
+.floating-doc-popover-path {
+    font-size: 11px;
+    color: var(--fg3);
+    line-height: 1.3;
+    word-break: break-word;
+    user-select: text;
+}
+
 #viewerContainer {
     flex: 1;
     position: relative;
     overflow: auto;
-    padding: 20px 16px;
+    padding: 10px 12px 16px 12px;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -815,13 +1183,26 @@ html, body {
         flex-wrap: wrap;
         justify-content: center;
     }
+    .floating-viewer-bar {
+        top: 8px;
+        left: 8px;
+    }
+    .floating-back-btn {
+        height: 36px;
+        padding: 0 12px;
+        font-size: 12.5px;
+    }
+    .floating-doc-btn {
+        width: 36px;
+        height: 36px;
+    }
 }
 
 @media print {
-    #toolbar, #sidebar, #loadingBar, .tool-popover, #selectionPopup, #viewerToast, #eraserCursorRing {
+    #toolbar, #sidebar, #loadingBar, .tool-popover, #selectionPopup, #viewerToast, #eraserCursorRing, .floating-viewer-bar {
         display: none !important;
     }
-    #studioLayout, #viewerContainer {
+    #studioLayout, #viewerPane, #viewerContainer {
         position: static !important;
         overflow: visible !important;
         padding: 0 !important;
@@ -875,8 +1256,13 @@ html, body {
     <button class="tb-btn" id="btnRedo" title="Redo Annotation (Ctrl+Y)" disabled><i class="fas fa-redo"></i></button>
     <button class="tb-btn" id="clearAnnotations" title="Clear Page Annotations"><i class="fas fa-trash-alt"></i></button>
 
-    <div class="toolbar-spacer"></div>
+    <div class="toolbar-spacer">
+        <span id="toolbarDocName" class="toolbar-doc-name" title=""></span>
+    </div>
 
+    <button class="tb-btn" id="addBookmarkBtn" title="Add Bookmark (B)"><i class="fas fa-bookmark"></i><span class="tb-bm-plus">+</span></button>
+    <button class="tb-btn" id="toggleBookmarksBtn" title="View Bookmarks"><i class="fas fa-list-ul"></i><span class="bm-toolbar-count" id="bmToolbarCount" style="display:none;">0</span></button>
+    <div class="toolbar-sep"></div>
     <button class="tb-btn" id="toggleSearch" title="Find in Document (Ctrl+F)"><i class="fas fa-search"></i></button>
     <button class="tb-btn" id="toggleDarkMode" title="Invert PDF Page Colors"><i class="fas fa-adjust"></i></button>
     <button class="tb-btn" id="downloadExport" title="Export Current Page Image (PNG)"><i class="fas fa-image"></i></button>
@@ -996,6 +1382,21 @@ html, body {
     </div>
 </div>
 
+<div class="tool-popover" id="popoverBookmark">
+    <div class="pop-row">
+        <span class="pop-label"><i class="fas fa-bookmark" style="color:var(--accent);margin-right:4px;"></i>Add Bookmark</span>
+        <span class="pop-val" id="bmPopPageHint">Page 1</span>
+    </div>
+    <input type="text" class="bm-popover-input" id="bmTitleInput" placeholder="e.g., Chapter 3 Summary" autocomplete="off">
+    <div class="bm-popover-footer">
+        <div class="bm-page-field">
+            <label for="bmPageInput">Page</label>
+            <input type="number" class="bm-popover-input" id="bmPageInput" min="1" value="1">
+        </div>
+        <button type="button" class="bm-save-btn" id="bmSaveBtn"><i class="fas fa-bookmark"></i> Save</button>
+    </div>
+</div>
+
 <!-- Floating Text Selection Action Popup -->
 <div id="selectionPopup">
     <div class="pop-swatches" id="selPopSwatches">
@@ -1016,15 +1417,26 @@ html, body {
 <div id="studioLayout">
     <!-- Left Collapsible Sidebar -->
     <aside id="sidebar">
+        <div class="sidebar-doc-header" id="sidebarDocHeader" title="">
+            <i class="fas fa-file-pdf"></i>
+            <span class="sidebar-doc-name" id="sidebarDocName">Document.pdf</span>
+        </div>
         <div class="sidebar-tabs">
-            <button type="button" class="sidebar-tab-btn active" data-stab="search">
-                <i class="fas fa-search"></i> Search
+            <button type="button" class="sidebar-tab-btn active" data-stab="search" title="Search in PDF">
+                <i class="fas fa-search"></i>
+                <span class="sidebar-tab-label">Search</span>
             </button>
-            <button type="button" class="sidebar-tab-btn" data-stab="pages">
-                <i class="fas fa-th-large"></i> Pages
+            <button type="button" class="sidebar-tab-btn" data-stab="pages" title="Page Thumbnails">
+                <i class="fas fa-th-large"></i>
+                <span class="sidebar-tab-label">Pages</span>
             </button>
-            <button type="button" class="sidebar-tab-btn" data-stab="highlights">
-                <i class="fas fa-highlighter"></i> Highlights <span class="sidebar-tab-count" id="hlSidebarCount">0</span>
+            <button type="button" class="sidebar-tab-btn" data-stab="highlights" title="Saved Highlights">
+                <i class="fas fa-highlighter"></i>
+                <span class="sidebar-tab-label">Notes <span class="sidebar-tab-count" id="hlSidebarCount">0</span></span>
+            </button>
+            <button type="button" class="sidebar-tab-btn" data-stab="bookmarks" title="Saved Bookmarks">
+                <i class="fas fa-bookmark"></i>
+                <span class="sidebar-tab-label">Marks <span class="sidebar-tab-count" id="bmSidebarCount">0</span></span>
             </button>
         </div>
 
@@ -1073,14 +1485,49 @@ html, body {
                 </div>
             </div>
         </div>
+
+        <!-- TAB 4: SAVED PAGE BOOKMARKS -->
+        <div class="sidebar-panel" id="stab-bookmarks">
+            <div class="anno-panel-actions">
+                <span style="font-size:11.5px; color:var(--fg2); font-weight:600;">Page Bookmarks</span>
+                <button type="button" class="mini-btn" id="sidebarAddBookmarkBtn" title="Add bookmark for current page"><i class="fas fa-plus"></i> Add</button>
+            </div>
+            <div class="sidebar-scroll" id="sidebarBookmarksList">
+                <div class="sidebar-empty">
+                    <i class="fas fa-bookmark"></i>
+                    No bookmarks yet. Click the bookmark button in the toolbar or press B to save a page.
+                </div>
+            </div>
+        </div>
     </aside>
 
     <div id="sidebarBackdrop"></div>
 
-    <!-- PDF Viewport -->
-    <div id="viewerContainer" class="pdfViewer">
-        <div id="loadingMessage">Loading document…</div>
-        <div id="errorMessage"></div>
+    <!-- PDF Viewport Pane (holds floating Back button + stashed filename + scrolling PDF pages) -->
+    <div id="viewerPane">
+        <div class="floating-viewer-bar">
+            <button type="button" id="floatingBackBtn" class="floating-back-btn" title="Back to Documents">
+                <i class="fas fa-arrow-left"></i>
+                <span>Back</span>
+            </button>
+            <div class="floating-doc-stash">
+                <button type="button" id="floatingDocInfoBtn" class="floating-doc-btn" title="Document filename" aria-label="Show document filename" aria-expanded="false">
+                    <i class="fas fa-file-pdf"></i>
+                </button>
+                <div id="floatingDocPopover" class="floating-doc-popover" role="dialog" aria-label="Document details">
+                    <div class="floating-doc-popover-head">
+                        <span class="floating-doc-popover-label"><i class="fas fa-file-pdf"></i> Document</span>
+                        <button type="button" class="mini-btn" id="floatingCopyDocNameBtn" title="Copy filename"><i class="fas fa-copy"></i> Copy</button>
+                    </div>
+                    <div id="floatingDocName" class="floating-doc-popover-name">Document.pdf</div>
+                    <div id="floatingDocPath" class="floating-doc-popover-path" style="display:none;"></div>
+                </div>
+            </div>
+        </div>
+        <div id="viewerContainer" class="pdfViewer">
+            <div id="loadingMessage">Loading document…</div>
+            <div id="errorMessage"></div>
+        </div>
     </div>
 </div>
 
@@ -1710,6 +2157,7 @@ import * as pdfjsLib from './js/vendor/pdf.min.mjs';
             activeLoadedPdfBytes = null;
             activeDocRelPath = docKeyParam || extractDocRelPath(url);
             activeDisplayName = docNameParam || (activeDocRelPath ? activeDocRelPath.split('/').pop() : '');
+            updateDocumentDisplayName(activeDisplayName);
             const canonicalDocIdInput = activeDocRelPath
                 ? `documents/${activeDocRelPath}`
                 : (url.startsWith('blob:') && docKeyParam ? docKeyParam : url);
@@ -1722,6 +2170,7 @@ import * as pdfjsLib from './js/vendor/pdf.min.mjs';
             searchMatches = [];
             currentMatchIdx = -1;
             loadTextHighlights();
+            renderViewerBookmarks();
 
             let pdfSourceUrl = url;
             if (!url.startsWith('blob:') && !url.startsWith('blob-id:') && !url.startsWith('local-pdf:') && !url.startsWith('data:')) {
@@ -2313,6 +2762,470 @@ import * as pdfjsLib from './js/vendor/pdf.min.mjs';
     });
 
     /* ================================================================
+       FLOATING BACK BUTTON, STASHED FILENAME & IN-VIEWER BOOKMARKS
+       ================================================================ */
+    const floatingBackBtn = document.getElementById('floatingBackBtn');
+    const floatingDocInfoBtn = document.getElementById('floatingDocInfoBtn');
+    const floatingDocPopover = document.getElementById('floatingDocPopover');
+    const floatingDocNameEl = document.getElementById('floatingDocName');
+    const floatingDocPathEl = document.getElementById('floatingDocPath');
+    const floatingCopyDocNameBtn = document.getElementById('floatingCopyDocNameBtn');
+    const toolbarDocNameEl = document.getElementById('toolbarDocName');
+    const sidebarDocNameEl = document.getElementById('sidebarDocName');
+    const sidebarDocHeaderEl = document.getElementById('sidebarDocHeader');
+    const addBookmarkBtn = document.getElementById('addBookmarkBtn');
+    const toggleBookmarksBtn = document.getElementById('toggleBookmarksBtn');
+    const bmToolbarCountEl = document.getElementById('bmToolbarCount');
+    const bmSidebarCountEl = document.getElementById('bmSidebarCount');
+    const sidebarBookmarksList = document.getElementById('sidebarBookmarksList');
+    const sidebarAddBookmarkBtn = document.getElementById('sidebarAddBookmarkBtn');
+    const bmTitleInput = document.getElementById('bmTitleInput');
+    const bmPageInput = document.getElementById('bmPageInput');
+    const bmPopPageHint = document.getElementById('bmPopPageHint');
+    const bmSaveBtn = document.getElementById('bmSaveBtn');
+
+    if (floatingBackBtn) {
+        if (window.parent === window) {
+            floatingBackBtn.classList.add('hidden-standalone');
+        } else {
+            floatingBackBtn.addEventListener('click', () => {
+                window.parent.postMessage({ type: 'closePdfViewer' }, getParentTargetOrigin());
+            });
+        }
+    }
+
+    function setFloatingDocPopoverOpen(isOpen) {
+        if (!floatingDocPopover || !floatingDocInfoBtn) return;
+        floatingDocPopover.classList.toggle('open', Boolean(isOpen));
+        floatingDocInfoBtn.classList.toggle('open', Boolean(isOpen));
+        floatingDocInfoBtn.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+    }
+
+    if (floatingDocInfoBtn && floatingDocPopover) {
+        floatingDocInfoBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const nextOpen = !floatingDocPopover.classList.contains('open');
+            setFloatingDocPopoverOpen(nextOpen);
+        });
+        document.addEventListener('click', (e) => {
+            if (floatingDocPopover.classList.contains('open')
+                && !floatingDocPopover.contains(e.target)
+                && !floatingDocInfoBtn.contains(e.target)) {
+                setFloatingDocPopoverOpen(false);
+            }
+        });
+    }
+
+    if (floatingCopyDocNameBtn) {
+        floatingCopyDocNameBtn.addEventListener('click', async () => {
+            const textToCopy = activeDisplayName || 'Document.pdf';
+            try {
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    await navigator.clipboard.writeText(textToCopy);
+                } else {
+                    const ta = document.createElement('textarea');
+                    ta.value = textToCopy;
+                    ta.style.position = 'fixed';
+                    ta.style.opacity = '0';
+                    document.body.appendChild(ta);
+                    ta.select();
+                    document.execCommand('copy');
+                    ta.remove();
+                }
+                showToast('Filename copied');
+                setFloatingDocPopoverOpen(false);
+            } catch (err) {
+                showToast('Could not copy filename');
+            }
+        });
+    }
+
+    function updateDocumentDisplayName(rawName) {
+        let name = (rawName || '').trim();
+        if (!name && activeDocRelPath) {
+            name = activeDocRelPath.split('/').pop() || '';
+        }
+        if (!name && fileUrl) {
+            try {
+                const decoded = decodeURIComponent(fileUrl);
+                name = decoded.split('?')[0].split('#')[0].split('/').pop() || '';
+            } catch (e) {}
+        }
+        if (!name) name = 'Document.pdf';
+        activeDisplayName = name;
+
+        if (toolbarDocNameEl) {
+            toolbarDocNameEl.textContent = name;
+            toolbarDocNameEl.title = name;
+            toolbarDocNameEl.classList.toggle('has-name', Boolean(name));
+        }
+        if (sidebarDocNameEl) {
+            sidebarDocNameEl.textContent = name;
+            sidebarDocNameEl.title = name;
+        }
+        if (sidebarDocHeaderEl) {
+            sidebarDocHeaderEl.title = name;
+        }
+        if (floatingDocNameEl) {
+            floatingDocNameEl.textContent = name;
+        }
+        if (floatingDocPathEl) {
+            const folderPath = activeDocRelPath && activeDocRelPath.includes('/')
+                ? activeDocRelPath.slice(0, activeDocRelPath.lastIndexOf('/'))
+                : '';
+            if (folderPath) {
+                floatingDocPathEl.textContent = folderPath;
+                floatingDocPathEl.style.display = 'block';
+            } else {
+                floatingDocPathEl.textContent = '';
+                floatingDocPathEl.style.display = 'none';
+            }
+        }
+        if (floatingDocInfoBtn) {
+            floatingDocInfoBtn.title = `Document: ${name}`;
+        }
+        if (floatingBackBtn) {
+            floatingBackBtn.title = `Back to Documents — ${name}`;
+        }
+        document.title = `${name} — Questionary`;
+    }
+
+    const BOOKMARKS_STORAGE_KEY = 'questionary-pdf-bookmarks';
+
+    function getBookmarkStore() {
+        try {
+            const raw = localStorage.getItem(BOOKMARKS_STORAGE_KEY);
+            const parsed = raw ? JSON.parse(raw) : {};
+            return (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) ? parsed : {};
+        } catch (e) {
+            return {};
+        }
+    }
+
+    function saveBookmarkStore(store) {
+        try {
+            localStorage.setItem(BOOKMARKS_STORAGE_KEY, JSON.stringify(store));
+            if (window.parent && window.parent !== window) {
+                window.parent.postMessage({ type: 'bookmarksUpdated' }, getParentTargetOrigin());
+            }
+        } catch (e) {}
+    }
+
+    function getPrimaryBookmarkKey() {
+        // Prefer stable document keys so bookmarks survive reloads across blob URLs and quality changes
+        if (docKeyParam && typeof docKeyParam === 'string') return docKeyParam;
+        if (activeDocRelPath && typeof activeDocRelPath === 'string') return `documents/${activeDocRelPath}`;
+        if (fileUrl && typeof fileUrl === 'string' && !fileUrl.startsWith('blob:')) return fileUrl;
+        if (activeLoadedUrl && typeof activeLoadedUrl === 'string' && !activeLoadedUrl.startsWith('blob:')) return activeLoadedUrl;
+        if (fileUrl && typeof fileUrl === 'string') return fileUrl;
+        if (activeLoadedUrl && typeof activeLoadedUrl === 'string') return activeLoadedUrl;
+        return '';
+    }
+
+    function getBookmarkLookupKeys() {
+        const keys = [];
+        const addKey = (k) => {
+            if (k && typeof k === 'string' && !keys.includes(k)) keys.push(k);
+        };
+        addKey(docKeyParam);
+        if (activeDocRelPath) {
+            addKey(`documents/${activeDocRelPath}`);
+            addKey(activeDocRelPath);
+        }
+        addKey(fileUrl);
+        if (fileUrl) {
+            try { addKey(decodeURIComponent(fileUrl)); } catch (e) {}
+        }
+        addKey(activeLoadedUrl);
+        return keys;
+    }
+
+    function getActiveBookmarks() {
+        const store = getBookmarkStore();
+        const keys = getBookmarkLookupKeys();
+        const seen = new Set();
+        const merged = [];
+        keys.forEach((k) => {
+            const arr = Array.isArray(store[k]) ? store[k] : [];
+            arr.forEach((item) => {
+                if (!item || typeof item !== 'object') return;
+                const dedupeId = item.id || `${item.page}:${item.title}`;
+                if (seen.has(dedupeId)) return;
+                seen.add(dedupeId);
+                merged.push({ ...item, _storeKey: k });
+            });
+        });
+        merged.sort((a, b) => (parseInt(a.page, 10) || 0) - (parseInt(b.page, 10) || 0));
+        return merged;
+    }
+
+    function syncCurrentPageBookmarkState(preloadedBookmarks = null) {
+        if (!addBookmarkBtn) return;
+        const bookmarks = Array.isArray(preloadedBookmarks) ? preloadedBookmarks : getActiveBookmarks();
+        const isCurrentBookmarked = bookmarks.some(bm => (parseInt(bm.page, 10) || 1) === currentPageNum);
+        addBookmarkBtn.classList.toggle('has-bookmark', isCurrentBookmarked);
+        addBookmarkBtn.title = isCurrentBookmarked
+            ? `Page ${currentPageNum} bookmarked — click to add another (B)`
+            : 'Add Bookmark (B)';
+    }
+
+    function addViewerBookmark(pageNumber, title) {
+        const key = getPrimaryBookmarkKey();
+        if (!key) {
+            showToast('No PDF loaded yet');
+            return false;
+        }
+        const safePage = Math.max(1, Math.min(totalPages || 99999, parseInt(pageNumber, 10) || currentPageNum || 1));
+        const cleanTitle = (title || '').trim() || `Page ${safePage}`;
+        const store = getBookmarkStore();
+        if (!Array.isArray(store[key])) store[key] = [];
+        store[key].push({
+            id: Date.now().toString(),
+            page: safePage,
+            title: cleanTitle,
+            createdAt: new Date().toISOString()
+        });
+        saveBookmarkStore(store);
+        renderViewerBookmarks();
+        showToast(`Bookmark saved: ${cleanTitle}`);
+        return true;
+    }
+
+    function renameViewerBookmark(bookmarkId, storeKey, nextTitle) {
+        const cleanTitle = String(nextTitle || '').trim();
+        if (!cleanTitle) return false;
+        const store = getBookmarkStore();
+        const keysToCheck = storeKey ? [storeKey] : getBookmarkLookupKeys();
+        let changed = false;
+        keysToCheck.forEach((k) => {
+            if (Array.isArray(store[k])) {
+                store[k].forEach((b) => {
+                    if (String(b.id) === String(bookmarkId) && b.title !== cleanTitle) {
+                        b.title = cleanTitle;
+                        changed = true;
+                    }
+                });
+            }
+        });
+        if (changed) {
+            saveBookmarkStore(store);
+            renderViewerBookmarks();
+            showToast('Bookmark renamed');
+        }
+        return changed;
+    }
+
+    function removeViewerBookmark(bookmarkId, storeKey) {
+        const store = getBookmarkStore();
+        const keysToClean = storeKey ? [storeKey] : getBookmarkLookupKeys();
+        let changed = false;
+        keysToClean.forEach((k) => {
+            if (Array.isArray(store[k])) {
+                const next = store[k].filter(b => String(b.id) !== String(bookmarkId));
+                if (next.length !== store[k].length) {
+                    store[k] = next;
+                    changed = true;
+                }
+            }
+        });
+        if (changed) {
+            saveBookmarkStore(store);
+            renderViewerBookmarks();
+            showToast('Bookmark removed');
+        }
+    }
+
+    function renderViewerBookmarks() {
+        const bookmarks = getActiveBookmarks();
+        if (bmSidebarCountEl) bmSidebarCountEl.textContent = String(bookmarks.length);
+        if (bmToolbarCountEl) {
+            bmToolbarCountEl.textContent = String(bookmarks.length);
+            bmToolbarCountEl.style.display = bookmarks.length > 0 ? 'inline-block' : 'none';
+        }
+        syncCurrentPageBookmarkState(bookmarks);
+        if (!sidebarBookmarksList) return;
+
+        if (bookmarks.length === 0) {
+            sidebarBookmarksList.innerHTML = `
+                <div class="sidebar-empty">
+                    <i class="fas fa-bookmark"></i>
+                    No bookmarks yet. Click the bookmark button in the toolbar or press B to save a page.
+                </div>`;
+            return;
+        }
+
+        sidebarBookmarksList.textContent = '';
+        bookmarks.forEach((bm) => {
+            const pageNum = parseInt(bm.page, 10) || 1;
+            const card = document.createElement('div');
+            card.className = 'bm-card' + (pageNum === currentPageNum ? ' current-page' : '');
+            card.dataset.page = String(pageNum);
+
+            const icon = document.createElement('i');
+            icon.className = 'fas fa-bookmark bm-card-icon';
+
+            const body = document.createElement('div');
+            body.className = 'bm-card-body';
+
+            const titleEl = document.createElement('div');
+            titleEl.className = 'bm-card-title';
+            titleEl.textContent = bm.title || `Page ${pageNum}`;
+            titleEl.title = bm.title || `Page ${pageNum}`;
+
+            const pageEl = document.createElement('div');
+            pageEl.className = 'bm-card-page';
+            pageEl.textContent = `Page ${pageNum}`;
+
+            body.appendChild(titleEl);
+            body.appendChild(pageEl);
+
+            const actions = document.createElement('div');
+            actions.className = 'bm-card-actions';
+
+            const editBtn = document.createElement('button');
+            editBtn.type = 'button';
+            editBtn.className = 'anno-icon-btn';
+            editBtn.title = 'Rename bookmark';
+            editBtn.setAttribute('aria-label', 'Rename bookmark');
+            editBtn.innerHTML = '<i class="fas fa-pen"></i>';
+            editBtn.addEventListener('click', (ev) => {
+                ev.stopPropagation();
+                if (body.querySelector('.bm-inline-input')) return;
+                const input = document.createElement('input');
+                input.type = 'text';
+                input.className = 'bm-inline-input';
+                input.value = bm.title || `Page ${pageNum}`;
+                titleEl.style.display = 'none';
+                body.insertBefore(input, pageEl);
+                input.focus();
+                input.select();
+
+                let finished = false;
+                const finishEdit = (save) => {
+                    if (finished) return;
+                    finished = true;
+                    const val = input.value.trim();
+                    input.remove();
+                    titleEl.style.display = '';
+                    if (save && val && val !== bm.title) {
+                        renameViewerBookmark(bm.id, bm._storeKey, val);
+                    }
+                };
+                input.addEventListener('click', (e) => e.stopPropagation());
+                input.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') { e.preventDefault(); finishEdit(true); }
+                    else if (e.key === 'Escape') { e.preventDefault(); finishEdit(false); }
+                });
+                input.addEventListener('blur', () => finishEdit(true));
+            });
+
+            const delBtn = document.createElement('button');
+            delBtn.type = 'button';
+            delBtn.className = 'anno-icon-btn del';
+            delBtn.title = 'Remove bookmark';
+            delBtn.setAttribute('aria-label', 'Remove bookmark');
+            delBtn.innerHTML = '<i class="fas fa-times"></i>';
+            delBtn.addEventListener('click', (ev) => {
+                ev.stopPropagation();
+                removeViewerBookmark(bm.id, bm._storeKey);
+            });
+
+            actions.appendChild(editBtn);
+            actions.appendChild(delBtn);
+
+            card.appendChild(icon);
+            card.appendChild(body);
+            card.appendChild(actions);
+
+            card.addEventListener('click', (ev) => {
+                if (ev.target.closest('input') || ev.target.closest('button')) return;
+                scrollToPage(pageNum);
+                if (window.innerWidth <= 768 && !sidebar.classList.contains('collapsed')) {
+                    sidebar.classList.add('collapsed');
+                    document.getElementById('toggleSidebar')?.classList.remove('subtle-active');
+                    syncSidebarBackdrop();
+                }
+            });
+
+            sidebarBookmarksList.appendChild(card);
+        });
+    }
+
+    function openAddBookmarkPopover(anchorEl) {
+        const anchor = anchorEl || addBookmarkBtn;
+        if (!anchor) return;
+        const targetPage = currentPageNum || 1;
+        if (bmPageInput) {
+            bmPageInput.value = String(targetPage);
+            if (totalPages > 0) bmPageInput.max = String(totalPages);
+        }
+        if (bmPopPageHint) {
+            bmPopPageHint.textContent = totalPages > 0 ? `Page ${targetPage} / ${totalPages}` : `Page ${targetPage}`;
+        }
+        if (bmTitleInput) bmTitleInput.value = '';
+        togglePopover(anchor, 'popoverBookmark');
+        if (currentOpenPopover && currentOpenPopover.id === 'popoverBookmark' && bmTitleInput) {
+            setTimeout(() => bmTitleInput.focus(), 20);
+        }
+    }
+
+    function commitBookmarkFromPopover() {
+        const title = bmTitleInput ? bmTitleInput.value.trim() : '';
+        const page = bmPageInput ? parseInt(bmPageInput.value, 10) : currentPageNum;
+        if (addViewerBookmark(page || currentPageNum || 1, title)) {
+            closeAllPopovers();
+        }
+    }
+
+    if (addBookmarkBtn) {
+        addBookmarkBtn.addEventListener('click', () => openAddBookmarkPopover(addBookmarkBtn));
+    }
+    if (sidebarAddBookmarkBtn) {
+        sidebarAddBookmarkBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            openAddBookmarkPopover(addBookmarkBtn || sidebarAddBookmarkBtn);
+        });
+    }
+    if (toggleBookmarksBtn) {
+        toggleBookmarksBtn.addEventListener('click', () => {
+            const isAlreadyOpen = !sidebar.classList.contains('collapsed')
+                && document.getElementById('stab-bookmarks')?.classList.contains('active');
+            if (isAlreadyOpen) {
+                sidebar.classList.add('collapsed');
+                document.getElementById('toggleSidebar')?.classList.remove('subtle-active');
+                toggleBookmarksBtn.classList.remove('subtle-active');
+                syncSidebarBackdrop();
+            } else {
+                renderViewerBookmarks();
+                openSidebarTab('bookmarks');
+            }
+        });
+    }
+    if (bmSaveBtn) {
+        bmSaveBtn.addEventListener('click', commitBookmarkFromPopover);
+    }
+    if (bmTitleInput) {
+        bmTitleInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                commitBookmarkFromPopover();
+            } else if (e.key === 'Escape') {
+                closeAllPopovers();
+            }
+        });
+    }
+    if (bmPageInput) {
+        bmPageInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                commitBookmarkFromPopover();
+            } else if (e.key === 'Escape') {
+                closeAllPopovers();
+            }
+        });
+    }
+
+    /* ================================================================
        SIDEBAR TABS & IN-DOCUMENT TEXT SEARCH ENGINE
        ================================================================ */
     function openSidebarTab(tabName) {
@@ -2327,6 +3240,12 @@ import * as pdfjsLib from './js/vendor/pdf.min.mjs';
         document.querySelectorAll('.sidebar-panel').forEach(p => {
             p.classList.toggle('active', p.id === `stab-${tabName}`);
         });
+        if (toggleBookmarksBtn) {
+            toggleBookmarksBtn.classList.toggle('subtle-active', tabName === 'bookmarks' && !sidebar.classList.contains('collapsed'));
+        }
+        if (tabName === 'bookmarks') {
+            renderViewerBookmarks();
+        }
     }
 
     document.querySelectorAll('.sidebar-tab-btn').forEach(btn => {
@@ -2336,6 +3255,10 @@ import * as pdfjsLib from './js/vendor/pdf.min.mjs';
     document.getElementById('toggleSidebar').addEventListener('click', () => {
         const isCollapsed = sidebar.classList.toggle('collapsed');
         document.getElementById('toggleSidebar').classList.toggle('subtle-active', !isCollapsed);
+        if (toggleBookmarksBtn) {
+            const bmActive = !isCollapsed && document.getElementById('stab-bookmarks')?.classList.contains('active');
+            toggleBookmarksBtn.classList.toggle('subtle-active', bmActive);
+        }
         syncSidebarBackdrop();
     });
 
@@ -4175,6 +5098,12 @@ import * as pdfjsLib from './js/vendor/pdf.min.mjs';
         currentPageNum = newPage;
         pageNumInput.value = newPage;
         updateActiveThumbnail(newPage);
+        if (sidebarBookmarksList) {
+            sidebarBookmarksList.querySelectorAll('.bm-card').forEach(card => {
+                card.classList.toggle('current-page', parseInt(card.dataset.page, 10) === newPage);
+            });
+        }
+        syncCurrentPageBookmarkState();
         if (window.parent && window.parent !== window) {
             window.parent.postMessage({ type: 'pdfPageChanged', page: newPage, totalPages }, getParentTargetOrigin());
         }
@@ -4282,7 +5211,13 @@ import * as pdfjsLib from './js/vendor/pdf.min.mjs';
         else if (e.key === 'n' || e.key === 'N') setTool('note');
         else if (e.key === 'e' || e.key === 'E') setTool('eraser', eraserBtn, 'popoverEraser');
         else if (e.key === 's' || e.key === 'S') setTool('shape', shapeBtn, 'popoverShape');
-        else if (e.key === 'r' || e.key === 'R') {
+        else if (e.key === 'b' || e.key === 'B') {
+            e.preventDefault();
+            openAddBookmarkPopover(addBookmarkBtn);
+        } else if (e.key === 'Escape') {
+            closeAllPopovers();
+            setFloatingDocPopoverOpen(false);
+        } else if (e.key === 'r' || e.key === 'R') {
             pageRotation = (pageRotation + 90) % 360;
             const savedPage = currentPageNum;
             setupPlaceholders().then(() => setTimeout(() => scrollToPage(savedPage), 50));
@@ -4298,9 +5233,18 @@ import * as pdfjsLib from './js/vendor/pdf.min.mjs';
         if (e.data.type === 'goToPage') {
             const page = parseInt(e.data.page, 10);
             if (page >= 1 && page <= totalPages) scrollToPage(page);
+        } else if (e.data.type === 'openBookmarks') {
+            openSidebarTab('bookmarks');
+        } else if (e.data.type === 'openAddBookmark') {
+            openAddBookmarkPopover(addBookmarkBtn);
+        } else if (e.data.type === 'syncBookmarks') {
+            renderViewerBookmarks();
         } else if (e.data.type === 'loadPdf' && typeof e.data.url === 'string') {
             if (typeof e.data.docKey === 'string' && e.data.docKey) docKeyParam = e.data.docKey;
-            if (typeof e.data.name === 'string' && e.data.name) docNameParam = e.data.name;
+            if (typeof e.data.name === 'string' && e.data.name) {
+                docNameParam = e.data.name;
+                updateDocumentDisplayName(docNameParam);
+            }
             const incomingUrl = decodeURIComponent(e.data.url);
             if (!isSafePdfUrl(incomingUrl)) return;
             toLocalUint8Array(e.data.pdfBytes).then((incomingBytes) => {
@@ -4318,6 +5262,8 @@ import * as pdfjsLib from './js/vendor/pdf.min.mjs';
                 if (urlChanged || needsReloadWithBytes) {
                     fileUrl = e.data.url;
                     loadDocument(incomingUrl, incomingBytes);
+                } else {
+                    renderViewerBookmarks();
                 }
             });
         } else if (e.data.type === 'setTheme' && e.data.theme) {
@@ -4327,6 +5273,8 @@ import * as pdfjsLib from './js/vendor/pdf.min.mjs';
 
     updateToolUI();
     updateUndoButtonUI();
+    updateDocumentDisplayName(docNameParam);
+    renderViewerBookmarks();
     if (fileUrl) loadDocument(decodeURIComponent(fileUrl));
 })();
 </script>

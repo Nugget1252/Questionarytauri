@@ -192,17 +192,64 @@
 
 /* Library Breadcrumb */
 .library-breadcrumb {
-    display: flex; align-items: center; gap: 3.75px; flex-wrap: wrap;
-    margin-bottom: 11.25px; font-size: 0.78rem;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 6px 10px;
+    margin-bottom: 12px;
+    font-size: 0.78rem;
 }
+.library-breadcrumb-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    flex: 1;
+    min-width: 0;
+}
+.library-breadcrumb-list::-webkit-scrollbar { display: none; }
 .library-breadcrumb .breadcrumb-item {
-    background: var(--surface); border: 1px solid var(--line); border-radius: 6px;
-    padding: 3.75px 9px; cursor: pointer; color: var(--fg2);
-    font-size: 0.75rem; transition: all 0.15s; white-space: nowrap;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    padding: 4px 8px;
+    cursor: pointer;
+    color: var(--fg2);
+    font-size: 0.76rem;
+    font-weight: 500;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    transition: background-color 0.14s ease, color 0.14s ease, border-color 0.14s ease;
+    white-space: nowrap;
 }
-.library-breadcrumb .breadcrumb-item:hover { border-color: var(--accent); color: var(--accent); }
-.library-breadcrumb .breadcrumb-item.active { color: var(--fg); font-weight: 500; }
-.library-breadcrumb .breadcrumb-separator { color: var(--fg3); font-size: 0.6rem; }
+.library-breadcrumb .breadcrumb-item:hover:not(.active) {
+    background: var(--hover);
+    color: var(--fg);
+}
+.library-breadcrumb .breadcrumb-item.active {
+    color: var(--accent);
+    background: var(--accent-light);
+    border-color: rgba(207, 98, 21, 0.25);
+    font-weight: 600;
+    cursor: default;
+}
+.library-breadcrumb .breadcrumb-separator {
+    color: var(--fg3);
+    opacity: 0.5;
+    font-size: 0.6rem;
+    padding: 0 3px;
+    display: inline-flex;
+    align-items: center;
+}
 
 /* Library Empty State */
 .library-empty-state {

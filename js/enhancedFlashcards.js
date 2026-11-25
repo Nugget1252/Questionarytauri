@@ -235,13 +235,27 @@
         <div class="study-empty-state">
           <div class="study-empty-icon"><i class="fas fa-layer-group"></i></div>
           <h4>No flashcard decks yet</h4>
-          <p>Create your first deck to start studying with 3D flip cards, spaced repetition, shuffle, and quiz mode.</p>
-          <button type="button" class="btn btn-primary btn-sm ef-empty-create-btn">
-            <i class="fas fa-plus"></i> Create Your First Deck
-          </button>
+          <p>Create your first deck or import flashcards from a file or AI prompt to start studying with 3D flip cards, spaced repetition, and quiz mode.</p>
+          <div style="display:flex; gap:8px; justify-content:center; flex-wrap:wrap;">
+            <button type="button" class="btn btn-secondary btn-sm ef-empty-import-btn">
+              <i class="fas fa-file-import"></i> Import Deck
+            </button>
+            <button type="button" class="btn btn-secondary btn-sm ef-empty-ai-guide-btn">
+              <i class="fas fa-magic"></i> AI Prompt &amp; Guide
+            </button>
+            <button type="button" class="btn btn-primary btn-sm ef-empty-create-btn">
+              <i class="fas fa-plus"></i> Create Your First Deck
+            </button>
+          </div>
         </div>
       `;
       container.querySelector('.ef-empty-create-btn')?.addEventListener('click', () => openEditor());
+      container.querySelector('.ef-empty-import-btn')?.addEventListener('click', () => {
+        if (window.StudyImportExport) window.StudyImportExport.openFlashcardsImport('fc-import-paste');
+      });
+      container.querySelector('.ef-empty-ai-guide-btn')?.addEventListener('click', () => {
+        if (window.StudyImportExport) window.StudyImportExport.openFlashcardsImport('fc-import-ai');
+      });
       return;
     }
 
@@ -323,6 +337,9 @@
           <div class="deck-badge-row">
             <span class="deck-subject-badge">${escapeHtml(subjectLabel)}</span>
             <div class="card-icon-actions">
+              <button type="button" class="btn-icon ef-export-deck" title="Export Deck" aria-label="Export Deck">
+                <i class="fas fa-download"></i>
+              </button>
               <button type="button" class="btn-icon ef-edit-deck" title="Edit Deck" aria-label="Edit Deck">
                 <i class="fas fa-pen"></i>
               </button>
@@ -362,6 +379,14 @@
 
     container.querySelectorAll('.deck-card').forEach(card => {
       const did = card.dataset.deckId;
+      card.querySelector('.ef-export-deck')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (window.StudyImportExport) {
+          window.StudyImportExport.openFlashcardsExport(did);
+        } else {
+          exportDecks();
+        }
+      });
       card.querySelector('.ef-edit-deck')?.addEventListener('click', (e) => {
         e.stopPropagation();
         openEditor(did);
@@ -1028,7 +1053,15 @@
     if (createBtn) createBtn.onclick = () => openEditor();
 
     const exportBtn = document.getElementById('exportDecksBtn');
-    if (exportBtn) exportBtn.onclick = () => exportDecks();
+    if (exportBtn) {
+      exportBtn.onclick = () => {
+        if (window.StudyImportExport) {
+          window.StudyImportExport.openFlashcardsExport();
+        } else {
+          exportDecks();
+        }
+      };
+    }
 
     const addCardBtn = document.getElementById('addCardBtn');
     if (addCardBtn) {

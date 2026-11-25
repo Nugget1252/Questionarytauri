@@ -2564,35 +2564,89 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
 
   function updateBreadcrumb() {
     const breadcrumb = document.getElementById('breadcrumb');
+    const breadcrumbContainer = document.querySelector('.breadcrumb-container');
     const backBtn = document.getElementById('backBtn');
 
+    window.path = path;
     if (!breadcrumb) return;
-    breadcrumb.innerHTML = '';
+    breadcrumb.textContent = '';
 
-    const homeSpan = document.createElement('span');
-    homeSpan.className = 'breadcrumb-item';
-    homeSpan.textContent = 'Home';
-    homeSpan.onclick = function() { navigateToPath([]); };
-    breadcrumb.appendChild(homeSpan);
+    const isNested = Array.isArray(path) && path.length > 0;
+    if (breadcrumbContainer) {
+      breadcrumbContainer.classList.toggle('is-nested', isNested);
+    }
 
-    let currentPath = [];
-    path.forEach((segment) => {
+    const homeLi = document.createElement('li');
+    homeLi.className = 'breadcrumb-segment';
+    const homeBtn = document.createElement('button');
+    homeBtn.type = 'button';
+    homeBtn.className = 'breadcrumb-item breadcrumb-root' + (!isNested ? ' active' : '');
+    const homeIcon = document.createElement('i');
+    homeIcon.className = 'fas fa-home';
+    homeIcon.setAttribute('aria-hidden', 'true');
+    const homeLabel = document.createElement('span');
+    homeLabel.textContent = 'Library';
+    homeBtn.appendChild(homeIcon);
+    homeBtn.appendChild(homeLabel);
+    if (!isNested) {
+      homeBtn.setAttribute('aria-current', 'page');
+    } else {
+      homeBtn.title = 'Return to Library root';
+      homeBtn.addEventListener('click', () => navigateToPath([]));
+    }
+    homeLi.appendChild(homeBtn);
+    breadcrumb.appendChild(homeLi);
+
+    const currentPath = [];
+    path.forEach((segment, idx) => {
       currentPath.push(segment);
       const pathCopy = [...currentPath];
+      const isLast = idx === path.length - 1;
 
-      const separator = document.createElement('i');
-      separator.className = 'fas fa-chevron-right';
-      separator.style.cssText = 'font-size: 0.7rem; opacity: 0.5; margin: 0 0.5rem;';
-      breadcrumb.appendChild(separator);
+      const sepLi = document.createElement('li');
+      sepLi.className = 'breadcrumb-separator';
+      sepLi.setAttribute('aria-hidden', 'true');
+      sepLi.innerHTML = '<i class="fas fa-chevron-right"></i>';
+      breadcrumb.appendChild(sepLi);
 
-      const segmentSpan = document.createElement('span');
-      segmentSpan.className = 'breadcrumb-item';
-      segmentSpan.textContent = segment;
-      segmentSpan.onclick = function() { navigateToPath(pathCopy); };
-      breadcrumb.appendChild(segmentSpan);
+      const segLi = document.createElement('li');
+      segLi.className = 'breadcrumb-segment';
+      const segBtn = document.createElement('button');
+      segBtn.type = 'button';
+      segBtn.className = 'breadcrumb-item' + (isLast ? ' active' : '');
+      if (isLast) {
+        segBtn.setAttribute('aria-current', 'page');
+        const folderIcon = document.createElement('i');
+        folderIcon.className = 'fas fa-folder-open';
+        folderIcon.setAttribute('aria-hidden', 'true');
+        segBtn.appendChild(folderIcon);
+      }
+      const segLabel = document.createElement('span');
+      segLabel.textContent = segment;
+      segBtn.appendChild(segLabel);
+      segBtn.title = isLast ? segment : `Return to ${segment}`;
+      if (!isLast) {
+        segBtn.addEventListener('click', () => navigateToPath(pathCopy));
+      }
+      segLi.appendChild(segBtn);
+      breadcrumb.appendChild(segLi);
     });
 
-    if (backBtn) backBtn.style.display = path.length > 0 ? 'flex' : 'none';
+    if (backBtn) {
+      backBtn.style.display = isNested ? 'inline-flex' : 'none';
+      if (isNested) {
+        const parentName = path.length > 1 ? path[path.length - 2] : 'Library';
+        backBtn.title = `Back to ${parentName}`;
+        backBtn.setAttribute('aria-label', `Back to ${parentName}`);
+      }
+    }
+
+    // Keep active deepest folder visible when path overflows horizontally
+    requestAnimationFrame(() => {
+      if (breadcrumb.scrollWidth > breadcrumb.clientWidth) {
+        breadcrumb.scrollLeft = breadcrumb.scrollWidth;
+      }
+    });
   }
 
   async function navigateToPath(newPath) {
@@ -2605,13 +2659,16 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
     if (pdfViewerContainer) pdfViewerContainer.style.display = 'none';
     const bookmarksPanel = document.getElementById('pdfBookmarksPanel');
     if (bookmarksPanel) bookmarksPanel.style.display = 'none';
+    document.body.classList.remove('pdf-view-active');
 
     const tilesContainer = document.getElementById('tilesContainer');
     const sectionHeader = document.querySelector('#tilesSection .section-header');
     const dashboardHeader = document.querySelector('.dashboard-header');
+    const breadcrumbContainer = document.querySelector('.breadcrumb-container');
     const tilesSection = document.getElementById('tilesSection');
 
     if (tilesSection) tilesSection.style.display = 'block';
+    if (breadcrumbContainer) breadcrumbContainer.style.display = 'flex';
     if (tilesContainer) {
       const isListView = tilesContainer.classList.contains('list-view');
       tilesContainer.style.display = isListView ? 'flex' : 'grid';
@@ -2626,6 +2683,7 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
     }
 
     path = newPath;
+    window.path = path;
     const nodes = await DbService.getChildren(path);
     renderTilesFromDb(nodes);
     updateBreadcrumb();
@@ -4885,6 +4943,7 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
     const studyRoomSection = document.getElementById('studyRoomSection');
     const searchResults = document.getElementById('searchResults');
     const dashboardHeader = document.querySelector('.dashboard-header');
+    const breadcrumbContainer = document.querySelector('.breadcrumb-container');
     const breadcrumb = document.getElementById('breadcrumb');
     const backBtn = document.getElementById('backBtn');
     const pdfViewer = document.getElementById('pdfViewer');
@@ -4900,6 +4959,10 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
     if (pdfViewer) { pdfViewer.classList.remove('active'); pdfViewer.src = ''; }
     hideHomeTagsPanels();
 
+    if (breadcrumbContainer) {
+      breadcrumbContainer.style.display = (viewName === 'home' || !viewName) ? 'flex' : 'none';
+    }
+
     switch(viewName) {
       case 'home':
       default:
@@ -4914,8 +4977,9 @@ if (window._HOT_APP_JS_LOADED && document.currentScript && !document.currentScri
 
         if (importedSection) importedSection.style.display = 'block';
         if (dashboardHeader) dashboardHeader.style.display = path.length === 0 ? (window.innerWidth <= 768 ? 'grid' : 'flex') : 'none';
+        if (breadcrumbContainer) breadcrumbContainer.style.display = 'flex';
         if (breadcrumb) breadcrumb.style.display = 'flex';
-        if (backBtn) backBtn.style.display = path.length > 0 ? 'flex' : 'none';
+        if (backBtn) backBtn.style.display = path.length > 0 ? 'inline-flex' : 'none';
         if (typeof window.renderLibrary === 'function') window.renderLibrary();
         navigateToPath(path);
         break;
